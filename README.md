@@ -1,6 +1,6 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.0.0**
+**Version: 1.0.1**
 
 Copyright (C) 2026, Charles Chiou
 
@@ -68,6 +68,7 @@ Create an `octibot.conf` in the working directory or in `~/.config/octibot/octib
 server_host = 127.0.0.1
 server_port = 8080
 server_use_ssl = false
+verbosity = verbose         # verbose (default, 3), info (2), error (1), quiet (0)
 
 # Table & gameplay behavior
 table_behavior = auto       # auto, join_only, host_only, matchmaking, idle
@@ -97,6 +98,8 @@ max_search_depth = 8
 **Run a single profile:**
 ```bash
 ./build/octibot-reference --profile stock
+# Detailed stdout logging is enabled by default (verbosity = verbose).
+# Override via CLI: --verbosity <verbose|info|error|quiet>, --verbose / -v, or --quiet / -q
 ```
 
 **Run multiple profiles concurrently in a single process:**

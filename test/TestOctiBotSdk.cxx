@@ -161,6 +161,52 @@ captured_enemy_base_bonus = 32000
     CHECK_EQUAL(32000, deepProf.getInt("captured_enemy_base_bonus"));
 }
 
+TEST(OctiBotConfigStoreTest, VerbosityLevelParsingAndDefault) {
+    OctiBotConfigStore store;
+    CHECK_EQUAL(3, store.getVerbosityLevel());
+    CHECK_EQUAL(3, store.getVerbosityLevel(3));
+
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("verbose"));
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("debug"));
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("trace"));
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("max"));
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("3"));
+    CHECK_EQUAL(3, OctiBotConfigStore::parseVerbosityLevel("VERBOSE"));
+
+    CHECK_EQUAL(2, OctiBotConfigStore::parseVerbosityLevel("info"));
+    CHECK_EQUAL(2, OctiBotConfigStore::parseVerbosityLevel("normal"));
+    CHECK_EQUAL(2, OctiBotConfigStore::parseVerbosityLevel("2"));
+
+    CHECK_EQUAL(1, OctiBotConfigStore::parseVerbosityLevel("error"));
+    CHECK_EQUAL(1, OctiBotConfigStore::parseVerbosityLevel("warn"));
+    CHECK_EQUAL(1, OctiBotConfigStore::parseVerbosityLevel("1"));
+
+    CHECK_EQUAL(0, OctiBotConfigStore::parseVerbosityLevel("quiet"));
+    CHECK_EQUAL(0, OctiBotConfigStore::parseVerbosityLevel("silent"));
+    CHECK_EQUAL(0, OctiBotConfigStore::parseVerbosityLevel("none"));
+    CHECK_EQUAL(0, OctiBotConfigStore::parseVerbosityLevel("0"));
+    CHECK_EQUAL(0, OctiBotConfigStore::parseVerbosityLevel("false"));
+
+    store.set("verbosity", "quiet");
+    CHECK_EQUAL(0, store.getVerbosityLevel());
+    store.set("verbosity", "info");
+    CHECK_EQUAL(2, store.getVerbosityLevel());
+    store.set("verbosity", "error");
+    CHECK_EQUAL(1, store.getVerbosityLevel());
+    store.set("verbosity", "verbose");
+    CHECK_EQUAL(3, store.getVerbosityLevel());
+}
+
+TEST(OctiBotConfigStoreTest, RunnerVerbosityAndLogging) {
+    OctiBotConfigStore config;
+    config.set("verbosity", "verbose");
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+    CHECK_EQUAL(3, runner.verbosity());
+    runner.setVerbosity(0);
+    CHECK_EQUAL(0, runner.verbosity());
+}
+
 TEST(OctiBotConfigStoreTest, ApplyTuningProfileMapping) {
     const std::string conf = R"(
 time_budget_ms = 2500

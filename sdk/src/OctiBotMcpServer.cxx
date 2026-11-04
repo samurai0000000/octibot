@@ -218,7 +218,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
         };
         result["serverInfo"] = {
             {"name", "octibot"},
-            {"version", "1.0.0"}
+            {"version", "1.0.1"}
         };
         resp["result"] = result;
         return resp.dump();
@@ -879,7 +879,7 @@ void OctiBotMcpServer::startAimonBridge() {
                 {"subsystem", "octibot"},
                 {"display_name", "OCTI Robot (" + h + ")"},
                 {"short_name", h},
-                {"version", "1.0.0"}
+                {"version", "1.0.1"}
             };
             std::string regStr = reg.dump() + "\n";
             ::send(sock, regStr.c_str(), regStr.size(), 0);

@@ -37,9 +37,15 @@ int main(int argc, char **argv) {
         config.loadTokensFile(tokensPath, err);
 
         octi::OctiBotConfigStore profConfig = config.resolveProfile(profile);
+        if (mcpStdio) {
+            profConfig.set("verbosity", "quiet");
+        }
         std::string algo = profConfig.getString("algorithm", "alpha_beta");
         auto agent = octi::OctiBotAgentRegistry::instance().createAgent(algo, profConfig);
         auto runner = std::make_unique<octi::OctiBotRunner>(std::move(agent), profConfig);
+        if (mcpStdio) {
+            runner->setVerbosity(0);
+        }
 
         if (!runner->connectAndAuthenticate(err)) {
             std::cerr << "Authentication error: " << err << std::endl;

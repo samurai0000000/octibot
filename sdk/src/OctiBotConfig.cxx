@@ -453,6 +453,34 @@ bool OctiBotConfigStore::getBool(const std::string &key, bool defaultVal) const 
     return defaultVal;
 }
 
+int OctiBotConfigStore::parseVerbosityLevel(const std::string &val, int defaultLevel) {
+    std::string s = toLower(trim(val));
+    if (s.empty()) {
+        return defaultLevel;
+    }
+    if (s == "verbose" || s == "debug" || s == "trace" || s == "max" || s == "3") {
+        return 3;
+    }
+    if (s == "info" || s == "normal" || s == "2") {
+        return 2;
+    }
+    if (s == "error" || s == "warn" || s == "1") {
+        return 1;
+    }
+    if (s == "quiet" || s == "silent" || s == "none" || s == "0" || s == "false") {
+        return 0;
+    }
+    return defaultLevel;
+}
+
+int OctiBotConfigStore::getVerbosityLevel(int defaultLevel) const {
+    auto it = _entries.find("verbosity");
+    if (it == _entries.end() || it->second.empty()) {
+        return defaultLevel;
+    }
+    return parseVerbosityLevel(it->second, defaultLevel);
+}
+
 void applyConfigToTuningProfile(const OctiBotConfigStore &config,
                                BotTuningProfile &profile) {
     profile.timeBudgetMs = config.getInt("time_budget_ms", profile.timeBudgetMs);

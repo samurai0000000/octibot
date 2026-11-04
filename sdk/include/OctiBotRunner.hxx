@@ -53,6 +53,9 @@ public:
     const BotMoveTelemetry &lastTelemetry() const { return _lastTelemetry; }
     std::string moveControl() const { return _moveControl; }
     void setMoveControl(const std::string &mc) { _moveControl = mc; }
+    int verbosity() const { return _verbosity; }
+    void setVerbosity(int level) { _verbosity = level; }
+    void logMsg(int minLevel, const std::string &msg) const;
 
     bool submitAgentMove(const std::string &moveNotation, std::string &errorOut);
     bool executeGameAction(const std::string &action, const std::string &arg, std::string &errorOut);
@@ -77,6 +80,7 @@ private:
     std::string _moveControl = "engine"; // "engine" or "agent"
     bool _publishMoveTelemetry = false;
     int _agentMoveTimeoutMs = 15000;
+    int _verbosity = 3;
 
     mutable std::mutex _stateMutex;
     std::string _currentRoomId;

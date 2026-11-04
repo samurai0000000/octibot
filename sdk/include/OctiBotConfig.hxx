@@ -47,6 +47,9 @@ public:
     bool getBool(const std::string &key,
                  bool defaultVal = false) const;
 
+    static int parseVerbosityLevel(const std::string &val, int defaultLevel = 3);
+    int getVerbosityLevel(int defaultLevel = 3) const;
+
     const std::map<std::string, std::string> &entries() const { return _entries; }
 
 private:

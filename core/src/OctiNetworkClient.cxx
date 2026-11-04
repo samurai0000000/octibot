@@ -20,6 +20,10 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#ifndef _WIN32
+#include <csignal>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -769,6 +773,9 @@ struct OctiNetworkClient::Impl {
     Impl(const std::string &h, int p)
         : host(h), port(p), clientType("desktop"), explicitClientType(false)
     {
+#ifndef _WIN32
+        ::signal(SIGPIPE, SIG_IGN);
+#endif
     }
 
     ~Impl()

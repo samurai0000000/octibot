@@ -5,7 +5,10 @@
 #include "OctiBotRunner.hxx"
 #include <algorithm>
 #include <chrono>
+#include <csignal>
+#include <ctime>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -13,6 +16,39 @@
 #include "OctiDefs.hxx"
 
 namespace octi {
+
+static std::mutex s_logMutex;
+static std::atomic<bool> s_stopRequested{false};
+class OctiBotFleetRunner;
+static OctiBotFleetRunner *s_activeFleet = nullptr;
+
+static void handleFleetSignal(int sig) {
+    (void) sig;
+    s_stopRequested.store(true);
+    if (s_activeFleet) {
+        // Stop will wake waitForAll
+    }
+}
+
+void OctiBotRunner::logMsg(int minLevel, const std::string &msg) const {
+    if (_verbosity < minLevel) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(s_logMutex);
+    auto now = std::chrono::system_clock::now();
+    std::time_t tt = std::chrono::system_clock::to_time_t(now);
+    std::tm tmBuf{};
+#if defined(_WIN32)
+    localtime_s(&tmBuf, &tt);
+#else
+    localtime_r(&tt, &tmBuf);
+#endif
+    char timeStr[32];
+    std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &tmBuf);
+
+    std::string tag = _identity.handle.empty() ? _config.getString("robot_name", "stock") : _identity.handle;
+    std::cout << "[" << timeStr << "] [" << tag << "] " << msg << std::endl;
+}
 
 // --- StockAlphaBetaAgent Implementation ---
 
@@ -152,10 +188,20 @@ OctiBotRunner::OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
     _moveControl = _config.getString("move_control", "engine");
     _publishMoveTelemetry = _config.getBool("publish_move_telemetry", false);
     _agentMoveTimeoutMs = _config.getInt("agent_move_timeout_ms", 15000);
+    _verbosity = _config.getVerbosityLevel(3);
 
     if (_agent) {
         _agent->onConfigure(_config);
     }
+
+    logMsg(3, "Resolved configuration: profile=" + _config.getString("robot_name", "stock") +
+           ", verbosity=" + std::to_string(_verbosity) +
+           ", algorithm=" + _config.getString("algorithm", "alpha_beta") +
+           ", time_budget_ms=" + std::to_string(_config.getInt("time_budget_ms", 1500)) +
+           ", max_search_depth=" + std::to_string(_config.getInt("max_search_depth", 6)) +
+           ", table_behavior=" + _config.getString("table_behavior", "auto") +
+           ", move_control=" + _moveControl +
+           ", publish_move_telemetry=" + (_publishMoveTelemetry ? "true" : "false"));
 }
 
 OctiBotRunner::~OctiBotRunner() {
@@ -163,6 +209,8 @@ OctiBotRunner::~OctiBotRunner() {
 }
 
 bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
+    logMsg(2, "Connecting to server " + _client.host() + ":" + std::to_string(_client.port()) + "...");
+
     std::string tokenToUse;
     std::string directToken = _config.getString("bot_token");
     std::string robotName = _config.getString("robot_name");
@@ -183,6 +231,7 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
         auto res = _client.connectRobot(false);
         if (!res.ok) {
             errorOut = res.errorMessage.empty() ? "Failed to connect robot" : res.errorMessage;
+            logMsg(1, "Authentication failed: " + errorOut);
             return false;
         }
 
@@ -202,6 +251,11 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
             _currentRoomId = _identity.activeRoomId;
         }
 
+        logMsg(2, "Authenticated robot @" + _identity.handle + " (uuid=" + _identity.robotUuid +
+               ", owner=@" + _identity.ownerHandle + ", record=" + std::to_string(_identity.wins) + "W/" +
+               std::to_string(_identity.losses) + "L/" + std::to_string(_identity.draws) + "D" +
+               (_identity.activeRoomId.empty() ? "" : ", active_room=" + _identity.activeRoomId) + ")");
+
         if (_agent) {
             _agent->onConnected(_identity);
         }
@@ -212,6 +266,7 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
     auto pool = _config.tokenPool();
     if (pool.empty()) {
         errorOut = "No robot token specified and token pool is empty";
+        logMsg(1, "Authentication failed: " + errorOut);
         return false;
     }
 
@@ -235,6 +290,11 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
                 _currentRoomId = _identity.activeRoomId;
             }
 
+            logMsg(2, "Authenticated robot @" + _identity.handle + " (uuid=" + _identity.robotUuid +
+                   ", owner=@" + _identity.ownerHandle + ", record=" + std::to_string(_identity.wins) + "W/" +
+                   std::to_string(_identity.losses) + "L/" + std::to_string(_identity.draws) + "D" +
+                   (_identity.activeRoomId.empty() ? "" : ", active_room=" + _identity.activeRoomId) + ")");
+
             if (_agent) {
                 _agent->onConnected(_identity);
             }
@@ -246,6 +306,7 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
     }
 
     errorOut = "Failed to claim an unused robot token from pool";
+    logMsg(1, "Authentication failed: " + errorOut);
     return false;
 }
 
@@ -268,11 +329,13 @@ void OctiBotRunner::run() {
     }
 
     if (!initialRoom.empty()) {
+        logMsg(3, "Starting game SSE stream for room #" + initialRoom);
         _client.startGameEventStream(initialRoom, 0,
             [this](const SseEvent &ev) {
                 handleGameSseEvent(ev.event, ev.dataJson);
             });
     } else {
+        logMsg(3, "Starting lobby SSE stream");
         _client.startLobbyEventStream(0,
             [this](const SseEvent &ev) {
                 handleLobbySseEvent(ev.event, ev.dataJson);
@@ -287,12 +350,14 @@ void OctiBotRunner::run() {
     if (_client.isAuthenticated() && !_superseded) {
         _client.disconnectRobot();
     }
+    logMsg(2, "Disconnected cleanly from server.");
     _running = false;
 }
 
 void OctiBotRunner::stop() {
     _running = false;
     notifyEvent("STOP");
+    logMsg(3, "Stopping runner and SSE streams");
     _client.stopEventStreams();
 
     if (_workerThread && _workerThread->joinable()) {
@@ -413,6 +478,8 @@ void OctiBotRunner::loopStep() {
                 auto ranked = _policy.rankCompatibleTables(tablesRes.data,
                                                           _identity.ownerHandle,
                                                           _identity.handle);
+                logMsg(3, "Lobby scan: found " + std::to_string(tablesRes.data.size()) +
+                       " table(s), " + std::to_string(ranked.size()) + " compatible");
                 if (!ranked.empty()) {
                     auto joinRes = _client.joinTable(ranked.front().roomId);
                     if (joinRes.ok) {
@@ -424,6 +491,7 @@ void OctiBotRunner::loopStep() {
                             [this](const SseEvent &ev) {
                                 handleGameSseEvent(ev.event, ev.dataJson);
                             });
+                        logMsg(2, "Joined table #" + joinRes.data.roomId + " (seat " + std::to_string(joinRes.data.seat) + ")");
                         notifyEvent("ROOM_JOINED");
                         return;
                     }
@@ -443,6 +511,10 @@ void OctiBotRunner::loopStep() {
                     [this](const SseEvent &ev) {
                         handleGameSseEvent(ev.event, ev.dataJson);
                     });
+                logMsg(2, "Hosted table #" + createRes.data.roomId + " (seat " + std::to_string(createRes.data.seat) +
+                       ", mode=" + hostReq.mode + ", bases=" + std::to_string(hostReq.bases) +
+                       ", super_prongs=" + (hostReq.superProngs ? "true" : "false") +
+                       ", edgeless=" + (hostReq.edgeless ? "true" : "false") + ")");
                 notifyEvent("ROOM_HOSTED");
                 return;
             }
@@ -460,6 +532,7 @@ void OctiBotRunner::loopStep() {
                     [this](const SseEvent &ev) {
                         handleGameSseEvent(ev.event, ev.dataJson);
                     });
+                logMsg(2, "Matchmaking matched table #" + _currentRoomId);
                 notifyEvent("MATCHMAKING_MATCHED");
                 return;
             }
@@ -477,10 +550,12 @@ void OctiBotRunner::loopStep() {
                     [this](const SseEvent &ev) {
                         handleLobbySseEvent(ev.event, ev.dataJson);
                     });
+                logMsg(2, "Room #" + roomId + " closed; returned to lobby.");
                 notifyEvent("ROOM_LEFT");
                 return;
             }
             if (gvRes.httpStatus == 409 && gvRes.errorCode == "ROBOT_TOKEN_SUPERSEDED") {
+                logMsg(1, "Token superseded: another instance connected with this token.");
                 _superseded = true;
                 _running = false;
                 notifyEvent("SUPERSEDED");
@@ -489,8 +564,10 @@ void OctiBotRunner::loopStep() {
             return;
         }
 
+        std::string oldPhase;
         {
             std::lock_guard<std::mutex> lock(_stateMutex);
+            oldPhase = _currentPhase;
             _activeGameView = gvRes.data;
             _currentPhase = gvRes.data.phase;
 
@@ -501,6 +578,10 @@ void OctiBotRunner::loopStep() {
                     break;
                 }
             }
+        }
+
+        if (!oldPhase.empty() && oldPhase != _currentPhase) {
+            logMsg(2, "Room #" + roomId + " phase transition: " + oldPhase + " -> " + _currentPhase);
         }
 
         if (_currentPhase == "WAITING_FOR_PLAYERS") {
@@ -583,6 +664,10 @@ void OctiBotRunner::playEngineTurn() {
         }
     }
 
+    size_t legalCount = _activeBoard->getGame() ? _activeBoard->getGame()->generateLegalMoves().size() : 0;
+    logMsg(3, "Turn start: seat=" + std::to_string(mySeat) + ", clock=" + std::to_string(clockMs) +
+           "ms, legal_moves=" + std::to_string(legalCount) + ", fen=" + fen);
+
     if (_policy.minMoveThinkMs() > 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(_policy.minMoveThinkMs()));
     }
@@ -614,10 +699,19 @@ void OctiBotRunner::playEngineTurn() {
 
     // Fallback to engine search if no agent move was submitted
     if (chosenMove.empty() && _agent) {
+        logMsg(3, "Computing move for seat " + std::to_string(mySeat) + " (budget=" +
+               std::to_string(_config.getInt("time_budget_ms", 1500)) + "ms, max_depth=" +
+               std::to_string(_config.getInt("max_search_depth", 6)) + ")...");
         chosenMove = _agent->computeMove(*_activeBoard, _activeGameView, mySeat, clockMs, &_lastTelemetry);
     }
 
     if (!chosenMove.empty()) {
+        logMsg(2, "Move selected: " + chosenMove + " | depth=" + std::to_string(_lastTelemetry.depthReached) +
+               " | nodes=" + std::to_string(_lastTelemetry.nodesVisited) +
+               " | eval_score=" + std::to_string(_lastTelemetry.evalScore) +
+               " | elapsed=" + std::to_string(_lastTelemetry.elapsedMs) + "ms");
+        bool ok = false;
+        std::string moveErr;
         if (_publishMoveTelemetry && _lastTelemetry.present) {
             MoveTelemetryData telemetry;
             telemetry.present = true;
@@ -625,15 +719,26 @@ void OctiBotRunner::playEngineTurn() {
             telemetry.nodes = _lastTelemetry.nodesVisited;
             telemetry.score = _lastTelemetry.evalScore;
             telemetry.elapsedMs = _lastTelemetry.elapsedMs;
-            _client.submitMove(roomId, chosenMove, telemetry);
+            auto res = _client.submitMove(roomId, chosenMove, telemetry);
+            ok = res.ok;
+            moveErr = res.errorMessage;
         } else {
-            _client.submitMove(roomId, chosenMove);
+            auto res = _client.submitMove(roomId, chosenMove);
+            ok = res.ok;
+            moveErr = res.errorMessage;
+        }
+        if (ok) {
+            logMsg(3, "Move " + chosenMove + " accepted by server in room #" + roomId);
+        } else {
+            logMsg(1, "Move submission failed in room #" + roomId + ": " + moveErr);
         }
         notifyEvent("MOVE_SUBMITTED");
     }
 }
 
 void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std::string &data) {
+    logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+
     if (eventType == "LOBBY_CHAT") {
         try {
             auto j = nlohmann::json::parse(data);
@@ -662,6 +767,7 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                 lastTeleStr);
 
             if (cmdRes.action == ChatCommandActionType::REPLY_ONLY && !cmdRes.replyText.empty()) {
+                logMsg(2, "Lobby chat from @" + msg.handle + ": \"" + msg.text + "\", replied: \"" + cmdRes.replyText + "\"");
                 _client.postLobbyChat(cmdRes.replyText);
             } else if (cmdRes.action == ChatCommandActionType::HOST_TABLE) {
                 _policy.setTableBehavior("host_only");
@@ -682,7 +788,9 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
 }
 
 void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::string &data) {
-    if (eventType == "BOARD_CHAT") {
+    logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+
+    if (eventType == "BOARD_CHAT" || eventType == "CHAT") {
         try {
             auto j = nlohmann::json::parse(data);
             std::string senderHandle = j.value("handle", "");
@@ -708,6 +816,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 lastTeleStr);
 
             if (cmdRes.action == ChatCommandActionType::REPLY_ONLY && !cmdRes.replyText.empty()) {
+                logMsg(2, "Board chat from @" + senderHandle + ": \"" + text + "\", replied: \"" + cmdRes.replyText + "\"");
                 _client.postGameChat(_currentRoomId, "ALL", cmdRes.replyText);
             }
 
@@ -720,16 +829,18 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             }
             notifyEvent("CHAT_MENTION");
         } catch (...) {}
-    } else if (eventType == "GAME_PROPOSAL") {
+    } else if (eventType == "GAME_PROPOSAL" || eventType == "PROPOSAL_OFFERED") {
         try {
             auto j = nlohmann::json::parse(data);
             GameProposalInfo proposal;
-            proposal.type = j.value("type", "");
-            proposal.proposerUuid = j.value("proposer_uuid", "");
+            proposal.type = j.value("type", j.value("proposal", ""));
+            proposal.proposerUuid = j.value("proposer_uuid", j.value("player_uuid", ""));
 
             bool accept = _policy.shouldAcceptProposal(proposal, proposal.proposerUuid,
                                                        _lastTelemetry.evalScore,
                                                        _consecutiveRematches);
+            logMsg(2, "Received proposal " + proposal.type + " from " + proposal.proposerUuid +
+                   " -> Decision: " + (accept ? "ACCEPT" : "DECLINE"));
             if (accept) {
                 if (proposal.type == "DRAW_OFFER") {
                     _client.submitGameAction(_currentRoomId, "accept_draw");
@@ -754,7 +865,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             }
             notifyEvent("PROPOSAL");
         } catch (...) {}
-    } else if (eventType == "TURN") {
+    } else if (eventType == "TURN" || eventType == "MOVE" || eventType == "GAME_STARTED") {
         notifyEvent("TURN");
     }
 }
@@ -830,9 +941,17 @@ void OctiBotFleetRunner::stop() {
 }
 
 void OctiBotFleetRunner::waitForAll() {
-    for (auto &r : _runners) {
-        while (r->isRunning()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    bool anyRunning = true;
+    while (anyRunning && !s_stopRequested.load()) {
+        anyRunning = false;
+        for (auto &r : _runners) {
+            if (r->isRunning()) {
+                anyRunning = true;
+                break;
+            }
+        }
+        if (anyRunning) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 }
@@ -844,6 +963,7 @@ int runFleetCli(int argc, char **argv) {
     std::vector<std::string> multiProfiles;
     bool allProfiles = false;
     int instances = 1;
+    int cliVerbosity = -1;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -864,6 +984,12 @@ int runFleetCli(int argc, char **argv) {
             allProfiles = true;
         } else if (arg == "--instances" && i + 1 < argc) {
             instances = std::atoi(argv[++i]);
+        } else if (arg == "--verbosity" && i + 1 < argc) {
+            cliVerbosity = OctiBotConfigStore::parseVerbosityLevel(argv[++i]);
+        } else if (arg == "--verbose" || arg == "-v") {
+            cliVerbosity = 3;
+        } else if (arg == "--quiet" || arg == "-q") {
+            cliVerbosity = 0;
         }
     }
 
@@ -875,8 +1001,23 @@ int runFleetCli(int argc, char **argv) {
     if (std::ifstream(tokensPath).good()) {
         config.loadTokensFile(tokensPath, err);
     }
+    if (cliVerbosity >= 0) {
+        config.set("verbosity", std::to_string(cliVerbosity));
+    }
+
+    if (config.getVerbosityLevel(3) >= 2) {
+        std::cout << "OCTIBOT v1.0.1 (config=" << configPath
+                  << ", tokens=" << tokensPath << ")" << std::endl;
+    }
 
     OctiBotFleetRunner fleet;
+    s_stopRequested.store(false);
+    s_activeFleet = &fleet;
+#if !defined(_WIN32)
+    ::signal(SIGINT, handleFleetSignal);
+    ::signal(SIGTERM, handleFleetSignal);
+#endif
+
     if (instances > 1 && !singleProfile.empty()) {
         fleet.startClones(config, singleProfile, instances);
     } else if (allProfiles) {
@@ -889,6 +1030,8 @@ int runFleetCli(int argc, char **argv) {
     }
 
     fleet.waitForAll();
+    s_activeFleet = nullptr;
+    std::cout << "[OCTIBOT] Clean shutdown complete." << std::endl;
     return 0;
 }
 
