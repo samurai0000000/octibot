@@ -1,0 +1,11 @@
+.depend.tmp
+.depend
+.swp
+build/
+core/build/
+plan/
+tokens.conf
+octibot.conf
+.cursor
+.agents
+.claude

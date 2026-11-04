@@ -1,0 +1,19 @@
+# ==============================================================================
+# OCTIBOT - Minimal Custom Bot Starter Configuration
+# Copyright (C) 2026, Charles Chiou
+# ==============================================================================
+
+server_host = 127.0.0.1
+server_port = 8080
+server_use_ssl = false
+
+table_behavior = auto
+accept_modes = 2P, 4P, OFK
+
+[starter]
+robot_name = starter
+algorithm = minimal
+
+# Custom algorithmic parameters read by MinimalStarterAgent::onConfigure
+custom_aggression = 1.75
+prefer_jumps = true
