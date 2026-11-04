@@ -52,6 +52,7 @@ default_profile = stock
 # ai_cli_executable = agy
 # ai_cli_model = flash
 # ai_cli_interactive = false
+# ai_personality = You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). You speak in a relaxed, warm, down-to-earth tone—never boastful, theatrical, or condescending. Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.
 
 # ==============================================================================
 # Robot Profiles

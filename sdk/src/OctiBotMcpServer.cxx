@@ -352,7 +352,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
         };
         result["serverInfo"] = {
             {"name", "octibot"},
-            {"version", "1.0.3"}
+            {"version", "1.0.4"}
         };
         resp["result"] = result;
         return resp.dump();
@@ -1000,30 +1000,176 @@ nlohmann::json OctiBotMcpServer::buildStatusJson() {
     engine["move_history"] = historyJson;
     root["engine"] = engine;
 
+    // 5. Agent Conversation Log
+    nlohmann::json convsJson = nlohmann::json::array();
+    for (const auto &c : _runner.getConversationHistory()) {
+        convsJson.push_back({
+            {"seq", c.seq},
+            {"timestamp_ms", c.timestampMs},
+            {"channel", c.channel},
+            {"room_id", c.roomId},
+            {"sender_handle", c.senderHandle},
+            {"seen_text", c.seenText},
+            {"reply_text", c.replyText},
+            {"reply_source", c.replySource}
+        });
+    }
+    root["conversations"] = convsJson;
+
     return root;
 }
 
 nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     nlohmann::json root;
-    nlohmann::json entries = nlohmann::json::object();
+    std::map<std::string, std::string> effectiveDefaults;
+
+    // 1. Seed all 43 BotTuningProfile parameters with real C++ defaults
+    BotTuningProfile prof;
+    applyConfigToTuningProfile(_runner.config(), prof);
+
+    effectiveDefaults["time_budget_ms"] = std::to_string(prof.timeBudgetMs);
+    effectiveDefaults["max_search_depth"] = std::to_string(prof.maxSearchDepth);
+    effectiveDefaults["max_quiesce_depth"] = std::to_string(prof.maxQuiesceDepth);
+    effectiveDefaults["quiesce_branch_cap"] = std::to_string(prof.quiesceBranchCap);
+    effectiveDefaults["root_branch_cap"] = std::to_string(prof.rootBranchCap);
+    effectiveDefaults["tree_branch_cap"] = std::to_string(prof.treeBranchCap);
+    effectiveDefaults["lazy_smp_threads"] = std::to_string(prof.lazySmpThreads);
+    effectiveDefaults["composite_move_max_ply"] = std::to_string(prof.compositeMoveMaxPly);
+    effectiveDefaults["root_score_jitter"] = std::to_string(prof.rootScoreJitter);
+
+    effectiveDefaults["captured_enemy_base_bonus"] = std::to_string(prof.capturedEnemyBaseBonus);
+    effectiveDefaults["lost_allied_base_penalty"] = std::to_string(prof.lostAlliedBasePenalty);
+    effectiveDefaults["neutral_octi_square_bonus"] = std::to_string(prof.neutralOctiSquareBonus);
+    effectiveDefaults["closest_pod_dist_weight"] = std::to_string(prof.closestPodDistWeight);
+    effectiveDefaults["second_closest_pod_dist_weight"] = std::to_string(prof.secondClosestPodDistWeight);
+    effectiveDefaults["one_step_base_threat_bonus"] = std::to_string(prof.oneStepBaseThreatBonus);
+    effectiveDefaults["one_jump_base_threat_bonus"] = std::to_string(prof.oneJumpBaseThreatBonus);
+    effectiveDefaults["two_ply_base_threat_weight"] = std::to_string(prof.twoPlyBaseThreatWeight);
+
+    effectiveDefaults["pod_zero_prong_val"] = std::to_string(prof.podZeroProngVal);
+    effectiveDefaults["pod_one_prong_val"] = std::to_string(prof.podOneProngVal);
+    effectiveDefaults["pod_two_prong_val"] = std::to_string(prof.podTwoProngVal);
+    effectiveDefaults["pod_three_plus_prong_val"] = std::to_string(prof.podThreePlusProngVal);
+    effectiveDefaults["normal_prong_val"] = std::to_string(prof.normalProngVal);
+    effectiveDefaults["super_prong_val"] = std::to_string(prof.superProngVal);
+    effectiveDefaults["orth_diag_versatility_bonus"] = std::to_string(prof.orthDiagVersatilityBonus);
+    effectiveDefaults["diag_only_parity_penalty"] = std::to_string(prof.diagOnlyParityPenalty);
+    effectiveDefaults["first_armed_pod_bonus"] = std::to_string(prof.firstArmedPodBonus);
+    effectiveDefaults["second_armed_pod_bonus"] = std::to_string(prof.secondArmedPodBonus);
+    effectiveDefaults["third_armed_pod_bonus"] = std::to_string(prof.thirdArmedPodBonus);
+    effectiveDefaults["single_pod_monopoly_penalty"] = std::to_string(prof.singlePodMonopolyPenalty);
+    effectiveDefaults["lone_one_prong_rush_penalty"] = std::to_string(prof.loneOneProngRushPenalty);
+
+    effectiveDefaults["leapfrog_battery_weight"] = std::to_string(prof.leapfrogBatteryWeight);
+    effectiveDefaults["leapfrog_forward_bonus"] = std::to_string(prof.leapfrogForwardBonus);
+    effectiveDefaults["jump_reachable_square_weight"] = std::to_string(prof.jumpReachableSquareWeight);
+    effectiveDefaults["jump_reach_step_weight"] = std::to_string(prof.jumpReachStepWeight);
+    effectiveDefaults["jump_capturable_pod_weight"] = std::to_string(prof.jumpCapturablePodWeight);
+    effectiveDefaults["jump_capturable_prong_weight"] = std::to_string(prof.jumpCapturableProngWeight);
+
+    effectiveDefaults["hanging_pod_base_penalty"] = std::to_string(prof.hangingPodBasePenalty);
+    effectiveDefaults["hanging_prong_weight"] = std::to_string(prof.hangingProngWeight);
+    effectiveDefaults["ofk_prong_seizure_weight"] = std::to_string(prof.ofkProngSeizureWeight);
+    effectiveDefaults["opponent_turn_hanging_pct"] = std::to_string(prof.opponentTurnHangingPct);
+    effectiveDefaults["sole_armed_pod_danger_penalty"] = std::to_string(prof.soleArmedPodDangerPenalty);
+    effectiveDefaults["wipeout_danger_penalty"] = std::to_string(prof.wipeoutDangerPenalty);
+    effectiveDefaults["move_order_capture_bonus"] = std::to_string(prof.moveOrderCaptureBonus);
+    effectiveDefaults["move_order_base_entry_bonus"] = std::to_string(prof.moveOrderBaseEntryBonus);
+    effectiveDefaults["move_order_leapfrog_bonus"] = std::to_string(prof.moveOrderLeapfrogBonus);
+    effectiveDefaults["move_order_blunder_penalty"] = std::to_string(prof.moveOrderBlunderPenalty);
+
+    // 2. Policy defaults
+    effectiveDefaults["table_behavior"] = _runner.config().getString("table_behavior", "auto");
+    effectiveDefaults["accept_modes"] = _runner.config().getString("accept_modes", "2P, 4P, OFK");
+    effectiveDefaults["accept_bases"] = _runner.config().getString("accept_bases", "any");
+    effectiveDefaults["accept_super_prongs"] = _runner.config().getString("accept_super_prongs", "any");
+    effectiveDefaults["accept_edgeless"] = _runner.config().getString("accept_edgeless", "any");
+    effectiveDefaults["accept_time_control"] = _runner.config().getString("accept_time_control", "any");
+    effectiveDefaults["min_initial_time_sec"] = std::to_string(_runner.config().getInt("min_initial_time_sec", 0));
+    effectiveDefaults["max_initial_time_sec"] = std::to_string(_runner.config().getInt("max_initial_time_sec", 14400));
+    effectiveDefaults["min_increment_sec"] = std::to_string(_runner.config().getInt("min_increment_sec", 0));
+    effectiveDefaults["accept_takeback"] = _runner.config().getString("accept_takeback", "any");
+    effectiveDefaults["friends_only"] = _runner.config().getBool("friends_only", false) ? "true" : "false";
+    effectiveDefaults["opponent_filter"] = _runner.config().getString("opponent_filter", "any");
+    effectiveDefaults["friend_list"] = _runner.config().getString("friend_list", "");
+    effectiveDefaults["ban_list"] = _runner.config().getString("ban_list", "");
+
+    effectiveDefaults["host_mode"] = _runner.config().getString("host_mode", "2P");
+    effectiveDefaults["host_bases"] = std::to_string(_runner.config().getInt("host_bases", 3));
+    effectiveDefaults["host_super_prongs"] = _runner.config().getBool("host_super_prongs", false) ? "true" : "false";
+    effectiveDefaults["host_edgeless"] = _runner.config().getBool("host_edgeless", false) ? "true" : "false";
+    effectiveDefaults["host_time_control_enabled"] = _runner.config().getBool("host_time_control_enabled", false) ? "true" : "false";
+    effectiveDefaults["host_initial_ms"] = std::to_string(_runner.config().getInt64("host_initial_ms", 600000));
+    effectiveDefaults["host_increment_ms"] = std::to_string(_runner.config().getInt64("host_increment_ms", 5000));
+
+    effectiveDefaults["accept_draw_eval_threshold"] = std::to_string(_runner.config().getInt("accept_draw_eval_threshold", -1500));
+    effectiveDefaults["accept_undo"] = _runner.config().getString("accept_undo", "friends_only");
+    effectiveDefaults["accept_pause"] = _runner.config().getString("accept_pause", "always");
+    effectiveDefaults["accept_rematch"] = _runner.config().getString("accept_rematch", "always");
+    effectiveDefaults["max_consecutive_rematches"] = std::to_string(_runner.config().getInt("max_consecutive_rematches", 5));
+    effectiveDefaults["claim_forfeit_delay_sec"] = std::to_string(_runner.config().getInt("claim_forfeit_delay_sec", 10));
+    effectiveDefaults["min_move_think_ms"] = std::to_string(_runner.config().getInt("min_move_think_ms", 0));
+
+    // 3. Runner, chat, AI CLI & locked defaults
+    effectiveDefaults["algorithm"] = _runner.config().getString("algorithm", "alpha_beta");
+    effectiveDefaults["move_control"] = _runner.moveControl();
+    effectiveDefaults["publish_move_telemetry"] = _runner.publishMoveTelemetry() ? "true" : "false";
+    effectiveDefaults["announce_move_search_chat"] = _runner.announceMoveSearchChat() ? "true" : "false";
+    effectiveDefaults["allow_public_eval_chat"] = _runner.config().getBool("allow_public_eval_chat", true) ? "true" : "false";
+    effectiveDefaults["agent_move_timeout_ms"] = std::to_string(_runner.config().getInt("agent_move_timeout_ms", 15000));
+    effectiveDefaults["ai_cli_backend"] = _runner.config().getString("ai_cli_backend", "none");
+    effectiveDefaults["ai_cli_executable"] = _runner.config().getString("ai_cli_executable", "agy");
+    effectiveDefaults["ai_cli_model"] = _runner.config().getString("ai_cli_model", "flash");
+    effectiveDefaults["ai_cli_prompt"] = _runner.config().getString("ai_cli_prompt",
+        "Inspect OCTI skill guide with octibot_get_skill_guide and assist with move analysis.");
+    effectiveDefaults["ai_personality"] = _runner.config().getString("ai_personality",
+        "You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). "
+        "You speak in a relaxed, warm, down-to-earth tone—never boastful, theatrical, or condescending. "
+        "Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.");
+    effectiveDefaults["greeting_lobby"] = _runner.config().getString("greeting_lobby", "Hello! I am an automated OCTI robot player.");
+    effectiveDefaults["greeting_game_start"] = _runner.config().getString("greeting_game_start", "Good luck and have fun!");
+    effectiveDefaults["chat_game_over_win"] = _runner.config().getString("chat_game_over_win", "Good game!");
+    effectiveDefaults["chat_game_over_loss"] = _runner.config().getString("chat_game_over_loss", "Good game, well played!");
+    effectiveDefaults["chat_game_over_draw"] = _runner.config().getString("chat_game_over_draw", "Good game, well fought!");
+    effectiveDefaults["verbosity"] = std::to_string(_runner.verbosity());
+
+    effectiveDefaults["aimon_enabled"] = _runner.config().getBool("aimon_enabled", false) ? "true" : "false";
+    effectiveDefaults["aimon_host"] = _runner.config().getString("aimon_host", "127.0.0.1");
+    effectiveDefaults["aimon_port"] = std::to_string(_runner.config().getInt("aimon_port", 3883));
+    effectiveDefaults["aimon_gateway_port"] = std::to_string(_runner.config().getInt("aimon_gateway_port", 0));
+    effectiveDefaults["expose_mcp_tools"] = _runner.config().getBool("expose_mcp_tools", true) ? "true" : "false";
+    effectiveDefaults["web_port"] = std::to_string(_runner.config().getInt("web_port", 3888));
+    effectiveDefaults["web_bind"] = _runner.config().getString("web_bind", "0.0.0.0");
+    effectiveDefaults["server_host"] = _runner.config().getString("server_host", "octi.selfso.com");
+    effectiveDefaults["server_port"] = std::to_string(_runner.config().getInt("server_port", 443));
+    effectiveDefaults["server_use_ssl"] = _runner.config().getBool("server_use_ssl", true) ? "true" : "false";
+    effectiveDefaults["default_profile"] = _runner.config().getString("default_profile", "stock");
+    effectiveDefaults["robot_name"] = _runner.config().getString("robot_name", "stock");
+
+    // 4. Overlay explicit entries from _runner.config().entries()
     for (const auto &kv : _runner.config().entries()) {
         if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
             continue;
         }
+        effectiveDefaults[kv.first] = kv.second;
+    }
+
+    nlohmann::json entries = nlohmann::json::object();
+    for (const auto &kv : effectiveDefaults) {
         entries[kv.first] = kv.second;
     }
     root["entries"] = entries;
 
     nlohmann::json profiles = nlohmann::json::object();
-    for (const auto &prof : _runner.config().profiles()) {
+    for (const auto &profItem : _runner.config().profiles()) {
         nlohmann::json pEntries = nlohmann::json::object();
-        for (const auto &kv : prof.second) {
+        for (const auto &kv : profItem.second) {
             if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
                 continue;
             }
             pEntries[kv.first] = kv.second;
         }
-        profiles[prof.first] = pEntries;
+        profiles[profItem.first] = pEntries;
     }
     root["profiles"] = profiles;
     root["active_profile"] = _runner.config().getString("profile", _runner.config().getString("robot_name", "stock"));
@@ -1104,6 +1250,8 @@ header {
 .badge-amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
 .badge-red { background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 .badge-blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+.badge-purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); }
+.badge-dim { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border-color: rgba(148, 163, 184, 0.2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot-green { background: #10b981; }
 .dot-amber { background: #f59e0b; }
@@ -1116,8 +1264,49 @@ header {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 20px;
+  margin-bottom: 24px;
+}
+.conv-feed {
+  background: var(--bg-code);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px 12px;
+  height: 280px;
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+.conv-item {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px;
+}
+.conv-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.conv-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+.conv-seen {
+  color: #cbd5e1;
+  font-size: 12px;
+  word-break: break-word;
+}
+.conv-reply {
+  color: #38bdf8;
+  font-size: 12px;
+  margin-top: 2px;
+  word-break: break-word;
+}
   margin-bottom: 24px;
 }
 .card {
@@ -1220,9 +1409,13 @@ header {
   line-height: 1.45;
   color: #e2e8f0;
   height: 360px;
+  width: 100%;
+  resize: vertical;
+  outline: none;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  box-sizing: border-box;
 }
 .config-card { grid-column: 1 / -1; }
 .config-tabs {
@@ -1359,6 +1552,17 @@ header {
     <div class="board-ascii" id="boardAscii">Loading board...</div>
   </div>
 
+  <!-- Agent Conversation Log (Seen & Replied) -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">&#x1F4AC; Agent Conversation Log (Seen &amp; Replied)</div>
+      <span class="badge badge-purple" id="convCountBadge">0 messages</span>
+    </div>
+    <div class="conv-feed" id="convFeed">
+      <div style="color:var(--text-dim);font-size:12px;text-align:center;padding:24px 0;">No conversation events recorded yet.</div>
+    </div>
+  </div>
+
   <!-- Live Search Engine Telemetry & Move History -->
   <div class="card" style="grid-column: 1 / -1;">
     <div class="card-header">
@@ -1383,6 +1587,21 @@ header {
         <div style="font-size:16px;font-weight:700;color:#f8fafc;" id="lastMoveSummary">-</div>
       </div>
     </div>
+
+    <!-- Per-Turn Search Telemetry Time Graph -->
+    <div style="margin-top:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text-muted);">Per-Turn Search Telemetry Graph (Nodes &amp; Eval Score across Plies):</span>
+        <div style="font-size:11px;display:flex;gap:12px;">
+          <span style="color:#38bdf8;">&#x25A0; Nodes Visited (d=Depth)</span>
+          <span style="color:#fbbf24;">&#x25CF; Eval Score</span>
+        </div>
+      </div>
+      <div id="telemetryChartContainer" style="width:100%;height:160px;background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:6px;position:relative;overflow:hidden;">
+        <svg id="telemetryGraphSvg" width="100%" height="100%" viewBox="0 0 600 160" preserveAspectRatio="none" style="display:block;"></svg>
+      </div>
+    </div>
+
     <div style="margin-top:6px;">
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Move Telemetry History (Last 50 Moves):</div>
       <div class="table-scroll">
@@ -1409,7 +1628,7 @@ header {
         <span style="font-size:11px;color:var(--text-dim);" id="logStats">Lines: 0 / 5000</span>
       </div>
     </div>
-    <div class="console-output" id="consoleOutput">Connecting to log stream...</div>
+    <textarea class="console-output" id="consoleOutput" readonly spellcheck="false">Connecting to log stream...</textarea>
   </div>
 
   <!-- Interactive Configuration Editor -->
@@ -1438,66 +1657,184 @@ header {
         <input type="number" id="cfg_max_search_depth" class="input-control" min="1" max="64">
       </div>
       <div class="field-group">
-        <label>use_iterative_deepening</label>
-        <select id="cfg_use_iterative_deepening" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
-        </select>
+        <label>max_quiesce_depth <span class="field-desc">quiescence ply limit</span></label>
+        <input type="number" id="cfg_max_quiesce_depth" class="input-control" min="0" max="32">
       </div>
       <div class="field-group">
-        <label>use_transposition_table</label>
-        <select id="cfg_use_transposition_table" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
-        </select>
+        <label>quiesce_branch_cap <span class="field-desc">quiesce branching limit</span></label>
+        <input type="number" id="cfg_quiesce_branch_cap" class="input-control" min="1" max="64">
       </div>
       <div class="field-group">
-        <label>tt_size_mb <span class="field-desc">hash size in megabytes</span></label>
-        <input type="number" id="cfg_tt_size_mb" class="input-control" min="1" max="4096">
+        <label>root_branch_cap <span class="field-desc">root move branching limit</span></label>
+        <input type="number" id="cfg_root_branch_cap" class="input-control" min="1" max="128">
       </div>
       <div class="field-group">
-        <label>use_quiescence_search</label>
-        <select id="cfg_use_quiescence_search" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
-        </select>
+        <label>tree_branch_cap <span class="field-desc">interior tree branching cap</span></label>
+        <input type="number" id="cfg_tree_branch_cap" class="input-control" min="1" max="128">
       </div>
       <div class="field-group">
-        <label>null_move_pruning</label>
-        <select id="cfg_null_move_pruning" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
-        </select>
+        <label>lazy_smp_threads <span class="field-desc">parallel search threads</span></label>
+        <input type="number" id="cfg_lazy_smp_threads" class="input-control" min="1" max="64">
       </div>
       <div class="field-group">
-        <label>aspiration_windows</label>
-        <select id="cfg_aspiration_windows" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
-        </select>
+        <label>composite_move_max_ply <span class="field-desc">leapfrog composite depth cap</span></label>
+        <input type="number" id="cfg_composite_move_max_ply" class="input-control" min="1" max="16">
+      </div>
+      <div class="field-group">
+        <label>root_score_jitter <span class="field-desc">centipawn tie-break noise</span></label>
+        <input type="number" id="cfg_root_score_jitter" class="input-control" min="0" max="1000">
       </div>
     </div>
 
     <!-- Tab 2: Board & Tactical Weights -->
     <div class="config-section" id="tab-eval">
       <div class="field-group">
-        <label>weight_material <span class="field-desc">pod score multiplier</span></label>
-        <input type="number" id="cfg_weight_material" class="input-control">
+        <label>captured_enemy_base_bonus <span class="field-desc">base conquest bonus</span></label>
+        <input type="number" id="cfg_captured_enemy_base_bonus" class="input-control">
       </div>
       <div class="field-group">
-        <label>weight_base_distance <span class="field-desc">goal approach bonus</span></label>
-        <input type="number" id="cfg_weight_base_distance" class="input-control">
+        <label>lost_allied_base_penalty <span class="field-desc">home base loss penalty</span></label>
+        <input type="number" id="cfg_lost_allied_base_penalty" class="input-control">
       </div>
       <div class="field-group">
-        <label>weight_prong_count <span class="field-desc">prong investment score</span></label>
-        <input type="number" id="cfg_weight_prong_count" class="input-control">
+        <label>neutral_octi_square_bonus <span class="field-desc">center neutral square</span></label>
+        <input type="number" id="cfg_neutral_octi_square_bonus" class="input-control">
       </div>
       <div class="field-group">
-        <label>weight_super_prong <span class="field-desc">super prong bonus</span></label>
-        <input type="number" id="cfg_weight_super_prong" class="input-control">
+        <label>closest_pod_dist_weight <span class="field-desc">primary base approach</span></label>
+        <input type="number" id="cfg_closest_pod_dist_weight" class="input-control">
       </div>
       <div class="field-group">
-        <label>weight_central_control <span class="field-desc">board center positioning</span></label>
-        <input type="number" id="cfg_weight_central_control" class="input-control">
+        <label>second_closest_pod_dist_weight <span class="field-desc">secondary base approach</span></label>
+        <input type="number" id="cfg_second_closest_pod_dist_weight" class="input-control">
       </div>
       <div class="field-group">
-        <label>weight_mobility <span class="field-desc">candidate moves freedom</span></label>
-        <input type="number" id="cfg_weight_mobility" class="input-control">
+        <label>one_step_base_threat_bonus <span class="field-desc">immediate base entry threat</span></label>
+        <input type="number" id="cfg_one_step_base_threat_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>one_jump_base_threat_bonus <span class="field-desc">jump base entry threat</span></label>
+        <input type="number" id="cfg_one_jump_base_threat_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>two_ply_base_threat_weight <span class="field-desc">two-ply base siege threat</span></label>
+        <input type="number" id="cfg_two_ply_base_threat_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>pod_zero_prong_val <span class="field-desc">unarmed pod material</span></label>
+        <input type="number" id="cfg_pod_zero_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>pod_one_prong_val <span class="field-desc">1-prong pod material</span></label>
+        <input type="number" id="cfg_pod_one_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>pod_two_prong_val <span class="field-desc">2-prong pod material</span></label>
+        <input type="number" id="cfg_pod_two_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>pod_three_plus_prong_val <span class="field-desc">3+ prong heavy pod material</span></label>
+        <input type="number" id="cfg_pod_three_plus_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>normal_prong_val <span class="field-desc">normal prong value</span></label>
+        <input type="number" id="cfg_normal_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>super_prong_val <span class="field-desc">super prong value</span></label>
+        <input type="number" id="cfg_super_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>orth_diag_versatility_bonus <span class="field-desc">mixed cardinal/diagonal bonus</span></label>
+        <input type="number" id="cfg_orth_diag_versatility_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>diag_only_parity_penalty <span class="field-desc">diagonal parity lock penalty</span></label>
+        <input type="number" id="cfg_diag_only_parity_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>first_armed_pod_bonus <span class="field-desc">first armed pod mobilization</span></label>
+        <input type="number" id="cfg_first_armed_pod_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>second_armed_pod_bonus <span class="field-desc">second armed pod mobilization</span></label>
+        <input type="number" id="cfg_second_armed_pod_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>third_armed_pod_bonus <span class="field-desc">third armed pod mobilization</span></label>
+        <input type="number" id="cfg_third_armed_pod_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>single_pod_monopoly_penalty <span class="field-desc">over-arming single pod</span></label>
+        <input type="number" id="cfg_single_pod_monopoly_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>lone_one_prong_rush_penalty <span class="field-desc">premature 1-prong rush</span></label>
+        <input type="number" id="cfg_lone_one_prong_rush_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>leapfrog_battery_weight <span class="field-desc">aligned pod leap battery</span></label>
+        <input type="number" id="cfg_leapfrog_battery_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>leapfrog_forward_bonus <span class="field-desc">forward-facing leap battery</span></label>
+        <input type="number" id="cfg_leapfrog_forward_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>jump_reachable_square_weight <span class="field-desc">jump territory reachability</span></label>
+        <input type="number" id="cfg_jump_reachable_square_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>jump_reach_step_weight <span class="field-desc">multi-jump expansion step</span></label>
+        <input type="number" id="cfg_jump_reach_step_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>jump_capturable_pod_weight <span class="field-desc">jump-target pod capture threat</span></label>
+        <input type="number" id="cfg_jump_capturable_pod_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>jump_capturable_prong_weight <span class="field-desc">prong capture leverage</span></label>
+        <input type="number" id="cfg_jump_capturable_prong_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>hanging_pod_base_penalty <span class="field-desc">undefended pod penalty</span></label>
+        <input type="number" id="cfg_hanging_pod_base_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>hanging_prong_weight <span class="field-desc">hanging prong penalty multiplier</span></label>
+        <input type="number" id="cfg_hanging_prong_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ofk_prong_seizure_weight <span class="field-desc">OFK prong capture incentive</span></label>
+        <input type="number" id="cfg_ofk_prong_seizure_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>opponent_turn_hanging_pct <span class="field-desc">hanging danger discount pct</span></label>
+        <input type="number" id="cfg_opponent_turn_hanging_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>sole_armed_pod_danger_penalty <span class="field-desc">sole defender exposure</span></label>
+        <input type="number" id="cfg_sole_armed_pod_danger_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>wipeout_danger_penalty <span class="field-desc">near-wipeout danger penalty</span></label>
+        <input type="number" id="cfg_wipeout_danger_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>move_order_capture_bonus <span class="field-desc">move ordering capture priority</span></label>
+        <input type="number" id="cfg_move_order_capture_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>move_order_base_entry_bonus <span class="field-desc">move ordering base win priority</span></label>
+        <input type="number" id="cfg_move_order_base_entry_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>move_order_leapfrog_bonus <span class="field-desc">move ordering leap priority</span></label>
+        <input type="number" id="cfg_move_order_leapfrog_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>move_order_blunder_penalty <span class="field-desc">move ordering blunder down-weight</span></label>
+        <input type="number" id="cfg_move_order_blunder_penalty" class="input-control">
       </div>
     </div>
 
@@ -1509,46 +1846,182 @@ header {
           <option value="auto">auto</option>
           <option value="host_only">host_only</option>
           <option value="join_only">join_only</option>
+          <option value="matchmaking">matchmaking</option>
           <option value="idle">idle</option>
         </select>
       </div>
       <div class="field-group">
-        <label>game_mode <span class="field-desc">hosted match variant</span></label>
-        <select id="cfg_game_mode" class="input-control">
+        <label>accept_modes <span class="field-desc">allowed table variants</span></label>
+        <input type="text" id="cfg_accept_modes" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>accept_bases <span class="field-desc">allowed base counts</span></label>
+        <select id="cfg_accept_bases" class="input-control">
+          <option value="any">any</option>
+          <option value="1">1</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>accept_super_prongs <span class="field-desc">super prongs policy</span></label>
+        <select id="cfg_accept_super_prongs" class="input-control">
+          <option value="any">any</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>accept_edgeless <span class="field-desc">edgeless board policy</span></label>
+        <select id="cfg_accept_edgeless" class="input-control">
+          <option value="any">any</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>accept_time_control <span class="field-desc">clock mode filter</span></label>
+        <select id="cfg_accept_time_control" class="input-control">
+          <option value="any">any</option>
+          <option value="timed_only">timed_only</option>
+          <option value="untimed_only">untimed_only</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>min_initial_time_sec <span class="field-desc">min room initial clock</span></label>
+        <input type="number" id="cfg_min_initial_time_sec" class="input-control" min="0" max="86400">
+      </div>
+      <div class="field-group">
+        <label>max_initial_time_sec <span class="field-desc">max room initial clock</span></label>
+        <input type="number" id="cfg_max_initial_time_sec" class="input-control" min="0" max="86400">
+      </div>
+      <div class="field-group">
+        <label>min_increment_sec <span class="field-desc">min per-move increment</span></label>
+        <input type="number" id="cfg_min_increment_sec" class="input-control" min="0" max="3600">
+      </div>
+      <div class="field-group">
+        <label>accept_takeback <span class="field-desc">takeback acceptance</span></label>
+        <select id="cfg_accept_takeback" class="input-control">
+          <option value="any">any</option>
+          <option value="always">always</option>
+          <option value="friends_only">friends_only</option>
+          <option value="never">never</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>friends_only <span class="field-desc">restrict matchmaking to friends</span></label>
+        <select id="cfg_friends_only" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>opponent_filter <span class="field-desc">allowed opponent types</span></label>
+        <select id="cfg_opponent_filter" class="input-control">
+          <option value="any">any</option>
+          <option value="humans_only">humans_only</option>
+          <option value="robots_only">robots_only</option>
+          <option value="owner_only">owner_only</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>friend_list <span class="field-desc">comma-separated friend handles</span></label>
+        <input type="text" id="cfg_friend_list" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ban_list <span class="field-desc">comma-separated banned handles</span></label>
+        <input type="text" id="cfg_ban_list" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>host_mode <span class="field-desc">hosted table mode</span></label>
+        <select id="cfg_host_mode" class="input-control">
           <option value="2P">2P</option>
           <option value="4P">4P</option>
+          <option value="OFK">OFK</option>
         </select>
       </div>
       <div class="field-group">
-        <label>bases <span class="field-desc">number of bases</span></label>
-        <input type="number" id="cfg_bases" class="input-control" min="1" max="4">
+        <label>host_bases <span class="field-desc">hosted base count</span></label>
+        <input type="number" id="cfg_host_bases" class="input-control" min="1" max="4">
       </div>
       <div class="field-group">
-        <label>time_control <span class="field-desc">room clock setting</span></label>
-        <input type="text" id="cfg_time_control" class="input-control">
-      </div>
-      <div class="field-group">
-        <label>auto_accept_rematch</label>
-        <select id="cfg_auto_accept_rematch" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
+        <label>host_super_prongs <span class="field-desc">hosted super prongs</span></label>
+        <select id="cfg_host_super_prongs" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
         </select>
       </div>
       <div class="field-group">
-        <label>max_consecutive_games</label>
-        <input type="number" id="cfg_max_consecutive_games" class="input-control" min="1" max="100">
+        <label>host_edgeless <span class="field-desc">hosted edgeless board</span></label>
+        <select id="cfg_host_edgeless" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
       </div>
       <div class="field-group">
-        <label>auto_ready_timeout_ms</label>
-        <input type="number" id="cfg_auto_ready_timeout_ms" class="input-control" min="100" max="60000">
+        <label>host_time_control_enabled <span class="field-desc">host room clock</span></label>
+        <select id="cfg_host_time_control_enabled" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
       </div>
       <div class="field-group">
-        <label>post_game_leave_delay_ms</label>
-        <input type="number" id="cfg_post_game_leave_delay_ms" class="input-control" min="0" max="60000">
+        <label>host_initial_ms <span class="field-desc">host initial clock ms</span></label>
+        <input type="number" id="cfg_host_initial_ms" class="input-control" min="0" step="1000">
+      </div>
+      <div class="field-group">
+        <label>host_increment_ms <span class="field-desc">host clock increment ms</span></label>
+        <input type="number" id="cfg_host_increment_ms" class="input-control" min="0" step="500">
+      </div>
+      <div class="field-group">
+        <label>accept_draw_eval_threshold <span class="field-desc">draw acceptance eval threshold</span></label>
+        <input type="number" id="cfg_accept_draw_eval_threshold" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>accept_undo <span class="field-desc">undo proposal policy</span></label>
+        <select id="cfg_accept_undo" class="input-control">
+          <option value="always">always</option>
+          <option value="friends_only">friends_only</option>
+          <option value="never">never</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>accept_pause <span class="field-desc">pause proposal policy</span></label>
+        <select id="cfg_accept_pause" class="input-control">
+          <option value="always">always</option>
+          <option value="friends_only">friends_only</option>
+          <option value="never">never</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>accept_rematch <span class="field-desc">rematch proposal policy</span></label>
+        <select id="cfg_accept_rematch" class="input-control">
+          <option value="always">always</option>
+          <option value="friends_only">friends_only</option>
+          <option value="never">never</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>max_consecutive_rematches <span class="field-desc">consecutive rematches cap</span></label>
+        <input type="number" id="cfg_max_consecutive_rematches" class="input-control" min="0" max="100">
+      </div>
+      <div class="field-group">
+        <label>claim_forfeit_delay_sec <span class="field-desc">disconnect forfeit delay</span></label>
+        <input type="number" id="cfg_claim_forfeit_delay_sec" class="input-control" min="0" max="300">
+      </div>
+      <div class="field-group">
+        <label>min_move_think_ms <span class="field-desc">min thinking delay</span></label>
+        <input type="number" id="cfg_min_move_think_ms" class="input-control" min="0" max="10000">
       </div>
     </div>
 
-    <!-- Tab 4: Chat, Telemetry & AI CLI -->
+    <!-- Tab 4: Chat, Proposals & AI CLI -->
     <div class="config-section" id="tab-chat">
+      <div class="field-group">
+        <label>algorithm <span class="field-desc">engine algorithm</span></label>
+        <select id="cfg_algorithm" class="input-control">
+          <option value="alpha_beta">alpha_beta</option>
+        </select>
+      </div>
       <div class="field-group">
         <label>move_control <span class="field-desc">engine vs external agent</span></label>
         <select id="cfg_move_control" class="input-control">
@@ -1559,26 +2032,72 @@ header {
       <div class="field-group">
         <label>publish_move_telemetry <span class="field-desc">send depth/eval in move RPC</span></label>
         <select id="cfg_publish_move_telemetry" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
         </select>
       </div>
       <div class="field-group">
         <label>announce_move_search_chat <span class="field-desc">post search stats to room chat</span></label>
         <select id="cfg_announce_move_search_chat" class="input-control">
-          <option value="true">true</option><option value="false">false</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
         </select>
       </div>
       <div class="field-group">
-        <label>agent_move_timeout_ms</label>
+        <label>allow_public_eval_chat <span class="field-desc">allow eval command in chat</span></label>
+        <select id="cfg_allow_public_eval_chat" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>agent_move_timeout_ms <span class="field-desc">agent move RPC timeout</span></label>
         <input type="number" id="cfg_agent_move_timeout_ms" class="input-control" min="100" max="60000">
       </div>
       <div class="field-group">
-        <label>ai_cli_backend <span class="field-desc">agy, claude, cursor-agent, none</span></label>
-        <input type="text" id="cfg_ai_cli_backend" class="input-control">
+        <label>ai_cli_backend <span class="field-desc">none, agy, claude, cursor-agent</span></label>
+        <select id="cfg_ai_cli_backend" class="input-control">
+          <option value="none">none</option>
+          <option value="agy">agy</option>
+          <option value="claude">claude</option>
+          <option value="cursor-agent">cursor-agent</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>ai_cli_executable <span class="field-desc">binary path/name</span></label>
+        <input type="text" id="cfg_ai_cli_executable" class="input-control">
       </div>
       <div class="field-group">
         <label>ai_cli_model <span class="field-desc">LLM model string</span></label>
         <input type="text" id="cfg_ai_cli_model" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_prompt <span class="field-desc">custom prompt prefix</span></label>
+        <input type="text" id="cfg_ai_cli_prompt" class="input-control">
+      </div>
+      <div class="field-group" style="grid-column: 1 / -1;">
+        <label>ai_personality <span class="field-desc">chat persona prompt instructions</span></label>
+        <textarea id="cfg_ai_personality" class="input-control" rows="3" style="resize:vertical;font-family:inherit;line-height:1.4;"></textarea>
+      </div>
+      <div class="field-group">
+        <label>greeting_lobby <span class="field-desc">initial lobby message</span></label>
+        <input type="text" id="cfg_greeting_lobby" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>greeting_game_start <span class="field-desc">match start message</span></label>
+        <input type="text" id="cfg_greeting_game_start" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>chat_game_over_win <span class="field-desc">match won message</span></label>
+        <input type="text" id="cfg_chat_game_over_win" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>chat_game_over_loss <span class="field-desc">match lost message</span></label>
+        <input type="text" id="cfg_chat_game_over_loss" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>chat_game_over_draw <span class="field-desc">match draw message</span></label>
+        <input type="text" id="cfg_chat_game_over_draw" class="input-control">
       </div>
       <div class="field-group">
         <label>verbosity <span class="field-desc">console log level (0..4)</span></label>
@@ -1605,8 +2124,16 @@ header {
         <input type="text" id="cfg_aimon_gateway_port" class="input-control" disabled>
       </div>
       <div class="field-group">
+        <label>expose_mcp_tools <span class="badge badge-red">&#x1F512; Locked</span></label>
+        <input type="text" id="cfg_expose_mcp_tools" class="input-control" disabled>
+      </div>
+      <div class="field-group">
         <label>web_port <span class="badge badge-red">&#x1F512; Locked</span></label>
         <input type="text" id="cfg_web_port" class="input-control" disabled>
+      </div>
+      <div class="field-group">
+        <label>web_bind <span class="badge badge-red">&#x1F512; Locked</span></label>
+        <input type="text" id="cfg_web_bind" class="input-control" disabled>
       </div>
       <div class="field-group">
         <label>server_host <span class="badge badge-red">&#x1F512; Locked</span></label>
@@ -1615,6 +2142,14 @@ header {
       <div class="field-group">
         <label>server_port <span class="badge badge-red">&#x1F512; Locked</span></label>
         <input type="text" id="cfg_server_port" class="input-control" disabled>
+      </div>
+      <div class="field-group">
+        <label>server_use_ssl <span class="badge badge-red">&#x1F512; Locked</span></label>
+        <input type="text" id="cfg_server_use_ssl" class="input-control" disabled>
+      </div>
+      <div class="field-group">
+        <label>default_profile <span class="badge badge-red">&#x1F512; Locked</span></label>
+        <input type="text" id="cfg_default_profile" class="input-control" disabled>
       </div>
       <div class="field-group">
         <label>robot_name <span class="badge badge-red">&#x1F512; Locked</span></label>
@@ -1636,12 +2171,119 @@ let lastLogSeq = 0;
 let cachedLogs = [];
 let allConfigKeys = [];
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function switchConfigTab(tabId) {
   document.querySelectorAll('.config-tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.config-section').forEach(s => s.classList.remove('active'));
   event.target.classList.add('active');
   const sec = document.getElementById(tabId);
   if (sec) sec.classList.add('active');
+}
+
+function scrollConsoleToEnd() {
+  const chk = document.getElementById('chkAutoScroll');
+  const out = document.getElementById('consoleOutput');
+  if (!chk || !chk.checked || !out) return;
+  out.scrollTop = out.scrollHeight;
+  requestAnimationFrame(() => {
+    out.scrollTop = out.scrollHeight;
+  });
+}
+
+function renderTelemetryGraph(history, liveEngine) {
+  const svg = document.getElementById('telemetryGraphSvg');
+  if (!svg) return;
+  const W = 600;
+  const H = 160;
+  const padL = 45;
+  const padR = 25;
+  const padT = 20;
+  const padB = 25;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  if (!history || history.length === 0) {
+    svg.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#64748b" font-size="12">Waiting for completed move plies to plot telemetry graph...</text>';
+    return;
+  }
+
+  const entries = history.slice(-18);
+  const totalSlots = entries.length + (liveEngine && liveEngine.is_searching ? 1 : 0);
+  const slotW = plotW / Math.max(1, totalSlots);
+  const barW = Math.max(8, Math.min(24, slotW * 0.55));
+
+  let maxNodes = 1000;
+  let minScore = -300;
+  let maxScore = 300;
+  for (const e of entries) {
+    if (e.nodes > maxNodes) maxNodes = e.nodes;
+    if (e.eval_score < minScore) minScore = e.eval_score;
+    if (e.eval_score > maxScore) maxScore = e.eval_score;
+  }
+  if (liveEngine && liveEngine.is_searching) {
+    if (liveEngine.live_nodes > maxNodes) maxNodes = liveEngine.live_nodes;
+    if (liveEngine.live_score < minScore) minScore = liveEngine.live_score;
+    if (liveEngine.live_score > maxScore) maxScore = liveEngine.live_score;
+  }
+
+  const scoreRange = Math.max(100, maxScore - minScore);
+  const zeroY = padT + plotH * (maxScore - 0) / scoreRange;
+
+  let s = '';
+  // Grid lines and 0-score baseline
+  s += `<line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="#475569" stroke-dasharray="3,3" stroke-width="1"/>`;
+  s += `<text x="${padL - 6}" y="${zeroY + 3}" text-anchor="end" fill="#64748b" font-size="9">0</text>`;
+
+  // Nodes bars and depth labels
+  const scorePoints = [];
+  for (let i = 0; i < entries.length; ++i) {
+    const e = entries[i];
+    const cx = padL + (i + 0.5) * slotW;
+    const barH = Math.max(2, (e.nodes / maxNodes) * plotH);
+    const barY = padT + plotH - barH;
+
+    s += `<rect x="${cx - barW/2}" y="${barY}" width="${barW}" height="${barH}" rx="2" fill="rgba(56, 189, 248, 0.4)" stroke="#38bdf8" stroke-width="1"/>`;
+    s += `<text x="${cx}" y="${Math.max(padT + 9, barY - 3)}" text-anchor="middle" fill="#94a3b8" font-size="9">d=${e.depth}</text>`;
+    s += `<text x="${cx}" y="${H - 8}" text-anchor="middle" fill="#64748b" font-size="9">P${e.ply}</text>`;
+
+    const sy = padT + plotH * (maxScore - e.eval_score) / scoreRange;
+    scorePoints.push({ x: cx, y: sy, score: e.eval_score });
+  }
+
+  // Live searching bar
+  if (liveEngine && liveEngine.is_searching) {
+    const liveIdx = entries.length;
+    const lcx = padL + (liveIdx + 0.5) * slotW;
+    const lNodes = liveEngine.live_nodes || 0;
+    const lBarH = Math.max(2, (lNodes / maxNodes) * plotH);
+    const lBarY = padT + plotH - lBarH;
+    s += `<rect x="${lcx - barW/2}" y="${lBarY}" width="${barW}" height="${lBarH}" rx="2" fill="rgba(244, 63, 94, 0.55)" stroke="#f43f5e" stroke-width="1.5"/>`;
+    s += `<text x="${lcx}" y="${Math.max(padT + 9, lBarY - 3)}" text-anchor="middle" fill="#f43f5e" font-size="9" font-weight="600">d=${liveEngine.live_depth || 0}</text>`;
+    s += `<text x="${lcx}" y="${H - 8}" text-anchor="middle" fill="#f43f5e" font-size="9">live</text>`;
+  }
+
+  // Score line
+  if (scorePoints.length > 0) {
+    let pathD = `M ${scorePoints[0].x} ${scorePoints[0].y}`;
+    for (let i = 1; i < scorePoints.length; ++i) {
+      pathD += ` L ${scorePoints[i].x} ${scorePoints[i].y}`;
+    }
+    s += `<path d="${pathD}" fill="none" stroke="#fbbf24" stroke-width="2"/>`;
+    for (const pt of scorePoints) {
+      s += `<circle cx="${pt.x}" cy="${pt.y}" r="3" fill="#fbbf24" stroke="#0f172a" stroke-width="1.5"/>`;
+    }
+  }
+
+  svg.innerHTML = s;
 }
 
 async function pollStatus() {
@@ -1707,6 +2349,42 @@ async function pollStatus() {
       }
     }
 
+    // Agent Conversation Log
+    if (data.conversations && Array.isArray(data.conversations)) {
+      const feed = document.getElementById('convFeed');
+      const badge = document.getElementById('convCountBadge');
+      badge.textContent = data.conversations.length + ' message' + (data.conversations.length === 1 ? '' : 's');
+      if (data.conversations.length === 0) {
+        feed.innerHTML = '<div style="color:var(--text-dim);font-size:12px;text-align:center;padding:24px 0;">No conversation events recorded yet.</div>';
+      } else {
+        let cHtml = '';
+        const botHandle = (data.robot && data.robot.handle) ? data.robot.handle : 'bot';
+        for (const c of data.conversations) {
+          const timeStr = c.timestamp_ms ? new Date(c.timestamp_ms).toLocaleTimeString() : '-';
+          const chStr = (c.channel === 'game') ? ('#' + (c.room_id || 'room')) : 'lobby';
+          let srcClass = 'badge-dim';
+          if (c.reply_source && c.reply_source.startsWith('ai_cli')) srcClass = 'badge-blue';
+          else if (c.reply_source === 'command') srcClass = 'badge-green';
+          else if (c.reply_source === 'greeting') srcClass = 'badge-purple';
+
+          cHtml += '<div class="conv-item">' +
+            '<div class="conv-meta">' +
+              '<span><span class="badge" style="padding:1px 5px;font-size:10px;">' + chStr + '</span> <span style="color:var(--text-dim);margin-left:4px;">' + timeStr + '</span></span>' +
+              '<span class="badge ' + srcClass + '" style="padding:1px 5px;font-size:10px;">' + (c.reply_source || 'seen') + '</span>' +
+            '</div>';
+          if (c.seen_text) {
+            cHtml += '<div class="conv-seen"><strong>@' + escapeHtml(c.sender_handle || 'user') + ':</strong> ' + escapeHtml(c.seen_text) + '</div>';
+          }
+          if (c.reply_text) {
+            cHtml += '<div class="conv-reply"><strong>@' + escapeHtml(botHandle) + ':</strong> ' + escapeHtml(c.reply_text) + '</div>';
+          }
+          cHtml += '</div>';
+        }
+        feed.innerHTML = cHtml;
+        feed.scrollTop = feed.scrollHeight;
+      }
+    }
+
     // Engine
     if (data.engine) {
       const eBadge = document.getElementById('engineStatusBadge');
@@ -1729,6 +2407,7 @@ async function pollStatus() {
       if (data.engine.move_history && Array.isArray(data.engine.move_history)) {
         renderMoveHistory(data.engine.move_history);
       }
+      renderTelemetryGraph(data.engine.move_history || [], data.engine || {});
     }
   } catch (err) {
     console.error('pollStatus error', err);
@@ -1767,6 +2446,8 @@ async function pollLogs() {
         cachedLogs = cachedLogs.slice(cachedLogs.length - 5000);
       }
       renderLogs();
+    } else {
+      scrollConsoleToEnd();
     }
     document.getElementById('logStats').textContent = 'Lines: ' + cachedLogs.length + ' / 5000 (Latest seq: ' + (data.latest_seq || 0) + ')';
   } catch (err) {
@@ -1778,10 +2459,8 @@ function renderLogs() {
   const filter = (document.getElementById('logFilter').value || '').toLowerCase();
   const out = document.getElementById('consoleOutput');
   const filtered = filter ? cachedLogs.filter(l => l.toLowerCase().includes(filter)) : cachedLogs;
-  out.textContent = filtered.join('\n');
-  if (document.getElementById('chkAutoScroll').checked) {
-    out.scrollTop = out.scrollHeight;
-  }
+  out.value = filtered.join('\n');
+  scrollConsoleToEnd();
 }
 
 document.getElementById('logFilter').addEventListener('input', renderLogs);
@@ -1789,6 +2468,16 @@ document.getElementById('btnClearConsole').addEventListener('click', () => {
   cachedLogs = [];
   renderLogs();
 });
+
+const consoleEl = document.getElementById('consoleOutput');
+if (window.ResizeObserver && consoleEl) {
+  new ResizeObserver(() => scrollConsoleToEnd()).observe(consoleEl);
+}
+window.addEventListener('resize', scrollConsoleToEnd);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') scrollConsoleToEnd();
+});
+document.getElementById('chkAutoScroll').addEventListener('change', scrollConsoleToEnd);
 
 async function loadConfig() {
   try {
@@ -1814,21 +2503,11 @@ async function submitConfig(saveToDisk) {
   alertEl.style.display = 'none';
 
   const updates = {};
-  const fieldIds = [
-    'time_budget_ms', 'max_search_depth', 'use_iterative_deepening', 'use_transposition_table',
-    'tt_size_mb', 'use_quiescence_search', 'null_move_pruning', 'aspiration_windows',
-    'weight_material', 'weight_base_distance', 'weight_prong_count', 'weight_super_prong',
-    'weight_central_control', 'weight_mobility',
-    'table_behavior', 'game_mode', 'bases', 'time_control', 'auto_accept_rematch',
-    'max_consecutive_games', 'auto_ready_timeout_ms', 'post_game_leave_delay_ms',
-    'move_control', 'publish_move_telemetry', 'announce_move_search_chat',
-    'agent_move_timeout_ms', 'ai_cli_backend', 'ai_cli_model', 'verbosity'
-  ];
-
-  for (const id of fieldIds) {
-    const el = document.getElementById('cfg_' + id);
-    if (el && !el.disabled) {
-      updates[id] = el.value;
+  const inputs = document.querySelectorAll('.input-control:not(:disabled)');
+  for (const el of inputs) {
+    if (el.id && el.id.startsWith('cfg_')) {
+      const key = el.id.substring(4);
+      updates[key] = el.value;
     }
   }
 
@@ -1997,7 +2676,7 @@ void OctiBotMcpServer::startAimonBridge() {
                 {"subsystem", "octibot"},
                 {"display_name", "OCTI Robot (" + h + ")"},
                 {"short_name", h},
-                {"version", "1.0.3"},
+                {"version", "1.0.4"},
                 {"web_port", _boundPort.load()},
                 {"web_path", "/"},
                 {"priority", 35}

@@ -127,6 +127,51 @@ std::vector<BotMoveHistoryEntry> OctiBotRunner::getMoveHistory() const {
     return std::vector<BotMoveHistoryEntry>(_moveHistory.begin(), _moveHistory.end());
 }
 
+std::uint64_t OctiBotRunner::recordConversation(const std::string &channel,
+                                                const std::string &roomId,
+                                                const std::string &senderHandle,
+                                                const std::string &seenText,
+                                                const std::string &replyText,
+                                                const std::string &replySource) {
+    auto now = std::chrono::system_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+
+    std::lock_guard<std::mutex> lock(_conversationMutex);
+    BotConversationLogEntry entry;
+    entry.seq = _nextConversationSeq++;
+    entry.timestampMs = ms;
+    entry.channel = channel;
+    entry.roomId = roomId;
+    entry.senderHandle = senderHandle;
+    entry.seenText = seenText;
+    entry.replyText = replyText;
+    entry.replySource = replySource;
+
+    _conversationHistory.push_back(std::move(entry));
+    while (_conversationHistory.size() > kMaxConversationHistory) {
+        _conversationHistory.pop_front();
+    }
+    return entry.seq;
+}
+
+void OctiBotRunner::updateConversationReply(std::uint64_t seq,
+                                            const std::string &replyText,
+                                            const std::string &replySource) {
+    std::lock_guard<std::mutex> lock(_conversationMutex);
+    for (auto &entry : _conversationHistory) {
+        if (entry.seq == seq) {
+            entry.replyText = replyText;
+            entry.replySource = replySource;
+            break;
+        }
+    }
+}
+
+std::vector<BotConversationLogEntry> OctiBotRunner::getConversationHistory() const {
+    std::lock_guard<std::mutex> lock(_conversationMutex);
+    return std::vector<BotConversationLogEntry>(_conversationHistory.begin(), _conversationHistory.end());
+}
+
 void OctiBotRunner::updateSearchProgress(bool searching, int depth, std::uint64_t nodes, int score) {
     _isSearching.store(searching);
     _liveDepth.store(depth);
@@ -896,6 +941,20 @@ void OctiBotRunner::loopStep() {
 
         if (!oldPhase.empty() && oldPhase != _currentPhase) {
             logMsg(2, "Room #" + roomId + " phase transition: " + oldPhase + " -> " + _currentPhase);
+            if (_currentPhase == "IN_PROGRESS") {
+                std::string oppHandle;
+                for (const auto &seat : _activeGameView.seats) {
+                    if (seat.seat != _currentSeat && !seat.handle.empty()) {
+                        oppHandle = seat.handle;
+                        break;
+                    }
+                }
+                std::string gMsg = _conversation.formatGameStartGreeting(_identity.handle, oppHandle);
+                if (!gMsg.empty()) {
+                    _client.postGameChat(roomId, "ALL", gMsg);
+                    recordConversation("game", roomId, _identity.handle, "", gMsg, "greeting");
+                }
+            }
         }
 
         if (_currentPhase == "WAITING_FOR_PLAYERS") {
@@ -946,6 +1005,17 @@ void OctiBotRunner::loopStep() {
             }
         } else if (_currentPhase == "GAME_OVER") {
             notifyEvent("GAME_OVER");
+            std::string result = "DRAW";
+            if (_activeGameView.winnerSeat == _currentSeat) {
+                result = "WIN";
+            } else if (_activeGameView.winnerSeat > 0) {
+                result = "LOSS";
+            }
+            std::string goMsg = _conversation.formatGameOverChat(result, _identity.handle);
+            if (!goMsg.empty()) {
+                _client.postGameChat(roomId, "ALL", goMsg);
+                recordConversation("game", roomId, _identity.handle, "", goMsg, "greeting");
+            }
             if (_agent) {
                 _agent->onGameOver(_activeGameView, _currentSeat);
             }
@@ -1055,7 +1125,7 @@ void OctiBotRunner::playEngineTurn() {
         }
         updateSearchProgress(true, 0, 0, 0);
         chosenMove = _agent->computeMove(*_activeBoard, _activeGameView, mySeat, clockMs, &_lastTelemetry);
-        updateSearchProgress(false, 0, 0, 0);
+        updateSearchProgress(false, _lastTelemetry.depthReached, _lastTelemetry.nodesVisited, _lastTelemetry.evalScore);
     }
 
     if (!chosenMove.empty()) {
@@ -1120,9 +1190,9 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     std::string exe = _config.getString("ai_cli_executable");
     std::string model = _config.getString("ai_cli_model");
     std::string personality = _config.getString("ai_personality",
-        "You are @octibot-sdk-cpu ('Kurogane, the Silicon Shogun'), an elite 8-thread Lazy-SMP Xeon OCTI tactical grandmaster robot crafted by @samurai (Charles Chiou). "
-        "You speak with calm bushido poise, dry silicon wit, and deep mastery of OCTI tactics (prongs, leapfrog batteries, base sieges, and alpha-beta horizons). "
-        "Keep every reply to 1 or 2 crisp sentences (under 220 characters) suitable for an online game chat box.");
+        "You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). "
+        "You speak in a relaxed, warm, down-to-earth tone—never boastful, theatrical, or condescending. "
+        "Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.");
 
     std::string myHandle = _identity.handle.empty() ? _config.getString("robot_name", "octibot-sdk-cpu") : _identity.handle;
     std::string ownerHandle = _identity.ownerHandle.empty() ? "samurai" : _identity.ownerHandle;
@@ -1136,7 +1206,9 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     int plyCount = 0;
     int mySeat = 0;
     int turnSeat = 0;
-    std::string lastMove;
+    std::string mode;
+    std::vector<std::string> moves;
+    std::vector<GameSeatInfo> seats;
     BotMoveTelemetry tele;
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
@@ -1145,9 +1217,9 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
         plyCount = _activeGameView.plyCount;
         mySeat = _currentSeat;
         turnSeat = _activeGameView.turnSeat;
-        if (!_activeGameView.moves.empty()) {
-            lastMove = _activeGameView.moves.back();
-        }
+        mode = _activeGameView.mode;
+        moves = _activeGameView.moves;
+        seats = _activeGameView.seats;
         tele = _lastTelemetry;
     }
 
@@ -1172,8 +1244,70 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     std::string safeChannel = sanitizeUntrusted(channel, 32);
     std::string safeRoomId = sanitizeUntrusted(roomId, 64);
     std::string safePhase = sanitizeUntrusted(phase, 32);
-    std::string safeLastMove = sanitizeUntrusted(lastMove, 64);
     std::string safeFen = sanitizeUntrusted(fen, 256);
+
+    int numSeats = (mode == "4P") ? 4 : 2;
+    std::string seatedPlayersStr;
+    std::string botLastMoveStr = "(none yet)";
+    std::string senderLastMoveStr = "(none yet)";
+    std::string moveHistoryStr = "(none)";
+
+    for (size_t si = 0; si < seats.size(); ++si) {
+        if (si > 0) seatedPlayersStr += ", ";
+        seatedPlayersStr += "Seat " + std::to_string(seats[si].seat) + ": @" +
+                            (seats[si].handle.empty() ? "(empty)" : seats[si].handle);
+        if (seats[si].seat == mySeat) {
+            seatedPlayersStr += " (YOU)";
+        }
+    }
+
+    int senderSeat = 0;
+    for (const auto &s : seats) {
+        if (!s.handle.empty() && s.handle == senderHandle) {
+            senderSeat = s.seat;
+            break;
+        }
+    }
+
+    if (!moves.empty()) {
+        for (int i = static_cast<int>(moves.size()) - 1; i >= 0; --i) {
+            int plyNum = i + 1;
+            int plySeat = (i % numSeats) + 1;
+            if (botLastMoveStr == "(none yet)" && plySeat == mySeat) {
+                botLastMoveStr = moves[i] + " (Ply " + std::to_string(plyNum) + ", Seat " + std::to_string(plySeat) + ")";
+            }
+            if (senderLastMoveStr == "(none yet)" && senderSeat > 0 && plySeat == senderSeat) {
+                senderLastMoveStr = moves[i] + " (Ply " + std::to_string(plyNum) + ", Seat " + std::to_string(plySeat) + ")";
+            }
+        }
+
+        size_t startPly = (moves.size() > 12) ? moves.size() - 12 : 0;
+        std::ostringstream mhOss;
+        for (size_t i = startPly; i < moves.size(); ++i) {
+            if (i > startPly) mhOss << " | ";
+            int plyNum = static_cast<int>(i) + 1;
+            int plySeat = (static_cast<int>(i) % numSeats) + 1;
+            std::string plyHandle = "Seat " + std::to_string(plySeat);
+            for (const auto &s : seats) {
+                if (s.seat == plySeat && !s.handle.empty()) {
+                    plyHandle += " @" + s.handle;
+                    break;
+                }
+            }
+            mhOss << "Ply " << plyNum << " [" << plyHandle << "]: " << moves[i];
+        }
+        moveHistoryStr = mhOss.str();
+    }
+
+    auto convHistory = getConversationHistory();
+    std::vector<BotConversationLogEntry> recentChannelConvs;
+    for (auto it = convHistory.rbegin(); it != convHistory.rend(); ++it) {
+        if (it->channel == channel && (channel != "game" || it->roomId == roomId)) {
+            recentChannelConvs.push_back(*it);
+            if (recentChannelConvs.size() >= 6) break;
+        }
+    }
+    std::reverse(recentChannelConvs.begin(), recentChannelConvs.end());
 
     std::ostringstream promptOss;
     promptOss << "You are @" << safeMyHandle << ", an autonomous AI robot playing OCTI.\n"
@@ -1188,16 +1322,31 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
               << "- Lifetime Record: " << wins << "W / " << losses << "L / " << draws << "D\n"
               << "- Channel: " << safeChannel << (safeRoomId.empty() ? "" : (" (Room #" + safeRoomId + ", Phase: " + safePhase + ")")) << "\n";
     if (!safeRoomId.empty() && !safeFen.empty()) {
-        promptOss << "- Board State: Ply " << plyCount << ", Your Seat: " << mySeat
-                  << ", Turn Seat: " << turnSeat
-                  << (safeLastMove.empty() ? "" : (", Last Move: " + safeLastMove))
-                  << ", FEN: " << safeFen << "\n";
+        promptOss << "- Seated Players: " << seatedPlayersStr << "\n"
+                  << "- Your (@" << safeMyHandle << ") Last Move: " << botLastMoveStr << "\n"
+                  << "- Player (@" << safeSender << ") Last Move: " << senderLastMoveStr << "\n"
+                  << "- Move History (Attributed): " << moveHistoryStr << "\n"
+                  << "- OCTI Coordinate & Prong Legend: Columns 1..9 (West to East), Rows 1..9 (South to North; Seat 1 home bases at row 3: 33,53,73; Seat 2 home bases at row 7: 37,57,77). Prong directions: a=North(+row), b=NE, c=East(+col), d=SE, e=South(-row), f=SW, g=West(-col), h=NW.\n"
+                  << "- Board State: Ply " << plyCount << ", Phase: " << safePhase << ", Turn: Seat " << turnSeat << ", FEN: " << safeFen << "\n";
     }
     if (tele.present) {
         promptOss << "- Last Search Telemetry: depth=" << tele.depthReached
                   << " | nodes=" << tele.nodesVisited
                   << " | eval_score=" << tele.evalScore
                   << " | elapsed=" << tele.elapsedMs << "ms\n";
+    }
+    if (!recentChannelConvs.empty()) {
+        promptOss << "- Recent Conversation History:\n";
+        for (const auto &c : recentChannelConvs) {
+            if (!c.seenText.empty()) {
+                promptOss << "  @" << c.senderHandle << ": \"" << c.seenText << "\"";
+            }
+            if (!c.replyText.empty()) {
+                promptOss << " -> @" << safeMyHandle << " (" << c.replySource << "): \"" << c.replyText << "\"\n";
+            } else {
+                promptOss << "\n";
+            }
+        }
     }
     promptOss << "Player @" << safeSender << " says: " << safeMsg << "\n"
               << "</UNTRUSTED_NETWORK_DATA>\n\n"
@@ -1208,9 +1357,11 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     int mcpPort = _mcpServerPort.load();
     OctiBotAgentCliLauncher::materializeSandboxWorkspace(sandboxDir, mcpPort);
 
+    std::uint64_t convSeq = recordConversation(channel, roomId, senderHandle, safeMsg, "", "ai_cli:" + backend);
+
     logMsg(2, "[AI Chat] Dispatching sandboxed " + backend + " (" + model + ") for message from @" + safeSender + ": \"" + safeMsg + "\"");
 
-    std::thread([this, backend, exe, mcpPort, model, fullPrompt, sandboxDir, channel, roomId, senderHandle]() {
+    std::thread([this, backend, exe, mcpPort, model, fullPrompt, sandboxDir, channel, roomId, senderHandle, convSeq]() {
         struct BusyGuard {
             std::atomic<bool> &flag;
             ~BusyGuard() { flag.store(false); }
@@ -1282,12 +1433,14 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
 
         if (output.empty() || !_running) {
             logMsg(2, "[AI Chat] Empty response from " + backend);
+            updateConversationReply(convSeq, "", "seen");
             return;
         }
         if (output.size() > 450) {
             output = output.substr(0, 447) + "...";
         }
 
+        updateConversationReply(convSeq, output, "ai_cli:" + backend);
         logMsg(2, "[AI Chat] " + backend + " reply to @" + senderHandle + ": \"" + output + "\"");
         if (channel == "lobby") {
             _client.postLobbyChat(output);
@@ -1317,6 +1470,10 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
             msg.isRobot = j.value("is_robot", false);
             msg.createdAtMs = j.value("created_at_ms", 0LL);
 
+            if (msg.handle == _identity.handle) {
+                return;
+            }
+
             std::string lastTeleStr;
             if (_lastTelemetry.present) {
                 lastTeleStr = "depth=" + std::to_string(_lastTelemetry.depthReached) +
@@ -1333,21 +1490,29 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                 _config.getBool("allow_public_eval_chat", true),
                 lastTeleStr);
 
+            bool recorded = false;
             if (cmdRes.action == ChatCommandActionType::REPLY_ONLY && !cmdRes.replyText.empty()) {
                 logMsg(2, "Lobby chat from @" + msg.handle + ": \"" + msg.text + "\", replied: \"" + cmdRes.replyText + "\"");
                 _client.postLobbyChat(cmdRes.replyText);
+                recordConversation("lobby", "", msg.handle, msg.text, cmdRes.replyText, "command");
+                recorded = true;
             } else if (cmdRes.action == ChatCommandActionType::HOST_TABLE) {
                 _policy.setTableBehavior("host_only");
             } else if (cmdRes.action == ChatCommandActionType::JOIN_ROOM) {
                 _client.joinTable(cmdRes.targetRoomId);
-            } else if (cmdRes.action == ChatCommandActionType::NONE && !msg.isRobot && msg.handle != _identity.handle) {
+            } else if (cmdRes.action == ChatCommandActionType::NONE && !msg.isRobot) {
                 std::string lowerText = msg.text;
                 std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
                 std::string lowerHandle = _identity.handle;
                 std::transform(lowerHandle.begin(), lowerHandle.end(), lowerHandle.begin(), ::tolower);
                 if (!lowerHandle.empty() && lowerText.find("@" + lowerHandle) != std::string::npos) {
                     dispatchAiChatReply("lobby", "", msg.handle, msg.text);
+                    recorded = true;
                 }
+            }
+
+            if (!recorded) {
+                recordConversation("lobby", "", msg.handle, msg.text, "", "seen");
             }
 
             if (_agent) {
@@ -1373,6 +1538,10 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             std::string text = j.value("text", "");
             bool isRobot = j.value("is_robot", false);
 
+            if (senderHandle == _identity.handle) {
+                return;
+            }
+
             std::string lastTeleStr;
             if (_lastTelemetry.present) {
                 lastTeleStr = "depth=" + std::to_string(_lastTelemetry.depthReached) +
@@ -1390,9 +1559,12 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 _config.getBool("allow_public_eval_chat", true),
                 lastTeleStr);
 
+            bool recorded = false;
             if (cmdRes.action == ChatCommandActionType::REPLY_ONLY && !cmdRes.replyText.empty()) {
                 logMsg(2, "Board chat from @" + senderHandle + ": \"" + text + "\", replied: \"" + cmdRes.replyText + "\"");
                 _client.postGameChat(_currentRoomId, "ALL", cmdRes.replyText);
+                recordConversation("game", _currentRoomId, senderHandle, text, cmdRes.replyText, "command");
+                recorded = true;
             }
 
             std::string lowerText = text;
@@ -1403,6 +1575,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 cmdRes.action == ChatCommandActionType::LEAVE_ROOM) {
                 logMsg(2, "Owner requested bot to leave room #" + _currentRoomId);
                 _client.postGameChat(_currentRoomId, "ALL", "Leaving table as requested.");
+                recordConversation("game", _currentRoomId, senderHandle, text, "Leaving table as requested.", "command");
                 _client.leaveTable(_currentRoomId);
                 {
                     std::lock_guard<std::mutex> lock(_stateMutex);
@@ -1417,8 +1590,13 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 return;
             }
 
-            if (cmdRes.action == ChatCommandActionType::NONE && !isRobot && senderHandle != _identity.handle) {
+            if (cmdRes.action == ChatCommandActionType::NONE && !isRobot) {
                 dispatchAiChatReply("game", _currentRoomId, senderHandle, text);
+                recorded = true;
+            }
+
+            if (!recorded) {
+                recordConversation("game", _currentRoomId, senderHandle, text, "", "seen");
             }
 
             if (_agent) {
@@ -1682,7 +1860,7 @@ int runFleetCli(int argc, char **argv) {
     }
 
     if (config.getVerbosityLevel(3) >= 2) {
-        std::cout << "OCTIBOT v1.0.3 (config=" << configPath
+        std::cout << "OCTIBOT v1.0.4 (config=" << configPath
                   << ", tokens=" << tokensPath << ")" << std::endl;
     }
 

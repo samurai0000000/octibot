@@ -1120,12 +1120,24 @@ TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
 
     httplib::Client client("127.0.0.1", port);
 
+    // Record sample conversation
+    auto cseq = runner.recordConversation("lobby", "", "samurai", "hello bot", "", "seen");
+    CHECK_TRUE(cseq > 0);
+    runner.updateConversationReply(cseq, "hello samurai", "command");
+    auto chist = runner.getConversationHistory();
+    CHECK_EQUAL(1, chist.size());
+    CHECK_EQUAL("hello samurai", chist[0].replyText);
+    CHECK_EQUAL("command", chist[0].replySource);
+
     // 1. GET / -> HTML
     auto resIndex = client.Get("/");
     CHECK_TRUE(resIndex != nullptr);
     CHECK_EQUAL(200, resIndex->status);
     CHECK_TRUE(resIndex->body.find("OCTIBOT Telemetry & Control") != std::string::npos);
     CHECK_TRUE(resIndex->body.find("Live stdout Console") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("<textarea class=\"console-output\" id=\"consoleOutput\" readonly spellcheck=\"false\">") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("Agent Conversation Log") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("telemetryGraphSvg") != std::string::npos);
 
     // 2. GET /api/v1/status -> JSON
     auto resStatus = client.Get("/api/v1/status");
@@ -1137,6 +1149,13 @@ TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
     CHECK_TRUE(statusJson["robot"].contains("handle"));
     CHECK_TRUE(statusJson.contains("match"));
     CHECK_TRUE(statusJson.contains("engine"));
+    CHECK_TRUE(statusJson.contains("conversations"));
+    CHECK_TRUE(statusJson["conversations"].is_array());
+    CHECK_EQUAL(1, statusJson["conversations"].size());
+    CHECK_EQUAL("samurai", statusJson["conversations"][0]["sender_handle"].get<std::string>());
+    CHECK_EQUAL("hello bot", statusJson["conversations"][0]["seen_text"].get<std::string>());
+    CHECK_EQUAL("hello samurai", statusJson["conversations"][0]["reply_text"].get<std::string>());
+    CHECK_EQUAL("command", statusJson["conversations"][0]["reply_source"].get<std::string>());
 
     // 3. GET /api/v1/logs -> JSON
     auto resLogs = client.Get("/api/v1/logs");
@@ -1158,10 +1177,23 @@ TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
     CHECK_TRUE(configJson.contains("locked_keys"));
     CHECK_TRUE(configJson.contains("active_profile"));
     CHECK_FALSE(configJson["entries"].contains("bot_token"));
+    // Verify non-empty effective defaults for board & tactical weights and policy
+    CHECK_TRUE(configJson["entries"].contains("captured_enemy_base_bonus"));
+    CHECK_TRUE(!configJson["entries"]["captured_enemy_base_bonus"].get<std::string>().empty());
+    CHECK_TRUE(configJson["entries"].contains("pod_zero_prong_val"));
+    CHECK_TRUE(!configJson["entries"]["pod_zero_prong_val"].get<std::string>().empty());
+    CHECK_TRUE(configJson["entries"].contains("leapfrog_battery_weight"));
+    CHECK_TRUE(!configJson["entries"]["leapfrog_battery_weight"].get<std::string>().empty());
+    CHECK_TRUE(configJson["entries"].contains("table_behavior"));
+    CHECK_EQUAL("auto", configJson["entries"]["table_behavior"].get<std::string>());
+    CHECK_TRUE(configJson["entries"].contains("accept_modes"));
+    CHECK_TRUE(configJson["entries"].contains("ai_personality"));
+    CHECK_TRUE(configJson["entries"]["ai_personality"].get<std::string>().find("mellow, friendly") != std::string::npos);
 
     // 5. POST /api/v1/config -> JSON update
     nlohmann::json updateReq;
     updateReq["updates"]["verbosity"] = "2";
+    updateReq["updates"]["captured_enemy_base_bonus"] = "35000";
     updateReq["save_to_disk"] = false;
     auto resPost = client.Post("/api/v1/config", updateReq.dump(), "application/json");
     CHECK_TRUE(resPost != nullptr);

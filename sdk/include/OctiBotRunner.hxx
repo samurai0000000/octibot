@@ -41,10 +41,22 @@ struct BotMoveHistoryEntry {
     std::int64_t timestampMs = 0;
 };
 
+struct BotConversationLogEntry {
+    std::uint64_t seq = 0;
+    std::int64_t timestampMs = 0;
+    std::string channel;      // "lobby" or "game"
+    std::string roomId;
+    std::string senderHandle;
+    std::string seenText;
+    std::string replyText;
+    std::string replySource;  // "ai_cli:agy", "command", "greeting", "seen"
+};
+
 class OctiBotRunner {
 public:
     static constexpr std::size_t kMaxLogLines = 5000;
     static constexpr std::size_t kMaxMoveHistory = 50;
+    static constexpr std::size_t kMaxConversationHistory = 500;
 
     OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
                   const OctiBotConfigStore &config,
@@ -107,6 +119,18 @@ public:
     int liveScore() const { return _liveScore.load(); }
     void updateSearchProgress(bool searching, int depth = 0, std::uint64_t nodes = 0, int score = 0);
 
+    // Conversation history
+    std::uint64_t recordConversation(const std::string &channel,
+                                     const std::string &roomId,
+                                     const std::string &senderHandle,
+                                     const std::string &seenText,
+                                     const std::string &replyText,
+                                     const std::string &replySource);
+    void updateConversationReply(std::uint64_t seq,
+                                 const std::string &replyText,
+                                 const std::string &replySource);
+    std::vector<BotConversationLogEntry> getConversationHistory() const;
+
     // MCP server port registration
     void setMcpServerPort(int port) { _mcpServerPort = port; }
     int mcpServerPort() const { return _mcpServerPort.load(); }
@@ -160,6 +184,11 @@ private:
     // Rolling 50-move history
     mutable std::mutex _historyMutex;
     std::deque<BotMoveHistoryEntry> _moveHistory;
+
+    // Rolling 500-conversation history
+    mutable std::mutex _conversationMutex;
+    std::deque<BotConversationLogEntry> _conversationHistory;
+    std::uint64_t _nextConversationSeq = 1;
 
     // 5,000-line stdout ring buffer
     mutable std::mutex _logMutex;
