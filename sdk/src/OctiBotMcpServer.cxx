@@ -19,6 +19,7 @@
 #if !defined(_WIN32)
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <sys/prctl.h>
@@ -185,6 +186,133 @@ OctiBotMcpServer::~OctiBotMcpServer() {
     stopHttpServer();
 }
 
+nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
+    nlohmann::json tools = nlohmann::json::array();
+
+    tools.push_back({
+        {"name", "octibot_get_skill_guide"},
+        {"description", "Retrieve canonical OCTI AI rules, notation, tactical strategy, tuning, and workflow guide."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"topic", {{"type", "string"}, {"description", "all, rules, notation, strategy, tuning, workflow"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_get_status"},
+        {"description", "Get robot connection status, assigned handle, owner, active room, and record."},
+        {"inputSchema", {{"type", "object"}}}
+    });
+
+    tools.push_back({
+        {"name", "octibot_get_lobby"},
+        {"description", "Inspect lobby players, open tables, recent chat, and unread chat messages."},
+        {"inputSchema", {{"type", "object"}}}
+    });
+
+    tools.push_back({
+        {"name", "octibot_find_or_host_table"},
+        {"description", "Find compatible open tables or host a table according to policy."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"auto_join", {{"type", "boolean"}, {"description", "Automatically join best table if found"}}},
+                {"auto_host", {{"type", "boolean"}, {"description", "Host a new table if no compatible table found"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_table_action"},
+        {"description", "Execute table actions: create, join, leave, kick, observe, unobserve, enqueue_matchmaking, dequeue_matchmaking."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"required", {"action"}},
+            {"properties", {
+                {"action", {{"type", "string"}}},
+                {"room_id", {{"type", "string"}}},
+                {"seat", {{"type", "integer"}}},
+                {"mode", {{"type", "string"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_get_game_state"},
+        {"description", "Get active game room FEN, turn seat, clocks, ASCII board representation, and legal moves."},
+        {"inputSchema", {{"type", "object"}}}
+    });
+
+    tools.push_back({
+        {"name", "octibot_analyze_position"},
+        {"description", "Run alpha-beta search on active game board (or custom FEN) and return top candidate moves scored with tactical flags."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"top_k", {{"type", "integer"}, {"description", "Number of top moves to return (default 3)"}}},
+                {"fen", {{"type", "string"}, {"description", "Optional custom FEN string"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_game_action"},
+        {"description", "Submit a move or game proposal action (resign, offer_draw, accept_proposal, decline_proposal, request_undo, request_pause, resume, request_rematch, claim_forfeit)."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"required", {"action"}},
+            {"properties", {
+                {"action", {{"type", "string"}, {"description", "move, resign, offer_draw, accept_proposal, etc."}}},
+                {"move", {{"type", "string"}, {"description", "Move notation when action is 'move'"}}},
+                {"arg", {{"type", "string"}, {"description", "Proposal type argument"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_send_chat"},
+        {"description", "Send a chat message to lobby or game room."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"required", {"channel", "message"}},
+            {"properties", {
+                {"channel", {{"type", "string"}, {"description", "lobby or game"}}},
+                {"message", {{"type", "string"}}},
+                {"scope", {{"type", "string"}, {"description", "ALL or TEAM (for game chat)"}}},
+                {"mark_inbox_read", {{"type", "boolean"}, {"description", "Mark conversation inbox read"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_configure_policy"},
+        {"description", "Inspect or update bot configuration parameters and policy rules."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"key", {{"type", "string"}}},
+                {"value", {{"type", "string"}}},
+                {"save_to_file", {{"type", "boolean"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
+        {"name", "octibot_wait_for_event"},
+        {"description", "Block until an event occurs (bot move turn, chat mention, proposal, game start/end)."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"timeout_ms", {{"type", "integer"}, {"description", "Max wait time in ms (default 30000)"}}}
+            }}
+        }}
+    });
+
+    return tools;
+}
+
 std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     nlohmann::json req;
     try {
@@ -200,6 +328,10 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     nlohmann::json id = req.value("id", nlohmann::json());
     std::string method = req.value("method", "");
     nlohmann::json params = req.value("params", nlohmann::json::object());
+
+    if (!req.is_object() || (!req.contains("method") && (req.contains("result") || req.contains("error")))) {
+        return "";
+    }
 
     if (method == "notifications/initialized") {
         return "";
@@ -218,7 +350,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
         };
         result["serverInfo"] = {
             {"name", "octibot"},
-            {"version", "1.0.1"}
+            {"version", "1.0.2"}
         };
         resp["result"] = result;
         return resp.dump();
@@ -258,130 +390,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     }
 
     if (method == "tools/list") {
-        nlohmann::json tools = nlohmann::json::array();
-
-        tools.push_back({
-            {"name", "octibot_get_skill_guide"},
-            {"description", "Retrieve canonical OCTI AI rules, notation, tactical strategy, tuning, and workflow guide."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"properties", {
-                    {"topic", {{"type", "string"}, {"description", "all, rules, notation, strategy, tuning, workflow"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_get_status"},
-            {"description", "Get robot connection status, assigned handle, owner, active room, and record."},
-            {"inputSchema", {{"type", "object"}}}
-        });
-
-        tools.push_back({
-            {"name", "octibot_get_lobby"},
-            {"description", "Inspect lobby players, open tables, recent chat, and unread chat messages."},
-            {"inputSchema", {{"type", "object"}}}
-        });
-
-        tools.push_back({
-            {"name", "octibot_find_or_host_table"},
-            {"description", "Find compatible open tables or host a table according to policy."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"properties", {
-                    {"auto_join", {{"type", "boolean"}, {"description", "Automatically join best table if found"}}},
-                    {"auto_host", {{"type", "boolean"}, {"description", "Host a new table if no compatible table found"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_table_action"},
-            {"description", "Execute table actions: create, join, leave, kick, observe, unobserve, enqueue_matchmaking, dequeue_matchmaking."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"required", {"action"}},
-                {"properties", {
-                    {"action", {{"type", "string"}}},
-                    {"room_id", {{"type", "string"}}},
-                    {"seat", {{"type", "integer"}}},
-                    {"mode", {{"type", "string"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_get_game_state"},
-            {"description", "Get active game room FEN, turn seat, clocks, ASCII board representation, and legal moves."},
-            {"inputSchema", {{"type", "object"}}}
-        });
-
-        tools.push_back({
-            {"name", "octibot_analyze_position"},
-            {"description", "Run alpha-beta search on active game board (or custom FEN) and return top candidate moves scored with tactical flags."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"properties", {
-                    {"top_k", {{"type", "integer"}, {"description", "Number of top moves to return (default 3)"}}},
-                    {"fen", {{"type", "string"}, {"description", "Optional custom FEN string"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_game_action"},
-            {"description", "Submit a move or game proposal action (resign, offer_draw, accept_proposal, decline_proposal, request_undo, request_pause, resume, request_rematch, claim_forfeit)."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"required", {"action"}},
-                {"properties", {
-                    {"action", {{"type", "string"}, {"description", "move, resign, offer_draw, accept_proposal, etc."}}},
-                    {"move", {{"type", "string"}, {"description", "Move notation when action is 'move'"}}},
-                    {"arg", {{"type", "string"}, {"description", "Proposal type argument"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_send_chat"},
-            {"description", "Send a chat message to lobby or game room."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"required", {"channel", "message"}},
-                {"properties", {
-                    {"channel", {{"type", "string"}, {"description", "lobby or game"}}},
-                    {"message", {{"type", "string"}}},
-                    {"scope", {{"type", "string"}, {"description", "ALL or TEAM (for game chat)"}}},
-                    {"mark_inbox_read", {{"type", "boolean"}, {"description", "Mark conversation inbox read"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_configure_policy"},
-            {"description", "Inspect or update bot configuration parameters and policy rules."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"properties", {
-                    {"key", {{"type", "string"}}},
-                    {"value", {{"type", "string"}}},
-                    {"save_to_file", {{"type", "boolean"}}}
-                }}
-            }}
-        });
-
-        tools.push_back({
-            {"name", "octibot_wait_for_event"},
-            {"description", "Block until an event occurs (bot move turn, chat mention, proposal, game start/end)."},
-            {"inputSchema", {
-                {"type", "object"},
-                {"properties", {
-                    {"timeout_ms", {{"type", "integer"}, {"description", "Max wait time in ms (default 30000)"}}}
-                }}
-            }}
-        });
-
-        resp["result"] = {{"tools", tools}};
+        resp["result"] = {{"tools", buildToolsListJson()}};
         return resp.dump();
     }
 
@@ -844,33 +853,50 @@ void OctiBotMcpServer::startAimonBridge() {
 
     _aimonThread = std::make_unique<std::thread>([this]() {
         std::string host = _runner.config().getString("aimon_host", "127.0.0.1");
-        int port = _runner.config().getInt("aimon_port", 3885);
+        int gwPort = _runner.config().getInt("aimon_gateway_port", 0);
+        int aimonPort = _runner.config().getInt("aimon_port", 3883);
+        int port = (gwPort > 0) ? gwPort : ((aimonPort == 3883) ? 3885 : aimonPort);
 
         while (_aimonRunning) {
 #if !defined(_WIN32)
-            int sock = ::socket(AF_INET, SOCK_STREAM, 0);
-            if (sock < 0) {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                continue;
-            }
-
-            struct sockaddr_in serv_addr;
-            std::memset(&serv_addr, 0, sizeof(serv_addr));
-            serv_addr.sin_family = AF_INET;
-            serv_addr.sin_port = htons(port);
-            ::inet_pton(AF_INET, host.c_str(), &serv_addr.sin_addr);
-
-            if (::connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-                ::close(sock);
+            struct addrinfo hints, *res = nullptr;
+            std::memset(&hints, 0, sizeof(hints));
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            std::string portStr = std::to_string(port);
+            if (::getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+                if (res) {
+                    ::freeaddrinfo(res);
+                    res = nullptr;
+                }
                 std::this_thread::sleep_for(std::chrono::seconds(3));
                 continue;
             }
 
-            _aimonSocketFd = sock;
+            int sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+            if (sock < 0) {
+                ::freeaddrinfo(res);
+                res = nullptr;
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                continue;
+            }
 
-            // Send registration
+            if (::connect(sock, res->ai_addr, res->ai_addrlen) < 0) {
+                ::close(sock);
+                ::freeaddrinfo(res);
+                res = nullptr;
+                std::this_thread::sleep_for(std::chrono::seconds(3));
+                continue;
+            }
+            ::freeaddrinfo(res);
+            res = nullptr;
+
+            _aimonSocketFd = sock;
             std::string h = _runner.identity().handle;
             if (h.empty()) h = "octibot";
+            std::cout << "[" << h << "] Connected to aimon gateway at " << host << ":" << port << "\n";
+
+            // Send registration
             nlohmann::json reg;
             reg["jsonrpc"] = "2.0";
             reg["id"] = 1;
@@ -879,8 +905,11 @@ void OctiBotMcpServer::startAimonBridge() {
                 {"subsystem", "octibot"},
                 {"display_name", "OCTI Robot (" + h + ")"},
                 {"short_name", h},
-                {"version", "1.0.1"}
+                {"version", "1.0.2"}
             };
+            if (_runner.config().getBool("expose_mcp_tools", true)) {
+                reg["params"]["tools"] = buildToolsListJson();
+            }
             std::string regStr = reg.dump() + "\n";
             ::send(sock, regStr.c_str(), regStr.size(), 0);
 
@@ -898,6 +927,20 @@ void OctiBotMcpServer::startAimonBridge() {
                     std::string line = buf.substr(0, nl);
                     buf.erase(0, nl + 1);
                     if (line.empty()) continue;
+
+                    try {
+                        auto j = nlohmann::json::parse(line, nullptr, false);
+                        if (j.is_object() && !j.contains("method") && (j.contains("result") || j.contains("error"))) {
+                            if (j.contains("result") && j["result"].is_object()) {
+                                int registeredTools = j["result"].value("registered_tools", 0);
+                                if (_runner.verbosity() >= 2) {
+                                    std::cout << "[" << h << "] Registered " << registeredTools
+                                              << " MCP tools with aimon gateway (" << host << ":" << port << ")\n";
+                                }
+                            }
+                            continue;
+                        }
+                    } catch (...) {}
 
                     std::string resp = handleJsonRpc(line);
                     if (!resp.empty()) {

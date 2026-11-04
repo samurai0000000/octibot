@@ -106,6 +106,14 @@ else()
     )
 endif()
 
+add_executable(octi_book_gen
+    src/OctiBookGenMain.cxx
+)
+
+target_link_libraries(octi_book_gen PRIVATE
+    octi_core
+)
+
 if(OCTI_CORE_BUILD_TESTS AND NOT WIN32)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(CPPUTEST REQUIRED cpputest)

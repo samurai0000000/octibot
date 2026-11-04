@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <nlohmann/json.hpp>
 #include "OctiBotRunner.hxx"
 
 namespace httplib {
@@ -36,6 +37,8 @@ public:
 
     void startAimonBridge();
     void stopAimonBridge();
+
+    nlohmann::json buildToolsListJson() const;
 
     static std::string getSkillGuideContent(const std::string &topic = "all");
 

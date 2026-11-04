@@ -8,6 +8,7 @@
 #define OCTI_BOT_ENGINE_HXX
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -31,10 +32,27 @@ struct BotSearchStats {
     long elapsedMs = 0;
 };
 
+struct OpeningBookCandidate {
+    const char *move;
+    std::int16_t score;
+};
+
+struct OpeningBookEntry {
+    std::uint64_t canonicalKey;
+    std::uint8_t depth;
+    std::uint8_t numCandidates;
+    OpeningBookCandidate candidates[3];
+};
+
+struct BookMoveScore {
+    std::string move;
+    std::int16_t score = 0;
+};
+
 struct BotTuningProfile {
     // --- 1. Search Horizon, Quiescence & Concurrency ---
-    int timeBudgetMs                 = 8000;  // Search wall-clock budget (ms)
-    int maxSearchDepth               = 6;     // Iterative deepening max depth (plies)
+    int timeBudgetMs                 = 10000; // Search wall-clock budget (ms)
+    int maxSearchDepth               = 64;    // Iterative deepening max depth (plies)
     int maxQuiesceDepth              = 2;     // Capture/base-win extension plies at depth <= 0 (0 = off)
     int quiesceBranchCap             = 6;     // Max tactical moves searched per quiescence node
     int rootBranchCap                = 36;    // Max candidate moves kept at root
@@ -42,6 +60,7 @@ struct BotTuningProfile {
     int lazySmpThreads               = 2;     // Total search threads (1 = single-thread, 4 = Lazy SMP)
     int compositeMoveMaxPly          = 1;     // Max search ply to generate multi-pod composite moves (-1 = off)
     int rootScoreJitter              = 25;    // Random root score noise [-jitter, +jitter] (0 = deterministic)
+    bool useOpeningBook              = true;  // Probe precomputed Zobrist opening playbook before live search
 
     // --- 2. Base Occupation & Distance Weights ---
     int capturedEnemyBaseBonus       = 28000; // Bonus per captured enemy home square (3-base / 4P)
@@ -113,6 +132,31 @@ public:
 
     std::string chooseMove(const OctiBoard &board,
                            BotSearchStats *outStats = nullptr);
+
+    std::vector<BookMoveScore> searchTopMovesForBook(
+        const OctiBoard &board,
+        int searchDepth,
+        int timeBudgetMs,
+        std::size_t topK = 3,
+        BotSearchStats *outStats = nullptr);
+
+    static std::uint64_t computePositionHashStatic(const OctiBoard &board);
+    static std::uint64_t computeCanonicalOpeningHash(const OctiBoard &board,
+                                                     bool *outMirrored = nullptr);
+    static std::string mirrorMoveNotation(const std::string &moveNotation,
+                                          int boardWidth);
+    bool probeOpeningBook(const OctiBoard &board,
+                          std::string &outMove,
+                          int *outScore = nullptr,
+                          int *outDepth = nullptr);
+    static bool probeOpeningBookTable(const OctiBoard &board,
+                                      const OpeningBookEntry *entries,
+                                      std::size_t entryCount,
+                                      const BotTuningProfile &profile,
+                                      std::uint64_t &rngState,
+                                      std::string &outMove,
+                                      int *outScore = nullptr,
+                                      int *outDepth = nullptr);
 
     static int evaluatePosition(const OctiBoard &board,
                                 OctiPlayer perspective,

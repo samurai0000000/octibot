@@ -715,7 +715,7 @@ TEST(OctiBotMcpServerTest, AimonMockGatewayBridge) {
     int clientSock = ::accept(servSock, nullptr, nullptr);
     CHECK_TRUE(clientSock >= 0);
 
-    char buf[1024];
+    char buf[16384];
     ssize_t n = ::recv(clientSock, buf, sizeof(buf) - 1, 0);
     CHECK_TRUE(n > 0);
     if (n > 0) {
@@ -725,6 +725,10 @@ TEST(OctiBotMcpServerTest, AimonMockGatewayBridge) {
     }
     std::string msg(buf);
     CHECK_TRUE(msg.find("gateway/register") != std::string::npos);
+    CHECK_TRUE(msg.find("\"tools\"") != std::string::npos);
+
+    std::string regResp = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"status\":\"registered\",\"registered_tools\":11,\"capability_score\":0}}\n";
+    ::send(clientSock, regResp.c_str(), regResp.size(), 0);
 
     std::string pingReq = "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"ping\"}\n";
     ::send(clientSock, pingReq.c_str(), pingReq.size(), 0);

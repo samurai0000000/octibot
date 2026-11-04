@@ -31,6 +31,7 @@ endif
 	@$(MAKE) -C $(BUILD_DIR) -j$(NUM_PROCS)
 
 test: all
+	@$(MAKE) -C $(BUILD_DIR) test_octibot_sdk -j$(NUM_PROCS)
 	@./$(BUILD_DIR)/test_octibot_sdk
 
 clean:

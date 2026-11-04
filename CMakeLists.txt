@@ -41,53 +41,35 @@ if(NOT EXISTS "${OCTIBOT_THIRD_PARTY_DIR}/json/include/nlohmann/json.hpp" OR
     message(FATAL_ERROR "third_party submodules missing in octibot")
 endif()
 
-add_library(octibot STATIC
+add_library(octibot_sdk STATIC
     sdk/src/OctiBotConfig.cxx
     sdk/src/OctiBotPolicy.cxx
     sdk/src/OctiBotRunner.cxx
     sdk/src/OctiBotMcpServer.cxx
 )
+set_target_properties(octibot_sdk PROPERTIES OUTPUT_NAME octibot)
 
-target_include_directories(octibot PUBLIC
+target_include_directories(octibot_sdk PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include
     ${CMAKE_CURRENT_SOURCE_DIR}/core/include
     ${CMAKE_CURRENT_BINARY_DIR}/core
 )
 
-target_include_directories(octibot SYSTEM PUBLIC
+target_include_directories(octibot_sdk SYSTEM PUBLIC
     ${OCTIBOT_THIRD_PARTY_DIR}/json/include
     ${OCTIBOT_THIRD_PARTY_DIR}/cpp-httplib
 )
 
-target_link_libraries(octibot PUBLIC
+target_link_libraries(octibot_sdk PUBLIC
     octi_core
 )
 
-# Reference Bot Executable
-add_executable(octibot-reference
+# Unified Single OctiBot Executable
+add_executable(octibot
     examples/reference_bot/Main.cxx
 )
-target_link_libraries(octibot-reference PRIVATE
-    octibot
-    octi_core
-)
-
-# Minimal Starter Bot Executable
-add_executable(octibot-minimal
-    examples/minimal_bot/Main.cxx
-)
-target_link_libraries(octibot-minimal PRIVATE
-    octibot
-    octi_core
-)
-
-# Centaur MCP Bot Executable
-add_executable(octibot-mcp
-    examples/reference_bot/Main.cxx
-)
-target_compile_definitions(octibot-mcp PRIVATE OCTIBOT_MCP_DEFAULT=1)
-target_link_libraries(octibot-mcp PRIVATE
-    octibot
+target_link_libraries(octibot PRIVATE
+    octibot_sdk
     octi_core
 )
 
@@ -100,7 +82,7 @@ if(OCTIBOT_BUILD_TESTS AND NOT WIN32)
     # Link in-process octi_server_lib so loopback server tests run hermetically
     set(OCTI_SERVER_SANITIZE ${OCTIBOT_SANITIZE} CACHE BOOL "" FORCE)
     set(OCTI_SERVER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../octi/server ${CMAKE_CURRENT_BINARY_DIR}/octi_server)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../octi/server ${CMAKE_CURRENT_BINARY_DIR}/octi_server EXCLUDE_FROM_ALL)
 
     add_executable(test_octibot_sdk
         test/TestOctiBotSdk.cxx
@@ -116,7 +98,7 @@ if(OCTIBOT_BUILD_TESTS AND NOT WIN32)
     )
 
     target_link_libraries(test_octibot_sdk PRIVATE
-        octibot
+        octibot_sdk
         octi_server_lib
         octi_core
         ${CPPUTEST_LIBRARIES}

@@ -19,7 +19,7 @@ BUILD_DIR := build/asan
 CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=Debug -DOCTI_CORE_SANITIZE=ON
 endif
 
-.PHONY: all clean distclean test
+.PHONY: all clean distclean test asan
 
 all:
 	@mkdir -p $(BUILD_DIR)
@@ -31,6 +31,9 @@ endif
 
 test: all
 	@./$(BUILD_DIR)/test_octi_core
+
+asan:
+	@$(MAKE) test SANITIZE=1
 
 clean:
 	@if [ -d $(BUILD_DIR) ] && [ -f $(BUILD_DIR)/Makefile ]; then \

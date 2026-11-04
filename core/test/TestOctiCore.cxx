@@ -1968,13 +1968,13 @@ TEST(OctiBotEngineCoreTest, CanonicalServerHostAndPortConstants)
 
 TEST(OctiBotEngineCoreTest, DefaultBudgetAndDepthPerDifficultyLevel)
 {
-    CHECK_EQUAL(3000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::CASUAL));
-    CHECK_EQUAL(8000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::TACTICAL));
-    CHECK_EQUAL(15000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(5000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::CASUAL));
+    CHECK_EQUAL(10000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::TACTICAL));
+    CHECK_EQUAL(20000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::MASTER));
 
     CHECK_EQUAL(3, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::CASUAL));
-    CHECK_EQUAL(6, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::TACTICAL));
-    CHECK_EQUAL(9, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::TACTICAL));
+    CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::MASTER));
 
     CHECK_EQUAL(24, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::CASUAL));
     CHECK_EQUAL(40, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::TACTICAL));
@@ -2195,6 +2195,278 @@ TEST(OctiBotEngineCoreTest, Level3MasterOpeningNeverDumpsUnarmedReservePodsOn37)
     LONGS_EQUAL(4, game->getFreePods(octi::PLAYER_B));
 }
 
+TEST(OctiBotEngineCoreTest, CanonicalOpeningHashCommutationAndMirrorSymmetry)
+{
+    // 1. Commutation invariance: A plays 33+c, B plays 37+g, A plays 53+b
+    // vs A plays 53+b, B plays 37+g, A plays 33+c
+    octi::OctiBoard bComm1(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bComm1.getGame()->start(octi::PLAYER_A);
+    bComm1.getGame()->move("33+c");
+    bComm1.getGame()->move("37+g");
+    bComm1.getGame()->move("53+b");
+
+    octi::OctiBoard bComm2(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bComm2.getGame()->start(octi::PLAYER_A);
+    bComm2.getGame()->move("53+b");
+    bComm2.getGame()->move("37+g");
+    bComm2.getGame()->move("33+c");
+
+    CHECK_EQUAL(octi::OctiBotEngine::computePositionHashStatic(bComm1),
+                octi::OctiBotEngine::computePositionHashStatic(bComm2));
+    CHECK_EQUAL(octi::OctiBotEngine::computeCanonicalOpeningHash(bComm1),
+                octi::OctiBotEngine::computeCanonicalOpeningHash(bComm2));
+
+    // 2. Horizontal mirror symmetry on 9x9 2P board: 33+b vs 73+h
+    octi::OctiBoard bMirLeft(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bMirLeft.getGame()->start(octi::PLAYER_A);
+    bMirLeft.getGame()->move("33+b");
+
+    octi::OctiBoard bMirRight(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bMirRight.getGame()->start(octi::PLAYER_A);
+    bMirRight.getGame()->move("73+h");
+
+    bool mirLeftFlag = false;
+    bool mirRightFlag = false;
+    std::uint64_t canonLeft =
+        octi::OctiBotEngine::computeCanonicalOpeningHash(bMirLeft, &mirLeftFlag);
+    std::uint64_t canonRight =
+        octi::OctiBotEngine::computeCanonicalOpeningHash(bMirRight, &mirRightFlag);
+    CHECK_EQUAL(canonLeft, canonRight);
+    CHECK_TRUE(mirLeftFlag != mirRightFlag);
+
+    // 3. Horizontal mirror symmetry on OFK board: 22+b vs 52+h
+    octi::OctiBoard ofkLeft(octi::GAME_MODE_OFK);
+    ofkLeft.getGame()->start(octi::PLAYER_A);
+    ofkLeft.getGame()->move("22+b");
+
+    octi::OctiBoard ofkRight(octi::GAME_MODE_OFK);
+    ofkRight.getGame()->start(octi::PLAYER_A);
+    ofkRight.getGame()->move("52+h");
+
+    bool ofkLeftMir = false;
+    bool ofkRightMir = false;
+    std::uint64_t ofkCanonLeft =
+        octi::OctiBotEngine::computeCanonicalOpeningHash(ofkLeft, &ofkLeftMir);
+    std::uint64_t ofkCanonRight =
+        octi::OctiBotEngine::computeCanonicalOpeningHash(ofkRight, &ofkRightMir);
+    CHECK_EQUAL(ofkCanonLeft, ofkCanonRight);
+    CHECK_TRUE(ofkLeftMir != ofkRightMir);
+
+    // 4. Ruleset disambiguation: 1-base vs 3-base and edgeless vs non-edgeless
+    octi::OctiBoard b3Base(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b3Base.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard b1Base(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+    b1Base.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard bEdgeless(octi::GAME_MODE_2, false, true, octi::GAME_BASES_3);
+    bEdgeless.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard bSuper(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    bSuper.getGame()->start(octi::PLAYER_A);
+
+    CHECK_TRUE(octi::OctiBotEngine::computePositionHashStatic(b3Base) !=
+               octi::OctiBotEngine::computePositionHashStatic(b1Base));
+    CHECK_TRUE(octi::OctiBotEngine::computePositionHashStatic(b3Base) !=
+               octi::OctiBotEngine::computePositionHashStatic(bEdgeless));
+    CHECK_TRUE(octi::OctiBotEngine::computePositionHashStatic(b3Base) !=
+               octi::OctiBotEngine::computePositionHashStatic(bSuper));
+    CHECK_TRUE(octi::OctiBotEngine::computeCanonicalOpeningHash(b3Base) !=
+               octi::OctiBotEngine::computeCanonicalOpeningHash(b1Base));
+}
+
+TEST(OctiBotEngineCoreTest, MirrorMoveNotationRoundTripAndVariants)
+{
+    STRCMP_EQUAL("73+h", octi::OctiBotEngine::mirrorMoveNotation("33+b", 9).c_str());
+    STRCMP_EQUAL("33+b", octi::OctiBotEngine::mirrorMoveNotation("73+h", 9).c_str());
+    STRCMP_EQUAL("53+a", octi::OctiBotEngine::mirrorMoveNotation("53+a", 9).c_str());
+    STRCMP_EQUAL("73gh-55-35x",
+                 octi::OctiBotEngine::mirrorMoveNotation("33bc-55-75x", 9).c_str());
+    STRCMP_EQUAL("33bc-55-75x",
+                 octi::OctiBotEngine::mirrorMoveNotation("73gh-55-35x", 9).c_str());
+    STRCMP_EQUAL("53g-43,53h-44",
+                 octi::OctiBotEngine::mirrorMoveNotation("53c-63,53b-64", 9).c_str());
+    STRCMP_EQUAL("62+h", octi::OctiBotEngine::mirrorMoveNotation("22+b", 7).c_str());
+    STRCMP_EQUAL("22+b", octi::OctiBotEngine::mirrorMoveNotation("62+h", 7).c_str());
+    STRCMP_EQUAL("52+h", octi::OctiBotEngine::mirrorMoveNotation("22+b", 6).c_str());
+    STRCMP_EQUAL("22+b", octi::OctiBotEngine::mirrorMoveNotation("52+h", 6).c_str());
+
+    // Invalid syntax or out-of-bounds width returns empty string
+    STRCMP_EQUAL("", octi::OctiBotEngine::mirrorMoveNotation("", 9).c_str());
+    STRCMP_EQUAL("", octi::OctiBotEngine::mirrorMoveNotation("invalid", 9).c_str());
+    STRCMP_EQUAL("", octi::OctiBotEngine::mirrorMoveNotation("33+b", 0).c_str());
+    STRCMP_EQUAL("", octi::OctiBotEngine::mirrorMoveNotation("99+a", 6).c_str());
+}
+
+TEST(OctiBotEngineCoreTest, OpeningBookLookupNominalBoundaryAndFaultInjection)
+{
+    // 1. Nominal hit on initial 2P (3-base & 1-base) and OFK boards
+    octi::OctiBoard b2p3(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b2p3.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard b2p1(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+    b2p1.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard bOfk(octi::GAME_MODE_OFK);
+    bOfk.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBotEngine casualBot(octi::BotDifficulty::CASUAL);
+    CHECK_FALSE(casualBot.tuningProfile().useOpeningBook);
+    octi::OctiBotEngine tacticalBot(octi::BotDifficulty::TACTICAL);
+    CHECK_TRUE(tacticalBot.tuningProfile().useOpeningBook);
+
+    octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    CHECK_TRUE(bot.tuningProfile().useOpeningBook);
+    std::string move2p3;
+    int score2p3 = 0;
+    int depth2p3 = 0;
+    CHECK_TRUE(bot.probeOpeningBook(b2p3, move2p3, &score2p3, &depth2p3));
+    CHECK_FALSE(move2p3.empty());
+    CHECK_TRUE(depth2p3 >= 6);
+
+    std::string move2p1;
+    CHECK_TRUE(bot.probeOpeningBook(b2p1, move2p1));
+    CHECK_FALSE(move2p1.empty());
+
+    std::string moveOfk;
+    CHECK_TRUE(bot.probeOpeningBook(bOfk, moveOfk));
+    CHECK_FALSE(moveOfk.empty());
+
+    // 2. Boundary: useOpeningBook = false disables book lookup
+    octi::BotTuningProfile disabledProf = bot.tuningProfile();
+    disabledProf.useOpeningBook = false;
+    bot.setTuningProfile(disabledProf);
+    std::string disabledMove;
+    CHECK_FALSE(bot.probeOpeningBook(b2p3, disabledMove));
+    STRCMP_EQUAL("", disabledMove.c_str());
+
+    // 3. Fault injection: corrupted/illegal candidate in book table is rejected,
+    // selecting the valid second candidate; all-illegal entry returns false
+    octi::BotTuningProfile enabledProf = bot.tuningProfile();
+    enabledProf.useOpeningBook = true;
+    enabledProf.rootScoreJitter = 0;
+
+    std::uint64_t key2p3 = octi::OctiBotEngine::computeCanonicalOpeningHash(b2p3);
+    const octi::OpeningBookEntry mixedTable[] = {
+        {
+            key2p3,
+            8,
+            3,
+            {
+                { "99+a", 500 },
+                { "invalid_syntax", 400 },
+                { "53+a", 120 }
+            }
+        }
+    };
+    std::uint64_t rng = 0x12345678ULL;
+    std::string fallbackMove;
+    int fallbackScore = 0;
+    int fallbackDepth = 0;
+    CHECK_TRUE(octi::OctiBotEngine::probeOpeningBookTable(
+        b2p3, mixedTable, 1, enabledProf, rng,
+        fallbackMove, &fallbackScore, &fallbackDepth));
+    STRCMP_EQUAL("53+a", fallbackMove.c_str());
+    LONGS_EQUAL(120, fallbackScore);
+    LONGS_EQUAL(8, fallbackDepth);
+
+    const octi::OpeningBookEntry allIllegalTable[] = {
+        {
+            key2p3,
+            8,
+            2,
+            {
+                { "99+a", 500 },
+                { "44a-45", 300 },
+                { nullptr, 0 }
+            }
+        }
+    };
+    std::string noMove;
+    CHECK_FALSE(octi::OctiBotEngine::probeOpeningBookTable(
+        b2p3, allIllegalTable, 1, enabledProf, rng, noMove));
+    STRCMP_EQUAL("", noMove.c_str());
+}
+
+TEST(OctiBotEngineCoreTest, SearchTopMovesForBookAndCanonicalOrientation)
+{
+    // 1. Nominal: top-3 moves on initial 2P board are legal and sorted descending by score
+    octi::OctiBoard b2p(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b2p.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    octi::BotSearchStats stats;
+    std::vector<octi::BookMoveScore> top3 =
+        bot.searchTopMovesForBook(b2p, 2, 2000, 3, &stats);
+    LONGS_EQUAL(3, top3.size());
+    CHECK_EQUAL(2, stats.depthReached);
+    CHECK_TRUE(stats.nodesVisited > 0);
+    CHECK_TRUE(top3[0].score >= top3[1].score);
+    CHECK_TRUE(top3[1].score >= top3[2].score);
+    CHECK_FALSE(top3[0].move == top3[1].move);
+    CHECK_FALSE(top3[1].move == top3[2].move);
+
+    // 2. Canonical orientation round-trip across mirrored boards (33+b vs 73+h)
+    octi::OctiBoard bLeft(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bLeft.getGame()->start(octi::PLAYER_A);
+    bLeft.getGame()->move("33+b");
+
+    octi::OctiBoard bRight(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bRight.getGame()->start(octi::PLAYER_A);
+    bRight.getGame()->move("73+h");
+
+    bool mirLeft = false;
+    bool mirRight = false;
+    std::uint64_t keyLeft = octi::OctiBotEngine::computeCanonicalOpeningHash(bLeft, &mirLeft);
+    std::uint64_t keyRight = octi::OctiBotEngine::computeCanonicalOpeningHash(bRight, &mirRight);
+    CHECK_EQUAL(keyLeft, keyRight);
+    CHECK_TRUE(mirLeft != mirRight);
+
+    const octi::OctiBoard &mirroredBoard = mirLeft ? bLeft : bRight;
+    const octi::OctiBoard &directBoard = mirLeft ? bRight : bLeft;
+
+    std::vector<octi::BookMoveScore> mirTop =
+        bot.searchTopMovesForBook(mirroredBoard, 2, 2000, 2);
+    LONGS_EQUAL(2, mirTop.size());
+
+    std::string canonMove0 =
+        octi::OctiBotEngine::mirrorMoveNotation(mirTop[0].move, mirroredBoard.getBoardWidth());
+    std::string canonMove1 =
+        octi::OctiBotEngine::mirrorMoveNotation(mirTop[1].move, mirroredBoard.getBoardWidth());
+
+    const octi::OpeningBookEntry customEntry[] = {
+        {
+            keyLeft,
+            2,
+            2,
+            {
+                { canonMove0.c_str(), mirTop[0].score },
+                { canonMove1.c_str(), mirTop[1].score },
+                { nullptr, 0 }
+            }
+        }
+    };
+
+    octi::BotTuningProfile deterministicProf = bot.tuningProfile();
+    deterministicProf.useOpeningBook = true;
+    deterministicProf.rootScoreJitter = 0;
+    std::uint64_t rng = 0x11223344ULL;
+
+    std::string probedMir;
+    std::string probedDir;
+    CHECK_TRUE(octi::OctiBotEngine::probeOpeningBookTable(
+        mirroredBoard, customEntry, 1, deterministicProf, rng, probedMir));
+    CHECK_TRUE(octi::OctiBotEngine::probeOpeningBookTable(
+        directBoard, customEntry, 1, deterministicProf, rng, probedDir));
+    STRCMP_EQUAL(mirTop[0].move.c_str(), probedMir.c_str());
+    STRCMP_EQUAL(canonMove0.c_str(), probedDir.c_str());
+
+    // 3. Boundary & Fault: topK = 0 or unstarted game returns empty vector
+    CHECK_EQUAL(0, bot.searchTopMovesForBook(b2p, 2, 500, 0).size());
+    octi::OctiBoard unstarted(octi::GAME_MODE_2);
+    CHECK_EQUAL(0, bot.searchTopMovesForBook(unstarted, 2, 500, 3).size());
+}
+
 // ---------------------------------------------------------------------------
 // OctiCryptoAndTranscriptV3Test
 // ---------------------------------------------------------------------------
@@ -2255,6 +2527,9 @@ TEST(OctiCryptoAndTranscriptV3Test, OctiBotEngineLiveTelemetryAccessors)
     std::atomic<bool> sawLiveNodes{false};
     std::atomic<bool> threadRunning{true};
     octi::OctiBotEngine pollBot(octi::BotDifficulty::TACTICAL, 0x9988ULL);
+    octi::BotTuningProfile pollProf = pollBot.tuningProfile();
+    pollProf.useOpeningBook = false;
+    pollBot.setTuningProfile(pollProf);
     pollBot.setTimeBudgetMs(150);
 
     std::thread poller([&]() {
@@ -2773,8 +3048,8 @@ TEST(OctiBotTacticalUpgradeTest, TuningProfilesDefaultAndCustom)
 {
     octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
     const octi::BotTuningProfile &prof = bot.tuningProfile();
-    LONGS_EQUAL(8000, prof.timeBudgetMs);
-    LONGS_EQUAL(6, prof.maxSearchDepth);
+    LONGS_EQUAL(10000, prof.timeBudgetMs);
+    LONGS_EQUAL(64, prof.maxSearchDepth);
     LONGS_EQUAL(2, prof.maxQuiesceDepth);
     LONGS_EQUAL(6, prof.quiesceBranchCap);
     LONGS_EQUAL(40, prof.rootBranchCap);

@@ -1,6 +1,6 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.0.1**
+**Version: 1.0.2**
 
 Copyright (C) 2026, Charles Chiou
 
@@ -16,10 +16,8 @@ Copyright (C) 2026, Charles Chiou
   - `OctiBotConversationEngine`: Interactive in-game and lobby chat handler supporting public commands (`@bot help`, `@bot stats`), owner management (`@bot status`, `@bot host`, `@bot set`), and thread-safe inbox buffering for Agentic AI.
   - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server exposing 11 specialized tools, enabling Centaur AI agents to inspect state, analyze positions with alpha-beta search, make moves, and converse.
   - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup.
-- **Reference Bot Executables**:
-  - `octibot-reference`: Production-grade autonomous bot supporting alpha-beta search, dynamic time allocation, and single-process multi-profile fleet deployment.
-  - `octibot-minimal`: Lightweight template demonstrating move generation, evaluation, and custom config parameter access.
-  - `octibot-mcp`: Dedicated Centaur MCP mode runner.
+- **Unified Bot Executable**:
+  - `octibot`: Production-grade autonomous bot supporting alpha-beta search, dynamic time allocation, single-process multi-profile fleet deployment, Centaur MCP mode, and minimal heuristic templates.
 - **Robust Network Protocol**:
   - Superseding token leases with graceful takeover.
   - Seamless active game reconnect upon crash or restart.
@@ -97,24 +95,24 @@ max_search_depth = 8
 
 **Run a single profile:**
 ```bash
-./build/octibot-reference --profile stock
+./build/octibot --profile stock
 # Detailed stdout logging is enabled by default (verbosity = verbose).
 # Override via CLI: --verbosity <verbose|info|error|quiet>, --verbose / -v, or --quiet / -q
 ```
 
 **Run multiple profiles concurrently in a single process:**
 ```bash
-./build/octibot-reference --profiles stock,bot_fast
+./build/octibot --profiles stock,bot_fast
 ```
 
 **Run all configured profiles:**
 ```bash
-./build/octibot-reference --all-profiles
+./build/octibot --all-profiles
 ```
 
 **Run multiple clone instances of a profile:**
 ```bash
-./build/octibot-reference --profile stock --instances 3
+./build/octibot --profile stock --instances 3
 ```
 
 ---
@@ -170,18 +168,18 @@ int main(int argc, char **argv) {
 
 ### Standard I/O MCP Mode:
 ```bash
-./build/octibot-reference --profile stock --mcp-stdio
+./build/octibot --profile stock --mcp-stdio
 ```
 
 ### Ephemeral / Managed CLI Supervisor:
 Launch a managed child CLI agent that connects to an ephemeral loopback MCP port:
 ```bash
-./build/octibot-reference --profile stock --ai-cli agy --ai-prompt "Analyze table chat and assist with tactical move recommendations."
+./build/octibot --profile stock --ai-cli agy --ai-prompt "Analyze table chat and assist with tactical move recommendations."
 ```
 
 Or run interactively in the terminal:
 ```bash
-./build/octibot-reference --profile stock --ai-cli claude --ai-interactive
+./build/octibot --profile stock --ai-cli claude --ai-interactive
 ```
 
 ---

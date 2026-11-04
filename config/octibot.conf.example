@@ -1,0 +1,84 @@
+# ==============================================================================
+# OCTIBOT - Reference Bot Configuration
+# Copyright (C) 2026, Charles Chiou
+# ==============================================================================
+
+# Global Server & Connection Defaults
+server_host = 127.0.0.1
+server_port = 8080
+server_use_ssl = false
+
+# Table & Match Policy
+table_behavior = auto            # Options: auto, join_only, host_only, matchmaking, idle
+accept_modes = 2P, 4P, OFK
+accept_bases = any               # any, 1, 3
+accept_super_prongs = any        # any, true, false
+accept_edgeless = any            # any, true, false
+accept_time_control = any        # any, timed_only, untimed_only
+accept_takeback = any
+min_initial_time_sec = 0
+max_initial_time_sec = 14400
+min_increment_sec = 0
+
+# Social & Opponent Policies
+# friend_list = alice, bob
+# ban_list = troll1, griefer2
+friends_only = false
+opponent_filter = any            # any, humans_only, robots_only, owner_only
+
+# Proposal & Rematch Defaults
+accept_draw_eval_threshold = -1500
+accept_undo = friends_only       # always, friends_only, never
+accept_pause = always            # always, friends_only, never
+accept_rematch = always          # always, friends_only, never
+max_consecutive_rematches = 5
+claim_forfeit_delay_sec = 10
+min_move_think_ms = 0
+
+# Telemetry
+publish_move_telemetry = false   # Set to true to publish depth/nodes/score in move history
+allow_public_eval_chat = true
+
+# Aimon MCP Gateway Bridge
+aimon_enabled = true
+aimon_host = 127.0.0.1
+aimon_port = 3883
+aimon_gateway_port = 3885
+expose_mcp_tools = true
+default_profile = stock
+
+# Optional Managed Agent CLI Supervisor (disabled by default)
+# ai_cli_backend = none          # none, agy, claude, cursor-agent
+# ai_cli_executable = agy
+# ai_cli_model = flash
+# ai_cli_interactive = false
+
+# ==============================================================================
+# Robot Profiles
+# ==============================================================================
+
+# Default stock profile
+[stock]
+robot_name = stock
+algorithm = alpha_beta
+time_budget_ms = 1500
+max_search_depth = 6
+lazy_smp_threads = 2
+
+# Fast blitz profile
+[bot_fast]
+robot_name = bot_fast
+algorithm = alpha_beta
+time_budget_ms = 500
+max_search_depth = 4
+lazy_smp_threads = 1
+
+# Deep tactical search profile
+[bot_deep]
+robot_name = bot_deep
+algorithm = alpha_beta
+time_budget_ms = 4000
+max_search_depth = 8
+lazy_smp_threads = 4
+captured_enemy_base_bonus = 32000
+two_ply_base_threat_weight = 3000

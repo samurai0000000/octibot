@@ -134,6 +134,7 @@ struct PlayerProfileInfo {
     int draws = 0;
     std::int64_t createdAt = 0;
     std::int64_t lastSeenAt = 0;
+    bool isAdmin = false;
     std::vector<LinkedIdentityInfo> identities;
     std::vector<ArchivedGameSummary> recentGames;
     bool isRobot = false;
@@ -250,6 +251,9 @@ struct TableSummaryInfo {
     std::string hostUuid;
     std::string hostHandle;
     std::int64_t createdAtMs = 0;
+    std::int64_t lastMoveAtMs = 0;
+    std::int64_t idleMs = 0;
+    std::int64_t ttlRemainingMs = -1;
     int seatsTotal = 2;
     int seatsFilled = 0;
     std::vector<TableSeatInfo> seats;
@@ -383,6 +387,9 @@ struct GameViewData {
     bool archived = false;
     std::string rematchRoomId;
     std::int64_t createdAtMs = 0;
+    std::int64_t lastMoveAtMs = 0;
+    std::int64_t idleMs = 0;
+    std::int64_t ttlRemainingMs = -1;
     bool allowRobots = true;
 };
 
@@ -502,6 +509,9 @@ public:
     void clearSessionToken();
     bool isAuthenticated() const { return !sessionToken().empty(); }
 
+    PlayerProfileInfo currentProfile() const;
+    void setCurrentProfile(const PlayerProfileInfo &profile);
+
     void setBotToken(const std::string &token);
     bool isRobotToken() const;
 
@@ -577,6 +587,7 @@ public:
         int seat = 0,
         const std::string &passcode = "");
     ApiResult<bool> leaveTable(const std::string &roomId);
+    ApiResult<bool> purgeTable(const std::string &roomId);
     ApiResult<bool> kickSeat(
         const std::string &roomId,
         const std::string &targetPlayerUuid);
@@ -647,6 +658,8 @@ public:
         int limit = 20,
         int offset = 0);
     ApiResult<ArchivedGameSummary> fetchArchivedGame(
+        const std::string &gameId);
+    ApiResult<bool> purgeArchivedGame(
         const std::string &gameId);
     ApiResult<std::string> downloadOctiTranscript(
         const std::string &gameId);

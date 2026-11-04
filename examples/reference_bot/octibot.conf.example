@@ -39,10 +39,13 @@ min_move_think_ms = 0
 publish_move_telemetry = false   # Set to true to publish depth/nodes/score in move history
 allow_public_eval_chat = true
 
-# Optional MCP Gateway Bridge (disabled by default)
-# aimon_enabled = false
-# aimon_host = 127.0.0.1
-# aimon_port = 3885
+# Aimon MCP Gateway Bridge
+aimon_enabled = true
+aimon_host = 127.0.0.1
+aimon_port = 3883
+aimon_gateway_port = 3885
+expose_mcp_tools = true
+default_profile = stock
 
 # Optional Managed Agent CLI Supervisor (disabled by default)
 # ai_cli_backend = none          # none, agy, claude, cursor-agent

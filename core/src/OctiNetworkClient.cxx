@@ -182,6 +182,7 @@ PlayerProfileInfo parsePlayerProfile(const Json &j)
     p.draws = j.value("draws", 0);
     p.createdAt = j.value("created_at", static_cast<std::int64_t>(0));
     p.lastSeenAt = j.value("last_seen_at", static_cast<std::int64_t>(0));
+    p.isAdmin = j.value("is_admin", false);
     p.isRobot = j.value("is_robot", false);
     p.robotUuid = j.value("robot_uuid", "");
     p.description = j.value("description", j.value("robot_description", ""));
@@ -235,6 +236,11 @@ TableSummaryInfo parseTableSummary(const Json &j)
     t.hostHandle = j.value("host_handle", "");
     t.createdAtMs =
         j.value("created_at_ms", static_cast<std::int64_t>(0));
+    t.lastMoveAtMs =
+        j.value("last_move_at_ms", static_cast<std::int64_t>(0));
+    t.idleMs = j.value("idle_ms", static_cast<std::int64_t>(0));
+    t.ttlRemainingMs =
+        j.value("ttl_remaining_ms", static_cast<std::int64_t>(-1));
     t.seatsTotal = j.value("seats_total", 2);
     t.seatsFilled = j.value("seats_filled", 0);
     if (j.contains("seats") && j["seats"].is_array()) {
@@ -424,6 +430,11 @@ GameViewData parseGameView(const Json &j)
     v.archived = j.value("archived", false);
     v.rematchRoomId = j.value("rematch_room_id", "");
     v.createdAtMs = j.value("created_at_ms", static_cast<std::int64_t>(0));
+    v.lastMoveAtMs =
+        j.value("last_move_at_ms", static_cast<std::int64_t>(0));
+    v.idleMs = j.value("idle_ms", static_cast<std::int64_t>(0));
+    v.ttlRemainingMs =
+        j.value("ttl_remaining_ms", static_cast<std::int64_t>(-1));
     return v;
 }
 
@@ -762,6 +773,7 @@ struct OctiNetworkClient::Impl {
     int port;
     mutable std::mutex tokenMutex;
     std::string sessionToken;
+    PlayerProfileInfo cachedProfile;
     std::string installId;
     std::string clientType;
     bool explicitClientType = false;
@@ -1695,9 +1707,22 @@ void OctiNetworkClient::clearSessionToken()
 {
     std::lock_guard<std::mutex> lock(_impl->tokenMutex);
     _impl->sessionToken.clear();
+    _impl->cachedProfile = PlayerProfileInfo();
     if (!_impl->explicitClientType) {
         _impl->clientType = "desktop";
     }
+}
+
+PlayerProfileInfo OctiNetworkClient::currentProfile() const
+{
+    std::lock_guard<std::mutex> lock(_impl->tokenMutex);
+    return _impl->cachedProfile;
+}
+
+void OctiNetworkClient::setCurrentProfile(const PlayerProfileInfo &profile)
+{
+    std::lock_guard<std::mutex> lock(_impl->tokenMutex);
+    _impl->cachedProfile = profile;
 }
 
 void OctiNetworkClient::setBotToken(const std::string &token)
@@ -1866,6 +1891,8 @@ ApiResult<SsoLoginData> OctiNetworkClient::loginWithSso(
         }
     }
 
+    setCurrentProfile(res.data.profile);
+
     return res;
 }
 
@@ -1978,6 +2005,7 @@ ApiResult<PlayerProfileInfo> OctiNetworkClient::fetchMyProfile()
     res.ok = true;
     res.httpStatus = raw.status;
     res.data = parsePlayerProfile(raw.json);
+    setCurrentProfile(res.data);
     return res;
 }
 
@@ -2012,6 +2040,7 @@ ApiResult<PlayerProfileInfo> OctiNetworkClient::updateMyProfile(
     res.ok = true;
     res.httpStatus = raw.status;
     res.data = parsePlayerProfile(raw.json);
+    setCurrentProfile(res.data);
     return res;
 }
 
@@ -2319,6 +2348,21 @@ ApiResult<bool> OctiNetworkClient::leaveTable(const std::string &roomId)
     ApiResult<bool> res;
     Impl::RawResponse raw = _impl->doPost(
         "/api/v1/tables/" + urlEncode(roomId) + "/leave", Json::object());
+    if (!raw.transportOk || raw.status != 200) {
+        Impl::populateError(raw, res);
+        return res;
+    }
+    res.ok = true;
+    res.httpStatus = raw.status;
+    res.data = true;
+    return res;
+}
+
+ApiResult<bool> OctiNetworkClient::purgeTable(const std::string &roomId)
+{
+    ApiResult<bool> res;
+    Impl::RawResponse raw =
+        _impl->doDelete("/api/v1/tables/" + urlEncode(roomId));
     if (!raw.transportOk || raw.status != 200) {
         Impl::populateError(raw, res);
         return res;
@@ -2766,6 +2810,22 @@ ApiResult<ArchivedGameSummary> OctiNetworkClient::fetchArchivedGame(
     res.ok = true;
     res.httpStatus = raw.status;
     res.data = parseArchivedGameSummary(raw.json);
+    return res;
+}
+
+ApiResult<bool> OctiNetworkClient::purgeArchivedGame(
+    const std::string &gameId)
+{
+    ApiResult<bool> res;
+    Impl::RawResponse raw =
+        _impl->doDelete("/api/v1/archive/games/" + urlEncode(gameId));
+    if (!raw.transportOk || raw.status != 200) {
+        Impl::populateError(raw, res);
+        return res;
+    }
+    res.ok = true;
+    res.httpStatus = raw.status;
+    res.data = true;
     return res;
 }
 

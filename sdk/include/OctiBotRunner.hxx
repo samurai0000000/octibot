@@ -97,7 +97,10 @@ private:
     bool _hasPendingEvent = false;
     std::string _lastEventReason;
     int _consecutiveRematches = 0;
+    int _lastLoggedPlyCount = -1;
 };
+
+class OctiBotMcpServer;
 
 class OctiBotFleetRunner {
 public:
@@ -118,9 +121,11 @@ public:
     void waitForAll();
 
     const std::vector<std::unique_ptr<OctiBotRunner>> &runners() const { return _runners; }
+    const std::vector<std::unique_ptr<OctiBotMcpServer>> &mcpServers() const { return _mcpServers; }
 
 private:
     std::vector<std::unique_ptr<OctiBotRunner>> _runners;
+    std::vector<std::unique_ptr<OctiBotMcpServer>> _mcpServers;
 };
 
 int runFleetCli(int argc, char **argv);

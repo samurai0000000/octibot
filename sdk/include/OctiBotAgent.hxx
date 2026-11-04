@@ -100,11 +100,32 @@ public:
 private:
     OctiBotEngine _engine;
     BotTuningProfile _profile;
+    int _verbosity = 2;
 };
 
 class CentaurMcpAgent : public StockAlphaBetaAgent {
 public:
     using StockAlphaBetaAgent::StockAlphaBetaAgent;
+};
+
+class MinimalStarterAgent : public OctiBotAgent {
+public:
+    MinimalStarterAgent() = default;
+    explicit MinimalStarterAgent(const OctiBotConfigStore &config);
+
+    void onConfigure(const OctiBotConfigStore &config) override;
+    void onConnected(const BotIdentity &identity) override;
+    void onGameStarted(const GameViewData &game, int mySeat,
+                       std::string &outGreetingChat) override;
+    std::string computeMove(const OctiBoard &board,
+                            const GameViewData &game,
+                            int mySeat,
+                            std::int64_t remainingClockMs,
+                            BotMoveTelemetry *outTelemetry = nullptr) override;
+
+private:
+    double _aggression = 1.0;
+    bool _preferJumps = true;
 };
 
 class OctiBotAgentRegistry {

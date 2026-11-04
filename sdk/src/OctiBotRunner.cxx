@@ -3,6 +3,7 @@
  */
 
 #include "OctiBotRunner.hxx"
+#include "OctiBotMcpServer.hxx"
 #include <algorithm>
 #include <chrono>
 #include <csignal>
@@ -58,6 +59,7 @@ StockAlphaBetaAgent::StockAlphaBetaAgent(const OctiBotConfigStore &config) {
 
 void StockAlphaBetaAgent::onConfigure(const OctiBotConfigStore &config) {
     applyConfigToTuningProfile(config, _profile);
+    _verbosity = config.getVerbosityLevel(2);
     _engine.setTuningProfile(_profile);
 }
 
@@ -80,8 +82,33 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
     }
     _engine.setTuningProfile(searchProfile);
 
+    std::atomic<bool> searching{true};
+    std::thread monitorThread;
+    if (_verbosity >= 3) {
+        monitorThread = std::thread([this, &searching]() {
+            int lastDepth = 0;
+            while (searching.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                if (!searching.load()) break;
+                int d = _engine.liveDepthReached();
+                std::uint64_t n = _engine.liveNodesVisited();
+                int s = _engine.liveBestScore();
+                if (d > lastDepth && d > 0) {
+                    lastDepth = d;
+                    std::lock_guard<std::mutex> lock(s_logMutex);
+                    std::cout << "  [Search progress] depth=" << d << " | nodes=" << n << " | live_score=" << s << std::endl;
+                }
+            }
+        });
+    }
+
     BotSearchStats stats;
     std::string moveNotation = _engine.chooseMove(board, &stats);
+    searching.store(false);
+    if (monitorThread.joinable()) {
+        monitorThread.join();
+    }
+
     if (outTelemetry) {
         outTelemetry->depthReached = stats.depthReached;
         outTelemetry->nodesVisited = stats.nodesVisited;
@@ -97,6 +124,92 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
         }
     }
     return moveNotation;
+}
+
+// --- MinimalStarterAgent Implementation ---
+
+MinimalStarterAgent::MinimalStarterAgent(const OctiBotConfigStore &config) {
+    onConfigure(config);
+}
+
+void MinimalStarterAgent::onConfigure(const OctiBotConfigStore &config) {
+    _aggression = config.getDouble("custom_aggression", 1.0);
+    _preferJumps = config.getBool("prefer_jumps", true);
+}
+
+void MinimalStarterAgent::onConnected(const BotIdentity &identity) {
+    (void) identity;
+}
+
+void MinimalStarterAgent::onGameStarted(const GameViewData &game, int mySeat,
+                                       std::string &outGreetingChat) {
+    (void) game;
+    (void) mySeat;
+    outGreetingChat = "Hello! Best of luck.";
+}
+
+std::string MinimalStarterAgent::computeMove(const OctiBoard &board,
+                                            const GameViewData &game,
+                                            int mySeat,
+                                            std::int64_t remainingClockMs,
+                                            BotMoveTelemetry *outTelemetry) {
+    (void) game;
+    (void) remainingClockMs;
+
+    if (!board.getGame()) {
+        return "";
+    }
+
+    std::vector<OctiMove> legalMoves = board.getGame()->generateLegalMoves();
+    if (legalMoves.empty()) {
+        return "";
+    }
+
+    const OctiMove *bestMove = &legalMoves.front();
+    int bestScore = -999999;
+    OctiPlayer myPlayer = static_cast<OctiPlayer>(mySeat);
+
+    for (const auto &m : legalMoves) {
+        int score = 0;
+        std::string notation = m.asString();
+
+        OctiBoard nextBoard(board.getGameMode(),
+                            board.getGame()->useSuperProngs(),
+                            board.getGame()->useEdgelessBoard(),
+                            board.getGame()->getBases());
+        nextBoard.fromPositionString(board.toPositionString());
+        if (nextBoard.getGame()) {
+            nextBoard.getGame()->move(m);
+            if (nextBoard.getGame()->isGameOver() && nextBoard.getGame()->getWinner() == myPlayer) {
+                bestMove = &m;
+                bestScore = 100000;
+                break;
+            }
+            score += OctiBotEngine::evaluatePosition(nextBoard, myPlayer);
+        }
+
+        if (notation.find('x') != std::string::npos) {
+            score += static_cast<int>(1500 * _aggression);
+        }
+        if (_preferJumps && notation.find('-') != std::string::npos) {
+            score += static_cast<int>(300 * _aggression);
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = &m;
+        }
+    }
+
+    if (outTelemetry) {
+        outTelemetry->depthReached = 1;
+        outTelemetry->nodesVisited = legalMoves.size();
+        outTelemetry->evalScore = bestScore;
+        outTelemetry->elapsedMs = 1;
+        outTelemetry->present = true;
+    }
+
+    return bestMove->asString();
 }
 
 // --- OctiBotAgentRegistry Implementation ---
@@ -118,6 +231,9 @@ OctiBotAgentRegistry::OctiBotAgentRegistry() {
     });
     registerAgent("centaur_mcp", [](const OctiBotConfigStore &config) {
         return std::make_unique<CentaurMcpAgent>(config);
+    });
+    registerAgent("minimal", [](const OctiBotConfigStore &config) {
+        return std::make_unique<MinimalStarterAgent>(config);
     });
 }
 
@@ -601,6 +717,32 @@ void OctiBotRunner::loopStep() {
                 }
             }
         } else if (_currentPhase == "IN_PROGRESS") {
+            if (_activeGameView.plyCount != _lastLoggedPlyCount) {
+                _lastLoggedPlyCount = _activeGameView.plyCount;
+                std::string latestMove = _activeGameView.moves.empty() ? "(none)" : _activeGameView.moves.back();
+                std::string turnStr = "Seat " + std::to_string(_activeGameView.turnSeat);
+                for (const auto &s : _activeGameView.seats) {
+                    if (s.seat == _activeGameView.turnSeat && !s.handle.empty()) {
+                        turnStr += " (@" + s.handle + ")";
+                        break;
+                    }
+                }
+                std::string clocksStr = "[";
+                for (size_t si = 0; si < _activeGameView.seats.size(); ++si) {
+                    if (si > 0) clocksStr += ", ";
+                    clocksStr += "S" + std::to_string(_activeGameView.seats[si].seat) + ": " +
+                                 std::to_string(_activeGameView.seats[si].clockMs) + "ms";
+                }
+                clocksStr += "]";
+                std::string ttlStr = "";
+                if (_activeGameView.ttlRemainingMs >= 0) {
+                    int64_t sec = _activeGameView.ttlRemainingMs / 1000;
+                    ttlStr = " | TTL: " + std::to_string(_activeGameView.ttlRemainingMs) + "ms (" +
+                             std::to_string(sec / 60) + ":" + (sec % 60 < 10 ? "0" : "") + std::to_string(sec % 60) + ")";
+                }
+                logMsg(3, "[RoomState] Room #" + roomId + " | Ply: " + std::to_string(_activeGameView.plyCount) +
+                       " | Latest move: " + latestMove + " | Turn: " + turnStr + " | Clocks: " + clocksStr + ttlStr);
+            }
             if (_activeGameView.turnSeat == _currentSeat) {
                 playEngineTurn();
             }
@@ -820,6 +962,28 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 _client.postGameChat(_currentRoomId, "ALL", cmdRes.replyText);
             }
 
+            std::string lowerText = text;
+            std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
+            bool isOwner = (!senderHandle.empty() && senderHandle == _identity.ownerHandle) ||
+                           (!senderUuid.empty() && senderUuid == _identity.ownerUuid);
+            if ((isOwner && (lowerText.find("leave") != std::string::npos || lowerText.find("quit") != std::string::npos)) ||
+                cmdRes.action == ChatCommandActionType::LEAVE_ROOM) {
+                logMsg(2, "Owner requested bot to leave room #" + _currentRoomId);
+                _client.postGameChat(_currentRoomId, "ALL", "Leaving table as requested.");
+                _client.leaveTable(_currentRoomId);
+                {
+                    std::lock_guard<std::mutex> lock(_stateMutex);
+                    _currentRoomId = "";
+                    _currentPhase = "IDLE";
+                }
+                _client.stopEventStreams();
+                _client.startLobbyEventStream(0, [this](const SseEvent &ev) {
+                    handleLobbySseEvent(ev.event, ev.dataJson);
+                });
+                notifyEvent("ROOM_LEFT");
+                return;
+            }
+
             if (_agent) {
                 std::string reply;
                 _agent->onGameChat(senderHandle, text, reply);
@@ -867,6 +1031,33 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
         } catch (...) {}
     } else if (eventType == "TURN" || eventType == "MOVE" || eventType == "GAME_STARTED") {
         notifyEvent("TURN");
+    } else if (eventType == "SEAT_LEFT" || eventType == "PLAYER_DISCONNECTED") {
+        if (_currentPhase == "IN_PROGRESS" && !_currentRoomId.empty()) {
+            auto gvRes = _client.fetchGameView(_currentRoomId);
+            if (gvRes.ok) {
+                bool hasOpponent = false;
+                for (const auto &seat : gvRes.data.seats) {
+                    if (seat.seat != _currentSeat && !seat.handle.empty() && seat.connected) {
+                        hasOpponent = true;
+                        break;
+                    }
+                }
+                if (!hasOpponent) {
+                    logMsg(2, "Opponent left table #" + _currentRoomId + "; leaving table and returning to lobby.");
+                    _client.leaveTable(_currentRoomId);
+                    {
+                        std::lock_guard<std::mutex> lock(_stateMutex);
+                        _currentRoomId = "";
+                        _currentPhase = "IDLE";
+                    }
+                    _client.stopEventStreams();
+                    _client.startLobbyEventStream(0, [this](const SseEvent &ev) {
+                        handleLobbySseEvent(ev.event, ev.dataJson);
+                    });
+                    notifyEvent("ROOM_LEFT");
+                }
+            }
+        }
     }
 }
 
@@ -892,6 +1083,16 @@ bool OctiBotFleetRunner::startProfiles(const OctiBotConfigStore &config,
         }
 
         runner->start();
+        bool aimonEnabled = profConfig.getBool("aimon_enabled", false);
+        bool exposeMcp = profConfig.getBool("expose_mcp_tools", false);
+        int mcpPort = profConfig.getInt("mcp_port", 0);
+        if (aimonEnabled || exposeMcp || mcpPort > 0) {
+            auto mcpServer = std::make_unique<OctiBotMcpServer>(*runner);
+            if (mcpPort > 0) {
+                mcpServer->startHttpServer(mcpPort);
+            }
+            _mcpServers.push_back(std::move(mcpServer));
+        }
         _runners.push_back(std::move(runner));
     }
     return !_runners.empty();
@@ -928,12 +1129,27 @@ bool OctiBotFleetRunner::startClones(const OctiBotConfigStore &config,
             continue;
         }
         runner->start();
+        bool aimonEnabled = instConfig.getBool("aimon_enabled", false);
+        bool exposeMcp = instConfig.getBool("expose_mcp_tools", false);
+        int mcpPort = instConfig.getInt("mcp_port", 0);
+        if (aimonEnabled || exposeMcp || mcpPort > 0) {
+            auto mcpServer = std::make_unique<OctiBotMcpServer>(*runner);
+            if (mcpPort > 0) {
+                mcpServer->startHttpServer(mcpPort);
+            }
+            _mcpServers.push_back(std::move(mcpServer));
+        }
         _runners.push_back(std::move(runner));
     }
     return !_runners.empty();
 }
 
 void OctiBotFleetRunner::stop() {
+    for (auto &s : _mcpServers) {
+        s->stopHttpServer();
+        s->stopAimonBridge();
+    }
+    _mcpServers.clear();
     for (auto &r : _runners) {
         r->stop();
     }
@@ -1006,7 +1222,7 @@ int runFleetCli(int argc, char **argv) {
     }
 
     if (config.getVerbosityLevel(3) >= 2) {
-        std::cout << "OCTIBOT v1.0.1 (config=" << configPath
+        std::cout << "OCTIBOT v1.0.2 (config=" << configPath
                   << ", tokens=" << tokensPath << ")" << std::endl;
     }
 
@@ -1018,6 +1234,24 @@ int runFleetCli(int argc, char **argv) {
     ::signal(SIGTERM, handleFleetSignal);
 #endif
 
+    if (singleProfile.empty()) {
+        singleProfile = config.getString("default_profile", "");
+    }
+    if (multiProfiles.empty() && config.hasKey("profiles")) {
+        std::string plist = config.getString("profiles", "");
+        std::stringstream ss(plist);
+        std::string p;
+        while (std::getline(ss, p, ',')) {
+            if (!p.empty()) multiProfiles.push_back(p);
+        }
+    }
+    if (!allProfiles && config.getBool("all_profiles", false)) {
+        allProfiles = true;
+    }
+    if (instances <= 1 && config.hasKey("instances")) {
+        instances = config.getInt("instances", 1);
+    }
+
     if (instances > 1 && !singleProfile.empty()) {
         fleet.startClones(config, singleProfile, instances);
     } else if (allProfiles) {
@@ -1025,7 +1259,15 @@ int runFleetCli(int argc, char **argv) {
     } else if (!multiProfiles.empty()) {
         fleet.startProfiles(config, multiProfiles);
     } else {
-        std::string prof = singleProfile.empty() ? "stock" : singleProfile;
+        std::string prof = singleProfile;
+        if (prof.empty()) {
+            auto names = config.profileNames();
+            if (!names.empty()) {
+                prof = names.front();
+            } else {
+                prof = "stock";
+            }
+        }
         fleet.startProfiles(config, {prof});
     }
 
