@@ -759,13 +759,90 @@ TEST(OctiBotAgentCliLauncherTest, BuildCommandArgs) {
     auto argsAgy = OctiBotAgentCliLauncher::buildCommandArgs(
         "agy", "", 12345, "flash", "My prompt", false, "");
     CHECK_EQUAL("agy", argsAgy[0]);
-    CHECK_EQUAL("--settings", argsAgy[1]);
-    CHECK_TRUE(argsAgy[2].find("12345") != std::string::npos);
+    CHECK_EQUAL("--model", argsAgy[1]);
+    CHECK_EQUAL("flash", argsAgy[2]);
+    CHECK_EQUAL("--sandbox", argsAgy[3]);
+    CHECK_EQUAL("--disable-slash-commands", argsAgy[4]);
+    CHECK_EQUAL("--settings", argsAgy[5]);
+    CHECK_TRUE(argsAgy[6].find("mcp(octibot/*)") != std::string::npos);
+    CHECK_TRUE(argsAgy[6].find("deny") != std::string::npos);
 
     auto argsClaude = OctiBotAgentCliLauncher::buildCommandArgs(
         "claude", "", 54321, "", "Prompt", true, "");
     CHECK_EQUAL("claude", argsClaude[0]);
-    CHECK_EQUAL("--mcp-config", argsClaude[1]);
+    CHECK_EQUAL("--restricted", argsClaude[1]);
+    CHECK_EQUAL("--strict-mcp-config", argsClaude[2]);
+    CHECK_EQUAL("--tools", argsClaude[3]);
+    CHECK_EQUAL("", argsClaude[4]);
+    CHECK_EQUAL("--disable-slash-commands", argsClaude[5]);
+    CHECK_EQUAL("--no-session-persistence", argsClaude[6]);
+    CHECK_EQUAL("--permission-prompts", argsClaude[7]);
+    CHECK_EQUAL("none", argsClaude[8]);
+    CHECK_EQUAL("--mcp-config", argsClaude[9]);
+    CHECK_TRUE(argsClaude[10].find("54321") != std::string::npos);
+
+    auto argsCursor = OctiBotAgentCliLauncher::buildCommandArgs(
+        "cursor-agent", "", 12345, "pro", "Prompt", false, "/tmp/sdir");
+    CHECK_EQUAL("cursor-agent", argsCursor[0]);
+    CHECK_EQUAL("--model", argsCursor[1]);
+    CHECK_EQUAL("pro", argsCursor[2]);
+    CHECK_EQUAL("--mode", argsCursor[3]);
+    CHECK_EQUAL("ask", argsCursor[4]);
+    CHECK_EQUAL("--sandbox", argsCursor[5]);
+    CHECK_EQUAL("enabled", argsCursor[6]);
+    CHECK_EQUAL("--workspace", argsCursor[7]);
+    CHECK_EQUAL("/tmp/sdir", argsCursor[8]);
+}
+
+TEST(OctiBotAgentCliLauncherTest, BuildChatCommandArgsAndSecuritySanitization) {
+    auto agyChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
+        "agy", "", 3888, "flash", "Hello chat", "/tmp/sdir");
+    for (const auto &arg : agyChat) {
+        CHECK_FALSE(arg == "--dangerously-skip-permissions");
+    }
+    CHECK_TRUE(agyChat[5] == "--settings");
+    CHECK_TRUE(agyChat[6].find("mcp(octibot:octibot_get_*)") != std::string::npos);
+    CHECK_TRUE(agyChat[6].find("command(*)") != std::string::npos);
+
+    auto claudeChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
+        "claude", "", 3888, "sonnet", "Hello chat", "/tmp/sdir");
+    for (const auto &arg : claudeChat) {
+        CHECK_FALSE(arg == "--dangerously-skip-permissions");
+    }
+    CHECK_TRUE(claudeChat[1] == "--model");
+    CHECK_TRUE(claudeChat[3] == "--restricted");
+
+    auto cursorChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
+        "cursor-agent", "", 3888, "pro", "Hello chat", "/tmp/sdir");
+    for (const auto &arg : cursorChat) {
+        CHECK_FALSE(arg == "--trust");
+        CHECK_FALSE(arg == "--force");
+        CHECK_FALSE(arg == "--yolo");
+        CHECK_FALSE(arg == "--approve-mcps");
+    }
+}
+
+TEST(OctiBotAgentCliLauncherTest, MaterializeSandboxWorkspace) {
+    std::string testSandbox = "/tmp/test-octibot-sandbox-" + std::to_string(::getpid());
+    std::error_code ec;
+    std::filesystem::remove_all(testSandbox, ec);
+
+    CHECK_TRUE(OctiBotAgentCliLauncher::materializeSandboxWorkspace(testSandbox, 3888));
+    CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/plugin.json"));
+    CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/mcp_config.json"));
+    CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/skills/octibot/SKILL.md"));
+    CHECK_TRUE(std::filesystem::exists(testSandbox + "/.cursor/mcp.json"));
+    CHECK_TRUE(std::filesystem::exists(testSandbox + "/.cursor/skills/octibot/SKILL.md"));
+
+    struct stat st;
+    CHECK_EQUAL(0, ::stat(testSandbox.c_str(), &st));
+    CHECK_EQUAL(0700, st.st_mode & 0777);
+
+    std::ifstream ifs(testSandbox + "/.cursor/mcp.json");
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    CHECK_TRUE(content.find("3888") != std::string::npos);
+
+    std::filesystem::remove_all(testSandbox, ec);
 }
 
 TEST(OctiBotAgentCliLauncherTest, SpawnAndTerminateChildProcess) {
@@ -924,6 +1001,183 @@ TEST(OctiBotIntegrationLoopbackTest, SupersedingTokenTakeoverAndActiveResume) {
     runner2->stop();
 }
 
+// ============================================================================
+// 6. OctiBotLogBuffer Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotLogBufferTest) {
+};
+
+TEST(OctiBotLogBufferTest, RingBufferCapacityAndEviction) {
+    OctiBotConfigStore config;
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+
+    for (int i = 1; i <= 5100; ++i) {
+        runner.appendStdoutLine("Log line " + std::to_string(i), false);
+    }
+
+    uint64_t oldest = 0;
+    uint64_t latest = 0;
+    auto allLogs = runner.getLogsAfter(0, &oldest, &latest);
+    CHECK_EQUAL(5000, allLogs.size());
+    CHECK_EQUAL(102, oldest);
+    CHECK_EQUAL(5101, latest);
+    CHECK_EQUAL("Log line 101", allLogs.front().line);
+    CHECK_EQUAL("Log line 5100", allLogs.back().line);
+
+    auto recentLogs = runner.getLogsAfter(5091, &oldest, &latest);
+    CHECK_EQUAL(10, recentLogs.size());
+    CHECK_EQUAL(5092, recentLogs.front().seq);
+    CHECK_EQUAL(5101, recentLogs.back().seq);
+}
+
+// ============================================================================
+// 7. OctiBotMoveTelemetry Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotMoveTelemetryTest) {
+};
+
+TEST(OctiBotMoveTelemetryTest, AnnounceMoveSearchChatFlagAndHistoryCap) {
+    OctiBotConfigStore config;
+    CHECK_TRUE(config.getBool("announce_move_search_chat", true));
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+    CHECK_TRUE(runner.announceMoveSearchChat());
+
+    std::map<std::string, std::string> updates;
+    updates["announce_move_search_chat"] = "false";
+    std::string err;
+    CHECK_TRUE(runner.applyConfigUpdates(updates, false, err));
+    CHECK_FALSE(runner.announceMoveSearchChat());
+
+    for (int i = 1; i <= 60; ++i) {
+        BotMoveTelemetry telem;
+        telem.depthReached = 4;
+        telem.nodesVisited = 100 * i;
+        telem.evalScore = 10;
+        telem.elapsedMs = 50;
+        telem.present = true;
+        runner.recordMoveHistory(i, "move" + std::to_string(i), telem);
+    }
+
+    auto history = runner.getMoveHistory();
+    CHECK_EQUAL(50, history.size());
+    CHECK_EQUAL(11, history.front().ply);
+    CHECK_EQUAL(60, history.back().ply);
+}
+
+// ============================================================================
+// 8. OctiBotConfigHotReload Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotConfigHotReloadTest) {
+};
+
+TEST(OctiBotConfigHotReloadTest, LockedKeysRejectionAndHotReload) {
+    OctiBotConfigStore config;
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+
+    std::map<std::string, std::string> badUpdates;
+    badUpdates["server_host"] = "evil.com";
+    std::string err;
+    CHECK_FALSE(runner.applyConfigUpdates(badUpdates, false, err));
+    CHECK_TRUE(err.find("server_host") != std::string::npos);
+
+    badUpdates.clear();
+    badUpdates["bot_token"] = "stolen";
+    CHECK_FALSE(runner.applyConfigUpdates(badUpdates, false, err));
+
+    std::map<std::string, std::string> validUpdates;
+    validUpdates["verbosity"] = "1";
+    validUpdates["table_behavior"] = "auto";
+    validUpdates["publish_move_telemetry"] = "true";
+    CHECK_TRUE(runner.applyConfigUpdates(validUpdates, false, err));
+    CHECK_EQUAL(1, runner.verbosity());
+    CHECK_TRUE(runner.publishMoveTelemetry());
+}
+
+// ============================================================================
+// 9. OctiBotWebDashboard Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotWebDashboardTest) {
+};
+
+TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
+    OctiBotConfigStore config;
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+    runner.appendStdoutLine("Dashboard boot log line 1", false);
+
+    OctiBotMcpServer server(runner);
+    CHECK_TRUE(server.startHttpServer(0, "127.0.0.1"));
+    int port = server.boundHttpPort();
+    CHECK_TRUE(port > 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    // 1. GET / -> HTML
+    auto resIndex = client.Get("/");
+    CHECK_TRUE(resIndex != nullptr);
+    CHECK_EQUAL(200, resIndex->status);
+    CHECK_TRUE(resIndex->body.find("OCTIBOT Telemetry & Control") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("Live stdout Console") != std::string::npos);
+
+    // 2. GET /api/v1/status -> JSON
+    auto resStatus = client.Get("/api/v1/status");
+    CHECK_TRUE(resStatus != nullptr);
+    CHECK_EQUAL(200, resStatus->status);
+    auto statusJson = nlohmann::json::parse(resStatus->body);
+    CHECK_TRUE(statusJson.contains("server"));
+    CHECK_TRUE(statusJson.contains("robot"));
+    CHECK_TRUE(statusJson["robot"].contains("handle"));
+    CHECK_TRUE(statusJson.contains("match"));
+    CHECK_TRUE(statusJson.contains("engine"));
+
+    // 3. GET /api/v1/logs -> JSON
+    auto resLogs = client.Get("/api/v1/logs");
+    CHECK_TRUE(resLogs != nullptr);
+    CHECK_EQUAL(200, resLogs->status);
+    auto logsJson = nlohmann::json::parse(resLogs->body);
+    CHECK_TRUE(logsJson.contains("logs"));
+    CHECK_TRUE(logsJson.contains("oldest_seq"));
+    CHECK_TRUE(logsJson.contains("latest_seq"));
+    CHECK_TRUE(logsJson["logs"].is_array());
+    CHECK_TRUE(!logsJson["logs"].empty());
+
+    // 4. GET /api/v1/config -> JSON
+    auto resConfig = client.Get("/api/v1/config");
+    CHECK_TRUE(resConfig != nullptr);
+    CHECK_EQUAL(200, resConfig->status);
+    auto configJson = nlohmann::json::parse(resConfig->body);
+    CHECK_TRUE(configJson.contains("entries"));
+    CHECK_TRUE(configJson.contains("locked_keys"));
+    CHECK_TRUE(configJson.contains("active_profile"));
+    CHECK_FALSE(configJson["entries"].contains("bot_token"));
+
+    // 5. POST /api/v1/config -> JSON update
+    nlohmann::json updateReq;
+    updateReq["updates"]["verbosity"] = "2";
+    updateReq["save_to_disk"] = false;
+    auto resPost = client.Post("/api/v1/config", updateReq.dump(), "application/json");
+    CHECK_TRUE(resPost != nullptr);
+    CHECK_EQUAL(200, resPost->status);
+    CHECK_EQUAL(2, runner.verbosity());
+
+    // 6. POST /api/v1/config with locked key -> 400
+    nlohmann::json badPost;
+    badPost["updates"]["aimon_port"] = "9999";
+    auto resBad = client.Post("/api/v1/config", badPost.dump(), "application/json");
+    CHECK_TRUE(resBad != nullptr);
+    CHECK_EQUAL(400, resBad->status);
+
+    server.stopHttpServer();
+}
+
 int main(int argc, char **argv) {
 #if !defined(_WIN32)
     ::signal(SIGPIPE, SIG_IGN);
@@ -934,8 +1188,10 @@ int main(int argc, char **argv) {
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

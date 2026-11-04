@@ -1,4 +1,6 @@
 /*
+ * OctiBotRunner.hxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -7,6 +9,9 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
+#include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -20,8 +25,27 @@
 
 namespace octi {
 
+struct BotLogEntry {
+    std::uint64_t seq = 0;
+    std::int64_t timestampMs = 0;
+    std::string line;
+};
+
+struct BotMoveHistoryEntry {
+    int ply = 0;
+    std::string move;
+    int depthReached = 0;
+    std::uint64_t nodesVisited = 0;
+    int evalScore = 0;
+    std::int64_t elapsedMs = 0;
+    std::int64_t timestampMs = 0;
+};
+
 class OctiBotRunner {
 public:
+    static constexpr std::size_t kMaxLogLines = 5000;
+    static constexpr std::size_t kMaxMoveHistory = 50;
+
     OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
                   const OctiBotConfigStore &config,
                   const std::string &customEndpoint = "");
@@ -38,7 +62,7 @@ public:
     bool waitForEvent(int timeoutMs, std::string &outReason);
     void notifyEvent(const std::string &reason);
 
-    // Getters for MCP server & inspection
+    // Getters for MCP server, Web Dashboard & inspection
     const BotIdentity &identity() const { return _identity; }
     const OctiBotConfigStore &config() const { return _config; }
     OctiBotConfigStore &config() { return _config; }
@@ -50,12 +74,49 @@ public:
     std::string currentRoomId() const;
     std::string currentPhase() const;
     int currentSeat() const;
+    int turnSeat() const;
+    int plyCount() const;
+    std::string currentFen() const;
+    std::string renderAsciiBoard() const;
+    std::vector<GameSeatInfo> currentSeats() const;
+    std::int64_t currentTtlRemainingMs() const;
+
     const BotMoveTelemetry &lastTelemetry() const { return _lastTelemetry; }
     std::string moveControl() const { return _moveControl; }
     void setMoveControl(const std::string &mc) { _moveControl = mc; }
+    bool publishMoveTelemetry() const { return _publishMoveTelemetry; }
+    void setPublishMoveTelemetry(bool val) { _publishMoveTelemetry = val; }
+    bool announceMoveSearchChat() const { return _announceMoveSearchChat; }
+    void setAnnounceMoveSearchChat(bool val) { _announceMoveSearchChat = val; }
     int verbosity() const { return _verbosity; }
     void setVerbosity(int level) { _verbosity = level; }
     void logMsg(int minLevel, const std::string &msg) const;
+
+    // 5,000-line stdout ring buffer
+    void appendStdoutLine(const std::string &line, bool printToConsole = true);
+    std::vector<BotLogEntry> getLogsAfter(std::uint64_t afterSeq,
+                                         std::uint64_t *outOldestSeq = nullptr,
+                                         std::uint64_t *outLatestSeq = nullptr) const;
+
+    // Search telemetry & move history
+    void recordMoveHistory(int ply, const std::string &move, const BotMoveTelemetry &telem);
+    std::vector<BotMoveHistoryEntry> getMoveHistory() const;
+    bool isSearching() const { return _isSearching.load(); }
+    int liveDepth() const { return _liveDepth.load(); }
+    std::uint64_t liveNodes() const { return _liveNodes.load(); }
+    int liveScore() const { return _liveScore.load(); }
+    void updateSearchProgress(bool searching, int depth = 0, std::uint64_t nodes = 0, int score = 0);
+
+    // MCP server port registration
+    void setMcpServerPort(int port) { _mcpServerPort = port; }
+    int mcpServerPort() const { return _mcpServerPort.load(); }
+
+    // Dynamic config hot-reload & disk persistence
+    void setConfigFilePath(const std::string &path) { _configFilePath = path; }
+    const std::string &configFilePath() const { return _configFilePath; }
+    bool applyConfigUpdates(const std::map<std::string, std::string> &updates,
+                            bool saveToDisk,
+                            std::string &errorOut);
 
     bool submitAgentMove(const std::string &moveNotation, std::string &errorOut);
     bool executeGameAction(const std::string &action, const std::string &arg, std::string &errorOut);
@@ -65,9 +126,14 @@ private:
     void handleLobbySseEvent(const std::string &eventType, const std::string &data);
     void handleGameSseEvent(const std::string &eventType, const std::string &data);
     void playEngineTurn();
+    void dispatchAiChatReply(const std::string &channel,
+                             const std::string &roomId,
+                             const std::string &senderHandle,
+                             const std::string &messageText);
 
     std::unique_ptr<OctiBotAgent> _agent;
     OctiBotConfigStore _config;
+    std::string _configFilePath;
     OctiNetworkClient _client;
     OctiBotPolicyEngine _policy;
     OctiBotConversationEngine _conversation;
@@ -79,8 +145,26 @@ private:
 
     std::string _moveControl = "engine"; // "engine" or "agent"
     bool _publishMoveTelemetry = false;
+    bool _announceMoveSearchChat = true;
     int _agentMoveTimeoutMs = 15000;
     int _verbosity = 3;
+    std::atomic<bool> _aiChatBusy{false};
+    std::atomic<int> _mcpServerPort{0};
+
+    // Live search telemetry
+    std::atomic<bool> _isSearching{false};
+    std::atomic<int> _liveDepth{0};
+    std::atomic<std::uint64_t> _liveNodes{0};
+    std::atomic<int> _liveScore{0};
+
+    // Rolling 50-move history
+    mutable std::mutex _historyMutex;
+    std::deque<BotMoveHistoryEntry> _moveHistory;
+
+    // 5,000-line stdout ring buffer
+    mutable std::mutex _logMutex;
+    std::deque<BotLogEntry> _logBuffer;
+    std::uint64_t _nextLogSeq = 1;
 
     mutable std::mutex _stateMutex;
     std::string _currentRoomId;
@@ -100,7 +184,9 @@ private:
     int _lastLoggedPlyCount = -1;
 };
 
+#if !defined(OCTIBOT_MINIMAL)
 class OctiBotMcpServer;
+#endif
 
 class OctiBotFleetRunner {
 public:
@@ -121,11 +207,15 @@ public:
     void waitForAll();
 
     const std::vector<std::unique_ptr<OctiBotRunner>> &runners() const { return _runners; }
+#if !defined(OCTIBOT_MINIMAL)
     const std::vector<std::unique_ptr<OctiBotMcpServer>> &mcpServers() const { return _mcpServers; }
+#endif
 
 private:
     std::vector<std::unique_ptr<OctiBotRunner>> _runners;
+#if !defined(OCTIBOT_MINIMAL)
     std::vector<std::unique_ptr<OctiBotMcpServer>> _mcpServers;
+#endif
 };
 
 int runFleetCli(int argc, char **argv);
@@ -136,8 +226,10 @@ int runFleetCli(int argc, char **argv);
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

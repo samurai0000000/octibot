@@ -1,4 +1,6 @@
 /*
+ * OctiBotMcpServer.hxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -6,6 +8,7 @@
 #define OCTIBOT_MCP_SERVER_HXX
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <istream>
 #include <memory>
@@ -42,8 +45,13 @@ public:
 
     static std::string getSkillGuideContent(const std::string &topic = "all");
 
+    std::string renderDashboardHtml() const;
+    nlohmann::json buildStatusJson();
+    nlohmann::json buildConfigJson() const;
+
 private:
     std::string callTool(const std::string &name, const std::string &argumentsJson);
+    void registerHttpRoutes();
 
     OctiBotRunner &_runner;
     OctiBotEngine _engineAnalyzer;
@@ -57,12 +65,27 @@ private:
     std::atomic<bool> _aimonRunning{false};
     std::unique_ptr<std::thread> _aimonThread;
     int _aimonSocketFd = -1;
+
+    // Health cache (3s TTL)
+    mutable std::mutex _healthCacheMutex;
+    std::chrono::steady_clock::time_point _lastHealthCheckTime{};
+    nlohmann::json _cachedHealthJson;
 };
 
 class OctiBotAgentCliLauncher {
 public:
     OctiBotAgentCliLauncher(OctiBotRunner &runner, OctiBotMcpServer &mcpServer);
     ~OctiBotAgentCliLauncher();
+
+    static bool materializeSandboxWorkspace(const std::string &sandboxDir, int mcpPort);
+
+    static std::vector<std::string> buildChatCommandArgs(
+        const std::string &backend,
+        const std::string &executable,
+        int mcpPort,
+        const std::string &model,
+        const std::string &prompt,
+        const std::string &sandboxDir);
 
     static std::vector<std::string> buildCommandArgs(
         const std::string &backend,
@@ -99,8 +122,10 @@ private:
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

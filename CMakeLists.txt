@@ -64,12 +64,44 @@ target_link_libraries(octibot_sdk PUBLIC
     octi_core
 )
 
+# Minimal SDK static library (zero MCP, zero aimon, zero embedded HTTP server)
+add_library(octibot_sdk_minimal STATIC
+    sdk/src/OctiBotConfig.cxx
+    sdk/src/OctiBotPolicy.cxx
+    sdk/src/OctiBotRunner.cxx
+)
+target_compile_definitions(octibot_sdk_minimal PUBLIC OCTIBOT_MINIMAL=1)
+
+target_include_directories(octibot_sdk_minimal PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/include
+    ${CMAKE_CURRENT_BINARY_DIR}/core
+)
+
+target_include_directories(octibot_sdk_minimal SYSTEM PUBLIC
+    ${OCTIBOT_THIRD_PARTY_DIR}/json/include
+    ${OCTIBOT_THIRD_PARTY_DIR}/cpp-httplib
+)
+
+target_link_libraries(octibot_sdk_minimal PUBLIC
+    octi_core
+)
+
 # Unified Single OctiBot Executable
 add_executable(octibot
     examples/reference_bot/Main.cxx
 )
 target_link_libraries(octibot PRIVATE
     octibot_sdk
+    octi_core
+)
+
+# Standalone Minimal Bot Executable
+add_executable(octibot-minimal
+    examples/minimal_bot/Main.cxx
+)
+target_link_libraries(octibot-minimal PRIVATE
+    octibot_sdk_minimal
     octi_core
 )
 

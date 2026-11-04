@@ -1,4 +1,6 @@
 /*
+ * OctiBotAgent.hxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -84,6 +86,8 @@ public:
 
 class StockAlphaBetaAgent : public OctiBotAgent {
 public:
+    using ProgressCallback = std::function<void(int depth, std::uint64_t nodes, int score)>;
+
     StockAlphaBetaAgent() = default;
     explicit StockAlphaBetaAgent(const OctiBotConfigStore &config);
 
@@ -96,11 +100,13 @@ public:
 
     OctiBotEngine &engine() { return _engine; }
     const BotTuningProfile &profile() const { return _profile; }
+    void setProgressCallback(ProgressCallback cb) { _progressCallback = std::move(cb); }
 
 private:
     OctiBotEngine _engine;
     BotTuningProfile _profile;
     int _verbosity = 2;
+    ProgressCallback _progressCallback;
 };
 
 class CentaurMcpAgent : public StockAlphaBetaAgent {
@@ -152,8 +158,10 @@ private:
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

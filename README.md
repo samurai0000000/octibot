@@ -1,6 +1,6 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.0.2**
+**Version: 1.0.3**
 
 Copyright (C) 2026, Charles Chiou
 
@@ -15,9 +15,22 @@ Copyright (C) 2026, Charles Chiou
   - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls), and social governance (`friend_list`, `ban_list`, proposals).
   - `OctiBotConversationEngine`: Interactive in-game and lobby chat handler supporting public commands (`@bot help`, `@bot stats`), owner management (`@bot status`, `@bot host`, `@bot set`), and thread-safe inbox buffering for Agentic AI.
   - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server exposing 11 specialized tools, enabling Centaur AI agents to inspect state, analyze positions with alpha-beta search, make moves, and converse.
-  - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup.
-- **Unified Bot Executable**:
-  - `octibot`: Production-grade autonomous bot supporting alpha-beta search, dynamic time allocation, single-process multi-profile fleet deployment, Centaur MCP mode, and minimal heuristic templates.
+  - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup and hardened security sandboxing.
+- **Embedded Web Dashboard & `aimon` Fleet Integration**:
+  - Embedded HTTP server automatically bound on `web_port = 3888` (configurable, with automatic fallback to ephemeral port if busy).
+  - Live satellite tab registration with `aimon` gateway (`port 3885`), rendering an integrated dashboard inside the `aimon` web UI.
+  - Real-time OCTI server health and bot telemetry (`GET /api/v1/status`).
+  - Thread-safe 5,000-line scrollable `stdout` console viewer (`GET /api/v1/logs`) with monotonic sequence tailing and oldest-line eviction.
+  - Interactive categorized configuration editor (`GET /api/v1/config`, `POST /api/v1/config`) with locked read-only network keys and atomic disk persistence.
+- **Search Telemetry & Chat Announcements**:
+  - `announce_move_search_chat` (default `true`): Automatically announces search depth, visited nodes, evaluation score, and elapsed milliseconds to in-game board chat upon move submission.
+- **Hardened Multi-Backend AI CLI Sandboxing**:
+  - Isolated execution environment (`/tmp/octibot-ai-sandbox` at `0700` permissions) for `agy`, `claude`, and `cursor-agent`.
+  - Zero-trust network field sanitization: strict stripping of control characters and angle brackets to eliminate prompt injection risks.
+  - Strict tool restriction flags (`agy --sandbox --settings`, `claude --restricted --strict-mcp-config --tools ""`, `cursor-agent --mode ask --sandbox enabled`) hard-denying external command execution, file modifications, or access outside the game MCP context.
+- **Bot Executables**:
+  - `octibot`: Production-grade autonomous bot supporting alpha-beta search, dynamic time allocation, single-process multi-profile fleet deployment, Centaur MCP mode, embedded web dashboard, and `aimon` integration.
+  - `octibot-minimal`: Standalone, lightweight starter bot binary built with `-DOCTIBOT_MINIMAL=1`, excluding MCP server, `aimon`, and AI CLI subprocess code for minimal environments.
 - **Robust Network Protocol**:
   - Superseding token leases with graceful takeover.
   - Seamless active game reconnect upon crash or restart.
@@ -72,6 +85,11 @@ verbosity = verbose         # verbose (default, 3), info (2), error (1), quiet (
 table_behavior = auto       # auto, join_only, host_only, matchmaking, idle
 accept_modes = 2P, 4P, OFK
 publish_move_telemetry = false
+announce_move_search_chat = true  # Announce search stats in board chat after move
+
+# Embedded Web Dashboard & aimon integration
+web_port = 3888                   # Dashboard HTTP port (default 3888)
+aimon_enabled = true              # Register with aimon gateway (port 3885)
 
 # Default profile (runs stock alpha-beta engine)
 [stock]
@@ -114,6 +132,21 @@ max_search_depth = 8
 ```bash
 ./build/octibot --profile stock --instances 3
 ```
+
+**Run the standalone lightweight starter bot (`octibot-minimal`):**
+```bash
+./build/octibot-minimal --profile stock
+```
+
+### 5. Embedded Web Dashboard & Fleet Supervision
+
+When `aimon_enabled = true` or `web_port > 0`, `octibot` automatically serves a real-time web dashboard on port `3888` (or an ephemeral fallback port):
+- Direct browser access: `http://localhost:3888/`
+- Integrated `aimon` supervision: Appears automatically as an **octibot** satellite tab in the `aimon` management console (`http://builder.selfso.com:3883`).
+- REST API endpoints:
+  - `GET /api/v1/status`: Server reachability, active room status, bot record, and live search engine telemetry.
+  - `GET /api/v1/logs?after_seq=<seq>`: Monotonic 5,000-line stdout console stream.
+  - `GET /api/v1/config` & `POST /api/v1/config`: Live categorized configuration inspector and hot-reloader.
 
 ---
 

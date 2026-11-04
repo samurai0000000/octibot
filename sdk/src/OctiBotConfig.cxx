@@ -1,4 +1,6 @@
 /*
+ * OctiBotConfig.cxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -289,12 +291,18 @@ bool OctiBotConfigStore::saveFile(const std::string &path, std::string &errorOut
 
     file << "# OCTIBOT Configuration\n";
     for (const auto &kv : _entries) {
+        if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
+            continue;
+        }
         file << kv.first << " = " << kv.second << "\n";
     }
 
     for (const auto &prof : _profiles) {
         file << "\n[" << prof.first << "]\n";
         for (const auto &kv : prof.second) {
+            if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
+                continue;
+            }
             file << kv.first << " = " << kv.second << "\n";
         }
     }
@@ -539,8 +547,10 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

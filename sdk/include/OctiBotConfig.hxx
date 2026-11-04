@@ -1,4 +1,6 @@
 /*
+ * OctiBotConfig.hxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -51,6 +53,10 @@ public:
     int getVerbosityLevel(int defaultLevel = 3) const;
 
     const std::map<std::string, std::string> &entries() const { return _entries; }
+    const std::map<std::string, std::map<std::string, std::string>> &profiles() const { return _profiles; }
+    void setProfileEntry(const std::string &profile, const std::string &key, const std::string &value) {
+        _profiles[profile][key] = value;
+    }
 
 private:
     std::map<std::string, std::string> _entries;
@@ -66,8 +72,10 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

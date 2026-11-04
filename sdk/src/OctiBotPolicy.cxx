@@ -601,7 +601,11 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     }
 
     // Owner-only commands
-    if (!isOwner) {
+    bool isOwnerOnlyCmd = (verbLower == "status" || verbLower == "host" ||
+                           verbLower == "joinroom" || verbLower == "leave" ||
+                           verbLower == "friend" || verbLower == "ban" ||
+                           verbLower == "set");
+    if (isOwnerOnlyCmd && !isOwner) {
         result.action = ChatCommandActionType::REPLY_ONLY;
         result.replyText = "Unauthorized: '" + verb + "' is an owner-only command.";
         return result;
@@ -686,6 +690,12 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         result.configKey = key;
         result.configValue = val;
         result.replyText = "Configuration updated: " + key + " = " + val;
+        return result;
+    }
+
+    std::string aiBackend = toLower(trim(config.getString("ai_cli_backend", "none")));
+    if (!aiBackend.empty() && aiBackend != "none") {
+        result.action = ChatCommandActionType::NONE;
         return result;
     }
 
