@@ -183,6 +183,8 @@ public:
                                         const std::string &opponentHandle) const;
     std::string formatGameOverChat(const std::string &result,
                                    const std::string &myHandle) const;
+    std::string formatGoodbyeChat(const std::string &myHandle,
+                                  const std::string &opponentHandle) const;
 
 private:
     ChatCommandResult executeCommand(
@@ -210,6 +212,7 @@ private:
     std::string _chatGameOverWin = "Good game!";
     std::string _chatGameOverLoss = "Good game, well played!";
     std::string _chatGameOverDraw = "Good game, well fought!";
+    std::string _chatGoodbye = "Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!";
 };
 
 } // namespace octi

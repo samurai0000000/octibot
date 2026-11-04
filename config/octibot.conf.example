@@ -39,6 +39,15 @@ min_move_think_ms = 0
 publish_move_telemetry = false   # Set to true to publish depth/nodes/score in move history
 allow_public_eval_chat = true
 
+# Post-Game Linger & Goodbye
+post_game_linger_sec = 60
+chat_goodbye = Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!
+
+# Proactive AI Commentary
+ai_proactive_commentary = true
+ai_commentary_eval_swing_threshold = 2500
+ai_commentary_cooldown_plies = 8
+
 # Aimon MCP Gateway Bridge
 aimon_enabled = true
 aimon_host = 127.0.0.1

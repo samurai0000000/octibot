@@ -352,7 +352,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
         };
         result["serverInfo"] = {
             {"name", "octibot"},
-            {"version", "1.0.4"}
+            {"version", "1.0.5"}
         };
         resp["result"] = result;
         return resp.dump();
@@ -1131,6 +1131,12 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["chat_game_over_win"] = _runner.config().getString("chat_game_over_win", "Good game!");
     effectiveDefaults["chat_game_over_loss"] = _runner.config().getString("chat_game_over_loss", "Good game, well played!");
     effectiveDefaults["chat_game_over_draw"] = _runner.config().getString("chat_game_over_draw", "Good game, well fought!");
+    effectiveDefaults["post_game_linger_sec"] = std::to_string(_runner.config().getInt("post_game_linger_sec", 60));
+    effectiveDefaults["chat_goodbye"] = _runner.config().getString("chat_goodbye",
+        "Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!");
+    effectiveDefaults["ai_proactive_commentary"] = _runner.config().getBool("ai_proactive_commentary", true) ? "true" : "false";
+    effectiveDefaults["ai_commentary_eval_swing_threshold"] = std::to_string(_runner.config().getInt("ai_commentary_eval_swing_threshold", 2500));
+    effectiveDefaults["ai_commentary_cooldown_plies"] = std::to_string(_runner.config().getInt("ai_commentary_cooldown_plies", 8));
     effectiveDefaults["verbosity"] = std::to_string(_runner.verbosity());
 
     effectiveDefaults["aimon_enabled"] = _runner.config().getBool("aimon_enabled", false) ? "true" : "false";
@@ -2100,6 +2106,29 @@ header {
         <input type="text" id="cfg_chat_game_over_draw" class="input-control">
       </div>
       <div class="field-group">
+        <label>chat_goodbye <span class="field-desc">post-game goodbye message</span></label>
+        <input type="text" id="cfg_chat_goodbye" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>post_game_linger_sec <span class="field-desc">post-game linger before leaving (s)</span></label>
+        <input type="number" id="cfg_post_game_linger_sec" class="input-control" min="5" max="600">
+      </div>
+      <div class="field-group">
+        <label>ai_proactive_commentary <span class="field-desc">proactive evaluation & match commentary</span></label>
+        <select id="cfg_ai_proactive_commentary" class="input-control">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>ai_commentary_eval_swing_threshold <span class="field-desc">eval swing commentary threshold</span></label>
+        <input type="number" id="cfg_ai_commentary_eval_swing_threshold" class="input-control" min="500" max="20000">
+      </div>
+      <div class="field-group">
+        <label>ai_commentary_cooldown_plies <span class="field-desc">plies between proactive comments</span></label>
+        <input type="number" id="cfg_ai_commentary_cooldown_plies" class="input-control" min="1" max="50">
+      </div>
+      <div class="field-group">
         <label>verbosity <span class="field-desc">console log level (0..4)</span></label>
         <input type="number" id="cfg_verbosity" class="input-control" min="0" max="4">
       </div>
@@ -2676,7 +2705,7 @@ void OctiBotMcpServer::startAimonBridge() {
                 {"subsystem", "octibot"},
                 {"display_name", "OCTI Robot (" + h + ")"},
                 {"short_name", h},
-                {"version", "1.0.4"},
+                {"version", "1.0.5"},
                 {"web_port", _boundPort.load()},
                 {"web_path", "/"},
                 {"priority", 35}

@@ -621,6 +621,27 @@ TEST(OctiBotConversationTest, ConversationInboxBuffering) {
     CHECK_EQUAL(0, conv.getAllInbox().size());
 }
 
+TEST(OctiBotConversationTest, FormatGoodbyeChatAndDefaults) {
+    OctiBotConfigStore config;
+    OctiBotConversationEngine conv(config);
+
+    // Default goodbye
+    std::string defaultBye = conv.formatGoodbyeChat("stock", "alice");
+    CHECK_TRUE(defaultBye.find("Thanks for the game!") != std::string::npos);
+
+    // Custom goodbye with {opponent}
+    config.set("chat_goodbye", "GG and farewell {opponent}!");
+    conv.configure(config);
+    std::string customBye1 = conv.formatGoodbyeChat("stock", "bob");
+    CHECK_EQUAL("GG and farewell bob!", customBye1);
+
+    // Custom goodbye with @opponent
+    config.set("chat_goodbye", "See you next time, @opponent!");
+    conv.configure(config);
+    std::string customBye2 = conv.formatGoodbyeChat("stock", "charlie");
+    CHECK_EQUAL("See you next time, @charlie!", customBye2);
+}
+
 // ============================================================================
 // 4. OctiBotMcpServer Tests
 // ============================================================================
@@ -1138,6 +1159,11 @@ TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
     CHECK_TRUE(resIndex->body.find("<textarea class=\"console-output\" id=\"consoleOutput\" readonly spellcheck=\"false\">") != std::string::npos);
     CHECK_TRUE(resIndex->body.find("Agent Conversation Log") != std::string::npos);
     CHECK_TRUE(resIndex->body.find("telemetryGraphSvg") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("id=\"cfg_chat_goodbye\"") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("id=\"cfg_post_game_linger_sec\"") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("id=\"cfg_ai_proactive_commentary\"") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("id=\"cfg_ai_commentary_eval_swing_threshold\"") != std::string::npos);
+    CHECK_TRUE(resIndex->body.find("id=\"cfg_ai_commentary_cooldown_plies\"") != std::string::npos);
 
     // 2. GET /api/v1/status -> JSON
     auto resStatus = client.Get("/api/v1/status");
@@ -1189,6 +1215,15 @@ TEST(OctiBotWebDashboardTest, HttpEndpointsAndDashboardHtml) {
     CHECK_TRUE(configJson["entries"].contains("accept_modes"));
     CHECK_TRUE(configJson["entries"].contains("ai_personality"));
     CHECK_TRUE(configJson["entries"]["ai_personality"].get<std::string>().find("mellow, friendly") != std::string::npos);
+    CHECK_TRUE(configJson["entries"].contains("post_game_linger_sec"));
+    CHECK_EQUAL("60", configJson["entries"]["post_game_linger_sec"].get<std::string>());
+    CHECK_TRUE(configJson["entries"].contains("chat_goodbye"));
+    CHECK_TRUE(configJson["entries"].contains("ai_proactive_commentary"));
+    CHECK_EQUAL("true", configJson["entries"]["ai_proactive_commentary"].get<std::string>());
+    CHECK_TRUE(configJson["entries"].contains("ai_commentary_eval_swing_threshold"));
+    CHECK_EQUAL("2500", configJson["entries"]["ai_commentary_eval_swing_threshold"].get<std::string>());
+    CHECK_TRUE(configJson["entries"].contains("ai_commentary_cooldown_plies"));
+    CHECK_EQUAL("8", configJson["entries"]["ai_commentary_cooldown_plies"].get<std::string>());
 
     // 5. POST /api/v1/config -> JSON update
     nlohmann::json updateReq;

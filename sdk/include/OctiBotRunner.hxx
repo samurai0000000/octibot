@@ -154,6 +154,11 @@ private:
                              const std::string &roomId,
                              const std::string &senderHandle,
                              const std::string &messageText);
+    void dispatchAiProactiveEvent(const std::string &eventKind,
+                                  const std::string &roomId,
+                                  const std::string &opponentHandle,
+                                  const std::string &eventSummary,
+                                  bool waitForCompletion = false);
 
     std::unique_ptr<OctiBotAgent> _agent;
     OctiBotConfigStore _config;
@@ -211,6 +216,10 @@ private:
     std::string _lastEventReason;
     int _consecutiveRematches = 0;
     int _lastLoggedPlyCount = -1;
+    std::string _gameOverHandledRoomId;
+    std::atomic<std::int64_t> _postGameSilenceStartMs{0};
+    int _lastProactiveCommentPly = -100;
+    int _proactiveCommentsInGame = 0;
 };
 
 #if !defined(OCTIBOT_MINIMAL)

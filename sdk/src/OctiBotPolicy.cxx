@@ -364,6 +364,7 @@ void OctiBotConversationEngine::configure(const OctiBotConfigStore &config) {
     _chatGameOverWin = config.getString("chat_game_over_win", _chatGameOverWin);
     _chatGameOverLoss = config.getString("chat_game_over_loss", _chatGameOverLoss);
     _chatGameOverDraw = config.getString("chat_game_over_draw", _chatGameOverDraw);
+    _chatGoodbye = config.getString("chat_goodbye", _chatGoodbye);
 }
 
 std::uint64_t OctiBotConversationEngine::pushInbox(const std::string &channel,
@@ -436,6 +437,23 @@ std::string OctiBotConversationEngine::formatGameOverChat(const std::string &res
         return _chatGameOverLoss;
     }
     return _chatGameOverDraw;
+}
+
+std::string OctiBotConversationEngine::formatGoodbyeChat(const std::string &myHandle,
+                                                         const std::string &opponentHandle) const {
+    (void) myHandle;
+    std::string msg = _chatGoodbye;
+    if (!opponentHandle.empty()) {
+        size_t pos = msg.find("{opponent}");
+        if (pos != std::string::npos) {
+            msg.replace(pos, 10, opponentHandle);
+        }
+        pos = msg.find("@opponent");
+        if (pos != std::string::npos) {
+            msg.replace(pos, 9, "@" + opponentHandle);
+        }
+    }
+    return msg;
 }
 
 ChatCommandResult OctiBotConversationEngine::processLobbyMessage(
