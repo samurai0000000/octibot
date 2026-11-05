@@ -2411,17 +2411,15 @@ int runFleetCli(int argc, char **argv) {
     }
 
     if (config.getVerbosityLevel(3) >= 2) {
-        std::cout << "OCTIBOT v1.0.5 (config=" << configPath
+        std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << " (config=" << configPath
                   << ", tokens=" << tokensPath << ")" << std::endl;
     }
 
     OctiBotFleetRunner fleet;
     s_stopRequested.store(false);
     s_activeFleet = &fleet;
-#if !defined(_WIN32)
-    ::signal(SIGINT, handleFleetSignal);
-    ::signal(SIGTERM, handleFleetSignal);
-#endif
+    std::signal(SIGINT, handleFleetSignal);
+    std::signal(SIGTERM, handleFleetSignal);
 
     if (singleProfile.empty()) {
         singleProfile = config.getString("default_profile", "");

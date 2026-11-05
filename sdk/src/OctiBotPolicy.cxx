@@ -420,16 +420,20 @@ void OctiBotConversationEngine::clearInbox() {
 }
 
 std::string OctiBotConversationEngine::formatLobbyGreeting(const std::string &myHandle) const {
+    (void) myHandle;
     return _greetingLobby;
 }
 
 std::string OctiBotConversationEngine::formatGameStartGreeting(const std::string &myHandle,
                                                               const std::string &opponentHandle) const {
+    (void) myHandle;
+    (void) opponentHandle;
     return _greetingGameStart;
 }
 
 std::string OctiBotConversationEngine::formatGameOverChat(const std::string &result,
                                                          const std::string &myHandle) const {
+    (void) myHandle;
     if (result == "WIN") {
         return _chatGameOverWin;
     }
@@ -572,6 +576,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     const std::string &lastTelemetryStr) {
 
     ChatCommandResult result;
+    (void) senderUuid;
     std::string trimmed = trim(cmdLine);
     if (trimmed.empty()) {
         return result;

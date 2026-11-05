@@ -30,6 +30,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -2655,6 +2661,10 @@ void OctiBotMcpServer::startAimonBridge() {
         int gwPort = _runner.config().getInt("aimon_gateway_port", 0);
         int aimonPort = _runner.config().getInt("aimon_port", 3883);
         int port = (gwPort > 0) ? gwPort : ((aimonPort == 3883) ? 3885 : aimonPort);
+#if defined(_WIN32)
+        (void) host;
+        (void) port;
+#endif
 
         while (_aimonRunning) {
 #if !defined(_WIN32)

@@ -18,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
     add_compile_options(/W4)
+    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options(-Wall -Wextra -pedantic -Wno-unused-parameter -UNDEBUG)
 endif()
@@ -106,7 +107,7 @@ target_link_libraries(octibot-minimal PRIVATE
 )
 
 # Qualification Test Suite
-if(OCTIBOT_BUILD_TESTS AND NOT WIN32)
+if(OCTIBOT_BUILD_TESTS AND NOT WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../octi/server/CMakeLists.txt")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(CPPUTEST REQUIRED cpputest)
     find_library(RAPIDCHECK_LIBRARY rapidcheck REQUIRED)

@@ -18,6 +18,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
     add_compile_options(/W4)
+    add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
 else()
     add_compile_options(-Wall -Wextra -pedantic -Wno-unused-parameter -UNDEBUG)
 endif()
@@ -37,6 +38,7 @@ execute_process(
     OUTPUT_VARIABLE WHOAMI_OUTPUT
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
+string(REGEX REPLACE "^.*\\\\" "" WHOAMI_OUTPUT "${WHOAMI_OUTPUT}")
 
 set(HOSTNAME_OUTPUT)
 execute_process(
@@ -45,12 +47,7 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-set(DATE_OUTPUT)
-execute_process(
-    COMMAND date "+%Y-%m-%d %H:%M:%S"
-    OUTPUT_VARIABLE DATE_OUTPUT
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+string(TIMESTAMP DATE_OUTPUT "%Y-%m-%d %H:%M:%S")
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/Version.hxx.in

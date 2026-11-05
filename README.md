@@ -1,10 +1,22 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.0.5**
+**Version: 1.1.0**
 
 Copyright (C) 2026, Charles Chiou
 
-`octibot` is a cross-platform C++17 robot toolkit, SDK, and fleet runner for the OCTI board game platform. It enables developers, researchers, and AI agents to build, tune, and deploy autonomous or Centaur AI players on OCTI servers.
+`octibot` is a cross-platform C++17 robot toolkit, SDK, and fleet runner for the OCTI board game platform. It enables developers, researchers, and AI agents to build, tune, and deploy autonomous or Centaur AI players on OCTI servers (`https://octi.selfso.com`).
+
+---
+
+## Documentation, Setup & Developer Guides
+
+| Guide | Description |
+| :--- | :--- |
+| **[Linux Setup & Build Guide (`doc/SETUP_LINUX.md`)](doc/SETUP_LINUX.md)** | Step-by-step installation of prerequisite packages on **Ubuntu 24.04 LTS**, compiling `octibot`, configuring `~/.config/octibot/tokens.conf` & `octibot.conf`, and connecting to `octi.selfso.com`. |
+| **[Windows Setup & Build Guide (`doc/SETUP_WINDOWS.md`)](doc/SETUP_WINDOWS.md)** | Native **Windows 10/11** build guide with Visual Studio (MSVC) & CMake, configuring `%APPDATA%\OCTIBOT\tokens.conf` & `octibot.conf`, and running `octibot.exe`. |
+| **[Algorithm Authoring & Porting Guide (`doc/WRITING_BOTS.md`)](doc/WRITING_BOTS.md)** | Deep technical guide on writing custom `OctiBotAgent` subclasses, fast `captureSnapshot`/`restoreSnapshot` tree search, emitting search telemetry in table chat, and porting Python/Rust/ONNX engines. |
+| **[Robot Wire Protocol Specification (`doc/ROBOT_PROTOCOL.md`)](doc/ROBOT_PROTOCOL.md)** | Complete REST + Server-Sent Events (SSE) protocol specification (`X-Octi-Robot-Lease`, `octi_bot_` tokens, move telemetry, and Human-Only Elo protection). |
+| **[Bring Your 'Bot! Onboarding Portal (`https://octi.selfso.com/robots/`)](https://octi.selfso.com/robots/)** | Visual walkthrough of robot registration, token generation, win/loss statistics, and live table chat search state broadcasting. |
 
 ---
 
@@ -169,12 +181,26 @@ public:
                             int mySeat,
                             std::int64_t remainingClockMs,
                             octi::BotMoveTelemetry *outTelemetry) override {
-        std::vector<octi::OctiMove> legalMoves = board.getLegalMoves(mySeat);
+        (void) game;
+        (void) mySeat;
+        (void) remainingClockMs;
+        const octi::OctiGame *g = board.getGame();
+        if (!g) {
+            return "";
+        }
+        std::vector<octi::OctiMove> legalMoves = g->generateLegalMoves();
         if (legalMoves.empty()) {
             return "";
         }
-        // Choose best move according to custom heuristics...
-        return legalMoves.front().toMoveNotation();
+        // Populate outTelemetry to broadcast search depth/nodes/score in table chat
+        if (outTelemetry) {
+            outTelemetry->depthReached = 1;
+            outTelemetry->nodesVisited = static_cast<std::int64_t>(legalMoves.size());
+            outTelemetry->evalScore    = 0;
+            outTelemetry->elapsedMs    = 1;
+            outTelemetry->present      = true;
+        }
+        return legalMoves.front().asString();
     }
 
 private:
