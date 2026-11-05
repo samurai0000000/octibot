@@ -408,6 +408,21 @@ struct RobotConnectData {
     int draws = 0;
 };
 
+struct RobotDirectoryEntry {
+    std::string robotUuid;
+    std::string handle;
+    std::string description;
+    std::string ownerUuid;
+    std::string ownerHandle;
+    std::string status = "Active";
+    int gamesPlayed = 0;
+    int wins = 0;
+    int losses = 0;
+    int draws = 0;
+    double winRate = 0.0;
+    int elo2p = 1500;
+};
+
 struct MoveTelemetryData {
     bool present = false;
     int depth = 0;
@@ -674,6 +689,8 @@ public:
     ApiResult<RobotConnectData> connectRobot(bool ifUnused = false);
     ApiResult<bool> disconnectRobot();
     ApiResult<std::string> exportRobotTokensConf();
+    ApiResult<std::vector<RobotDirectoryEntry>> fetchRobotsDirectory(
+        const std::string &query = "");
 
     /* ---- Poll & Server-Sent Events (SSE) Live Streams ---- */
     ApiResult<std::vector<SseEvent>> pollLobbyEvents(

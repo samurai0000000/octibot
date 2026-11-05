@@ -3036,6 +3036,43 @@ ApiResult<std::string> OctiNetworkClient::exportRobotTokensConf()
     return res;
 }
 
+ApiResult<std::vector<RobotDirectoryEntry>> OctiNetworkClient::fetchRobotsDirectory(
+    const std::string &query)
+{
+    ApiResult<std::vector<RobotDirectoryEntry>> res;
+    res.data = std::vector<RobotDirectoryEntry>();
+    std::string path = "/api/v1/robots/directory";
+    if (!query.empty()) {
+        path += "?q=" + urlEncode(query);
+    }
+    Impl::RawResponse raw = _impl->doGet(path);
+    if (!raw.transportOk || raw.status != 200 || !raw.json.is_object()) {
+        Impl::populateError(raw, res);
+        return res;
+    }
+    res.ok = true;
+    res.httpStatus = raw.status;
+    if (raw.json.contains("robots") && raw.json["robots"].is_array()) {
+        for (const auto &item : raw.json["robots"]) {
+            RobotDirectoryEntry ent;
+            ent.robotUuid = item.value("robot_uuid", "");
+            ent.handle = item.value("handle", "");
+            ent.description = item.value("description", "");
+            ent.ownerUuid = item.value("owner_uuid", "");
+            ent.ownerHandle = item.value("owner_handle", "");
+            ent.status = item.value("status", "Active");
+            ent.gamesPlayed = item.value("games_played", 0);
+            ent.wins = item.value("wins", 0);
+            ent.losses = item.value("losses", 0);
+            ent.draws = item.value("draws", 0);
+            ent.winRate = item.value("win_rate", 0.0);
+            ent.elo2p = item.value("elo_2p", 1500);
+            res.data.push_back(std::move(ent));
+        }
+    }
+    return res;
+}
+
 /* ---- Poll & Server-Sent Events (SSE) Live Streams ---- */
 
 ApiResult<std::vector<SseEvent>> OctiNetworkClient::pollLobbyEvents(
