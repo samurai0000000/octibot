@@ -108,7 +108,14 @@ struct ZobristTables {
 
 static const ZobristTables g_zobrist;
 
-static std::array<std::mutex, TT_MUTEX_COUNT> g_ttMutexes;
+struct alignas(64) AlignedTtMutex {
+    std::mutex mtx;
+    void lock() { mtx.lock(); }
+    void unlock() { mtx.unlock(); }
+    bool try_lock() { return mtx.try_lock(); }
+};
+
+static std::array<AlignedTtMutex, TT_MUTEX_COUNT> g_ttMutexes;
 
 // ---------------------------------------------------------------------------
 // Board Square & Target Queries
@@ -977,6 +984,7 @@ OctiBotEngine::OctiBotEngine(const OctiBotEngine &other)
     , _customTimeBudget(other._customTimeBudget)
     , _rngState(other._rngState)
     , _tt(other._tt)
+    , _stopSearch(false)
     , _liveDepthReached(other._liveDepthReached.load(std::memory_order_relaxed))
     , _liveNodesVisited(other._liveNodesVisited.load(std::memory_order_relaxed))
     , _liveBestScore(other._liveBestScore.load(std::memory_order_relaxed))
@@ -992,6 +1000,7 @@ OctiBotEngine &OctiBotEngine::operator=(const OctiBotEngine &other)
         _customTimeBudget = other._customTimeBudget;
         _rngState = other._rngState;
         _tt = other._tt;
+        _stopSearch.store(false, std::memory_order_relaxed);
         _liveDepthReached.store(other._liveDepthReached.load(std::memory_order_relaxed), std::memory_order_relaxed);
         _liveNodesVisited.store(other._liveNodesVisited.load(std::memory_order_relaxed), std::memory_order_relaxed);
         _liveBestScore.store(other._liveBestScore.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -2014,7 +2023,9 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
     ++nodesVisited;
     if ((nodesVisited & 63ULL) == 0ULL) {
         _liveNodesVisited.store(nodesVisited, std::memory_order_relaxed);
-        if (steadyClockMs() >= deadlineMs) {
+        if (_stopSearch.load(std::memory_order_relaxed) ||
+            (deadlineMs < std::numeric_limits<long>::max() &&
+             steadyClockMs() >= deadlineMs)) {
             timedOut = true;
             return evaluatePosition(scratchBoard, currentPerspective, _profile);
         }
@@ -2150,7 +2161,9 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     ++nodesVisited;
     if ((nodesVisited & 63ULL) == 0ULL) {
         _liveNodesVisited.store(nodesVisited, std::memory_order_relaxed);
-        if (steadyClockMs() >= deadlineMs) {
+        if (_stopSearch.load(std::memory_order_relaxed) ||
+            (deadlineMs < std::numeric_limits<long>::max() &&
+             steadyClockMs() >= deadlineMs)) {
             timedOut = true;
             return evaluatePosition(scratchBoard, currentPerspective, _profile);
         }
@@ -2176,11 +2189,16 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         return evaluatePosition(scratchBoard, currentPerspective, _profile);
     }
 
+    const bool useTtLock = (_profile.lazySmpThreads > 1);
     std::uint64_t hashKey = computePositionHash(scratchBoard);
     std::size_t ttIdx = hashKey % TT_SIZE;
     std::string ttMove;
     {
-        std::lock_guard<std::mutex> lock(g_ttMutexes[ttIdx % TT_MUTEX_COUNT]);
+        std::unique_lock<std::mutex> lock(
+            g_ttMutexes[ttIdx % TT_MUTEX_COUNT].mtx, std::defer_lock);
+        if (useTtLock) {
+            lock.lock();
+        }
         const TranspositionEntry &ttEntry = _tt[ttIdx];
         if (ttEntry.key == hashKey && ttEntry.depth >= depth) {
             int ttScore = ttEntry.score;
@@ -2270,7 +2288,11 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     }
 
     if (!timedOut && bestVal > -INF_SCORE) {
-        std::lock_guard<std::mutex> lock(g_ttMutexes[ttIdx % TT_MUTEX_COUNT]);
+        std::unique_lock<std::mutex> lock(
+            g_ttMutexes[ttIdx % TT_MUTEX_COUNT].mtx, std::defer_lock);
+        if (useTtLock) {
+            lock.lock();
+        }
         TranspositionEntry &ttEntry = _tt[ttIdx];
         if (ttEntry.key == 0 || depth >= ttEntry.depth - 1) {
             ttEntry.key = hashKey;
@@ -2395,7 +2417,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
     int completedDepth = 0;
 
     // Lazy SMP: spawn helper threads if budget >= 500ms and lazySmpThreads > 1
-    std::atomic<bool> stopFlag{false};
+    _stopSearch.store(false, std::memory_order_relaxed);
     std::vector<std::thread> helpers;
 
     if (_timeBudgetMs >= 500 && _profile.lazySmpThreads > 1) {
@@ -2403,7 +2425,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
         int numThreads = std::min(_profile.lazySmpThreads, static_cast<int>(hw > 0 ? hw : 2));
         for (int t = 1; t < numThreads; ++t) {
             int depthOffset = (t % 2 == 1) ? 1 : 2;
-            helpers.emplace_back([this, rootFen, &stopFlag, deadlineMs, depthOffset, maxTargetDepth, rootTurn]() {
+            helpers.emplace_back([this, rootFen, deadlineMs, depthOffset, maxTargetDepth, rootTurn]() {
                 OctiBoard threadBoard;
                 threadBoard.suppressBoardUpdateNotification(true);
                 threadBoard.fromPositionString(rootFen);
@@ -2412,8 +2434,13 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                 tGame->setSearchMode(true);
                 std::uint64_t tNodes = 0;
 
-                for (int d = 1 + depthOffset; d <= maxTargetDepth && !stopFlag.load(); ++d) {
-                    if (steadyClockMs() >= deadlineMs || stopFlag.load()) break;
+                for (int d = 1 + depthOffset;
+                     d <= maxTargetDepth && !_stopSearch.load(std::memory_order_relaxed);
+                     ++d) {
+                    if (steadyClockMs() >= deadlineMs ||
+                        _stopSearch.load(std::memory_order_relaxed)) {
+                        break;
+                    }
                     bool tTimedOut = false;
                     negamax(threadBoard, d, 0, -INF_SCORE, INF_SCORE,
                             rootTurn, tNodes, deadlineMs, tTimedOut);
@@ -2500,13 +2527,15 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
             }
         }
 
-        if (timedOut || steadyClockMs() >= deadlineMs ||
+        if (timedOut ||
+            (deadlineMs < std::numeric_limits<long>::max() &&
+             steadyClockMs() >= deadlineMs) ||
             std::abs(bestScore) >= WIN_SCORE - 100) {
             break;
         }
     }
 
-    stopFlag.store(true);
+    _stopSearch.store(true, std::memory_order_relaxed);
     for (auto &hTh : helpers) {
         if (hTh.joinable()) {
             hTh.join();
@@ -2569,7 +2598,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     } restorer{this, savedProfile, savedBudget, savedCustom};
 
     int maxTargetDepth = std::max(1, searchDepth);
-    int effBudgetMs = std::max(10, timeBudgetMs);
+    int effBudgetMs = (timeBudgetMs > 0) ? std::max(10, timeBudgetMs) : 0;
     _profile.useOpeningBook = false;
     _profile.rootScoreJitter = 0;
     _profile.maxSearchDepth = maxTargetDepth;
@@ -2577,7 +2606,9 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     _timeBudgetMs = effBudgetMs;
 
     long startMs = steadyClockMs();
-    long deadlineMs = startMs + effBudgetMs;
+    long deadlineMs = (timeBudgetMs > 0)
+        ? (startMs + effBudgetMs)
+        : std::numeric_limits<long>::max();
 
     const std::string rootFen = board.toPositionString();
     OctiBoard scratchBoard;
@@ -2627,33 +2658,71 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     int completedDepth = 0;
     int bestScore = -INF_SCORE;
 
-    std::atomic<bool> stopFlag{false};
+    _stopSearch.store(false, std::memory_order_relaxed);
+    std::atomic<std::uint64_t> helperNodesVisited{0};
     std::vector<std::thread> helpers;
 
-    if (effBudgetMs >= 200 && _profile.lazySmpThreads > 1) {
+    if ((timeBudgetMs <= 0 || effBudgetMs >= 200) && _profile.lazySmpThreads > 1) {
         unsigned int hw = std::thread::hardware_concurrency();
         int numThreads = std::min(_profile.lazySmpThreads,
                                   static_cast<int>(hw > 0 ? hw : 2));
+        const std::vector<OctiMove> initialCandidates = rootCandidates;
         for (int t = 1; t < numThreads; ++t) {
-            int depthOffset = (t % 2 == 1) ? 1 : 2;
-            helpers.emplace_back([this, rootFen, &stopFlag, deadlineMs,
-                                  depthOffset, maxTargetDepth, rootTurn]() {
+            helpers.emplace_back([this, rootFen, initialCandidates, deadlineMs,
+                                  t, maxTargetDepth, rootTurn, mode,
+                                  &helperNodesVisited]() {
                 OctiBoard threadBoard;
                 threadBoard.suppressBoardUpdateNotification(true);
                 threadBoard.fromPositionString(rootFen);
                 OctiGame *tGame = threadBoard.getGame();
                 if (!tGame) return;
                 tGame->setSearchMode(true);
+                OctiGameSnapshot tRootSnap = tGame->captureSnapshot();
                 std::uint64_t tNodes = 0;
 
-                for (int d = 1 + depthOffset;
-                     d <= maxTargetDepth && !stopFlag.load(); ++d) {
-                    if (steadyClockMs() >= deadlineMs || stopFlag.load()) break;
-                    bool tTimedOut = false;
-                    negamax(threadBoard, d, 0, -INF_SCORE, INF_SCORE,
-                            rootTurn, tNodes, deadlineMs, tTimedOut);
-                    if (tTimedOut || steadyClockMs() >= deadlineMs) break;
+                int startD = std::min(maxTargetDepth, 2 + ((t - 1) % 2));
+                for (int d = startD;
+                     d <= maxTargetDepth &&
+                     !_stopSearch.load(std::memory_order_relaxed);
+                     ++d) {
+                    for (std::size_t s = 0;
+                         s < initialCandidates.size() &&
+                         !_stopSearch.load(std::memory_order_relaxed);
+                         ++s) {
+                        if (deadlineMs < std::numeric_limits<long>::max() &&
+                            steadyClockMs() >= deadlineMs) {
+                            break;
+                        }
+                        const OctiMove &mv =
+                            initialCandidates[(static_cast<std::size_t>(t) + s) %
+                                              initialCandidates.size()];
+                        try {
+                            tGame->move(mv);
+                        } catch (...) {
+                            tGame->restoreSnapshot(tRootSnap);
+                            continue;
+                        }
+                        bool tTimedOut = false;
+                        if (!tGame->isGameOver() && d > 1) {
+                            OctiPlayer nextTurn = tGame->getTurn();
+                            bool sameTeamNext =
+                                areAlliedPlayers(mode, rootTurn, nextTurn);
+                            OctiPlayer persp = sameTeamNext
+                                ? rootTurn
+                                : ((nextTurn != PLAYER_UNDEF)
+                                       ? nextTurn
+                                       : ((rootTurn == PLAYER_A ||
+                                           rootTurn == PLAYER_C)
+                                              ? PLAYER_B
+                                              : PLAYER_A));
+                            negamax(threadBoard, d - 1, 1, -INF_SCORE, INF_SCORE,
+                                    persp, tNodes, deadlineMs, tTimedOut);
+                        }
+                        tGame->restoreSnapshot(tRootSnap);
+                        if (tTimedOut) break;
+                    }
                 }
+                helperNodesVisited.fetch_add(tNodes, std::memory_order_relaxed);
             });
         }
     }
@@ -2690,16 +2759,42 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             } else {
                 OctiPlayer nextTurn = game->getTurn();
                 bool sameTeamNext = areAlliedPlayers(mode, rootTurn, nextTurn);
+                bool useNullWindow = (d >= 3 &&
+                                      topScoresSoFar.size() == targetCount &&
+                                      kthAlpha > -INF_SCORE / 2 &&
+                                      kthAlpha < INF_SCORE / 2);
                 if (sameTeamNext) {
-                    score = negamax(scratchBoard, d - 1, 1,
-                                    kthAlpha, beta, rootTurn, nodesVisited,
-                                    deadlineMs, timedOut);
+                    if (useNullWindow) {
+                        score = negamax(scratchBoard, d - 1, 1,
+                                        kthAlpha, kthAlpha + 1, rootTurn,
+                                        nodesVisited, deadlineMs, timedOut);
+                        if (!timedOut && score > kthAlpha) {
+                            score = negamax(scratchBoard, d - 1, 1,
+                                            kthAlpha, beta, rootTurn,
+                                            nodesVisited, deadlineMs, timedOut);
+                        }
+                    } else {
+                        score = negamax(scratchBoard, d - 1, 1,
+                                        kthAlpha, beta, rootTurn, nodesVisited,
+                                        deadlineMs, timedOut);
+                    }
                 } else {
                     OctiPlayer oppPerspective = (nextTurn != PLAYER_UNDEF) ? nextTurn :
                         ((rootTurn == PLAYER_A || rootTurn == PLAYER_C) ? PLAYER_B : PLAYER_A);
-                    score = -negamax(scratchBoard, d - 1, 1,
-                                     -beta, -kthAlpha, oppPerspective, nodesVisited,
-                                     deadlineMs, timedOut);
+                    if (useNullWindow) {
+                        score = -negamax(scratchBoard, d - 1, 1,
+                                         -(kthAlpha + 1), -kthAlpha, oppPerspective,
+                                         nodesVisited, deadlineMs, timedOut);
+                        if (!timedOut && score > kthAlpha) {
+                            score = -negamax(scratchBoard, d - 1, 1,
+                                             -beta, -kthAlpha, oppPerspective,
+                                             nodesVisited, deadlineMs, timedOut);
+                        }
+                    } else {
+                        score = -negamax(scratchBoard, d - 1, 1,
+                                         -beta, -kthAlpha, oppPerspective,
+                                         nodesVisited, deadlineMs, timedOut);
+                    }
                 }
             }
 
@@ -2753,18 +2848,21 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             }
         }
 
-        if (timedOut || steadyClockMs() >= deadlineMs ||
+        if (timedOut ||
+            (deadlineMs < std::numeric_limits<long>::max() &&
+             steadyClockMs() >= deadlineMs) ||
             std::abs(bestScore) >= WIN_SCORE - 100) {
             break;
         }
     }
 
-    stopFlag.store(true);
+    _stopSearch.store(true, std::memory_order_relaxed);
     for (auto &hTh : helpers) {
         if (hTh.joinable()) {
             hTh.join();
         }
     }
+    nodesVisited += helperNodesVisited.load(std::memory_order_relaxed);
 
     _liveDepthReached.store(std::max(1, completedDepth), std::memory_order_relaxed);
     _liveNodesVisited.store(nodesVisited, std::memory_order_relaxed);

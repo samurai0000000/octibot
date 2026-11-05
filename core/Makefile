@@ -19,7 +19,7 @@ BUILD_DIR := build/asan
 CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=Debug -DOCTI_CORE_SANITIZE=ON
 endif
 
-.PHONY: all clean distclean test asan
+.PHONY: all clean distclean test asan opening-book opening-book-cpp opening-book-sync
 
 all:
 	@mkdir -p $(BUILD_DIR)
@@ -42,3 +42,6 @@ clean:
 
 distclean:
 	@rm -rf build
+
+opening-book opening-book-cpp opening-book-sync:
+	@$(MAKE) -C .. $@

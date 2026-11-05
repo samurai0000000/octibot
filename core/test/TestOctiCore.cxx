@@ -17,6 +17,9 @@
 #include "OctiNetworkClient.hxx"
 #include "Version.hxx"
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <rapidcheck.h>
 #include <initializer_list>
@@ -2465,6 +2468,149 @@ TEST(OctiBotEngineCoreTest, SearchTopMovesForBookAndCanonicalOrientation)
     CHECK_EQUAL(0, bot.searchTopMovesForBook(b2p, 2, 500, 0).size());
     octi::OctiBoard unstarted(octi::GAME_MODE_2);
     CHECK_EQUAL(0, bot.searchTopMovesForBook(unstarted, 2, 500, 3).size());
+}
+
+TEST(OctiBotEngineCoreTest, UnboundedTimeBookSearchAndBookGenMultiLangSync)
+{
+    octi::OctiBoard bOfk(octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_1);
+    bOfk.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+
+    // 1. Nominal: timeBudgetMs = 0 (unbounded time) searches full depth 2
+    octi::BotSearchStats statsZero;
+    std::vector<octi::BookMoveScore> topZero =
+        bot.searchTopMovesForBook(bOfk, 2, 0, 3, &statsZero);
+    LONGS_EQUAL(3, topZero.size());
+    CHECK_EQUAL(2, statsZero.depthReached);
+    CHECK_TRUE(statsZero.nodesVisited > 0);
+
+    // 2. Boundary: negative timeBudgetMs <= 0 also runs unbounded to full depth 2
+    octi::BotSearchStats statsNeg;
+    std::vector<octi::BookMoveScore> topNeg =
+        bot.searchTopMovesForBook(bOfk, 2, -100, 2, &statsNeg);
+    LONGS_EQUAL(2, topNeg.size());
+    CHECK_EQUAL(2, statsNeg.depthReached);
+
+    // 3. End-to-end octi_book_gen CLI: MAKEFLAGS -j4, Java class, --from-json, --out-js
+    std::string bookGenBin;
+    if (std::filesystem::exists("build/octi_book_gen")) {
+        bookGenBin = "./build/octi_book_gen";
+    } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
+        bookGenBin = "./build/asan/octi_book_gen";
+    } else if (std::filesystem::exists("./octi_book_gen")) {
+        bookGenBin = "./octi_book_gen";
+    }
+    CHECK_FALSE(bookGenBin.empty());
+
+    std::filesystem::path tmpDir =
+        std::filesystem::temp_directory_path() / "octi_book_gen_unit_test";
+    std::error_code ec;
+    std::filesystem::remove_all(tmpDir, ec);
+    std::filesystem::create_directories(tmpDir, ec);
+
+    std::string jsonPath = (tmpDir / "book.json").string();
+    std::string hxxPath = (tmpDir / "OctiOpeningBookData.hxx").string();
+    std::string javaPath = (tmpDir / "OctiOpeningBookData.java").string();
+    std::string logPath = (tmpDir / "gen.log").string();
+
+    std::string cmdGen =
+        "MAKEFLAGS=\"-j4\" " + bookGenBin +
+        " --mode OFK --max-ply 1 --search-depth 2"
+        " --out-json \"" + jsonPath + "\""
+        " --out-header \"" + hxxPath + "\""
+        " --out-java \"" + javaPath + "\" > \"" + logPath + "\" 2>&1";
+    int rcGen = std::system(cmdGen.c_str());
+    CHECK_EQUAL(0, rcGen);
+
+    auto readFileStr = [](const std::string &p) -> std::string {
+        std::ifstream in(p);
+        std::ostringstream oss;
+        oss << in.rdbuf();
+        return oss.str();
+    };
+
+    std::string logContent = readFileStr(logPath);
+    CHECK_TRUE(logContent.find("CPU Threads    : 4") != std::string::npos);
+    CHECK_TRUE(logContent.find("unlimited (depth-bound)") != std::string::npos);
+
+    std::string hxxContent = readFileStr(hxxPath);
+    CHECK_TRUE(hxxContent.find("0xBF20205531084330ULL") != std::string::npos);
+
+    std::string javaContent = readFileStr(javaPath);
+    CHECK_TRUE(javaContent.find("public final class OctiOpeningBookData") != std::string::npos);
+    CHECK_TRUE(javaContent.find("0xBF20205531084330L") != std::string::npos);
+
+    // Test --from-json + --out-js marker splicing
+    std::string mockJsPath = (tmpDir / "mock_webui.cxx").string();
+    {
+        std::ofstream out(mockJsPath);
+        out << "// Header before book\n"
+            << "// BEGIN_OPENING_BOOK_DATA\n"
+            << "var OPENING_BOOK = {};\n"
+            << "// END_OPENING_BOOK_DATA\n"
+            << "// Footer after book\n";
+    }
+    std::string optionalWwwPath = (tmpDir / "www" / "missing_index.html").string();
+    std::string cmdSync =
+        bookGenBin + " --from-json \"" + jsonPath + "\""
+        " --out-js \"" + mockJsPath + "\""
+        " --out-js \"" + optionalWwwPath + "\" > /dev/null 2>&1";
+    int rcSync = std::system(cmdSync.c_str());
+    CHECK_EQUAL(0, rcSync);
+
+    std::string syncedJs = readFileStr(mockJsPath);
+    CHECK_TRUE(syncedJs.find("// Header before book") != std::string::npos);
+    CHECK_TRUE(syncedJs.find("\"0xBF20205531084330\": {") != std::string::npos);
+    CHECK_TRUE(syncedJs.find("// Footer after book") != std::string::npos);
+
+    // 4. Resume from existing checkpoint JSON (skips Ply 0 and expands Ply 1)
+    std::string resumeLogPath = (tmpDir / "resume.log").string();
+    std::string cmdResume =
+        bookGenBin +
+        " --max-ply 2"
+        " --bot-branch 2 --opp-branch 2"
+        " --checkpoint-interval 1"
+        " --out-json \"" + jsonPath + "\""
+        " --out-header \"" + hxxPath + "\""
+        " --out-java \"" + javaPath + "\" > \"" + resumeLogPath + "\" 2>&1";
+    int rcResume = std::system(cmdResume.c_str());
+    CHECK_EQUAL(0, rcResume);
+
+    std::string resumeLog = readFileStr(resumeLogPath);
+    CHECK_TRUE(resumeLog.find("resumed 1 entries") != std::string::npos);
+    CHECK_TRUE(resumeLog.find("Mode           : OFK") != std::string::npos);
+    CHECK_TRUE(resumeLog.find("Search Depth   : 2") != std::string::npos);
+    CHECK_TRUE(resumeLog.find("[Ply 0/2] Resumed 1/1 cached position(s); 0 remaining to search.") != std::string::npos);
+    CHECK_TRUE(resumeLog.find("[Ply 1/2] Evaluating") != std::string::npos);
+
+    // 5. Boundary: --no-resume resets and starts fresh from ply 0
+    std::string freshLogPath = (tmpDir / "fresh.log").string();
+    std::string cmdFresh =
+        bookGenBin +
+        " --no-resume --mode OFK --max-ply 1 --search-depth 1"
+        " --out-json \"" + jsonPath + "\""
+        " --out-header \"" + hxxPath + "\""
+        " --out-java \"" + javaPath + "\" > \"" + freshLogPath + "\" 2>&1";
+    int rcFresh = std::system(cmdFresh.c_str());
+    CHECK_EQUAL(0, rcFresh);
+    std::string freshLog = readFileStr(freshLogPath);
+    CHECK_TRUE(freshLog.find("Resume State   : fresh start") != std::string::npos);
+    CHECK_TRUE(freshLog.find("Total Unique Canonical Entries : 1") != std::string::npos);
+
+    // 6. Fault: --out-js on a file missing markers fails with non-zero exit code
+    std::string badJsPath = (tmpDir / "no_markers.cxx").string();
+    {
+        std::ofstream out(badJsPath);
+        out << "var OPENING_BOOK = {};\n";
+    }
+    std::string cmdFault =
+        bookGenBin + " --from-json \"" + jsonPath + "\""
+        " --out-js \"" + badJsPath + "\" > /dev/null 2>&1";
+    int rcFault = std::system(cmdFault.c_str());
+    CHECK_TRUE(rcFault != 0);
+
+    std::filesystem::remove_all(tmpDir, ec);
 }
 
 // ---------------------------------------------------------------------------
