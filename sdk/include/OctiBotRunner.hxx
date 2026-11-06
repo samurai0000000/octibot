@@ -170,6 +170,8 @@ public:
     bool joinRoomById(const std::string &roomId, int &outSeat, std::string &errorOut);
     bool hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut);
     bool leaveRoomById(const std::string &roomId, std::string &errorOut);
+    void requestLeaveAfterChat(const std::string &roomId, const std::string &replacementBotHandle = "");
+    bool takePendingLeaveAfterChat(std::string &outRoomId, std::string &outReplacementBotHandle);
 
     BotMatchOverride matchOverride() const;
     bool applyMatchOverride(const BotMatchOverride &ov, std::string &outSummary, std::string &errorOut);
@@ -250,6 +252,12 @@ private:
     std::string _pendingAgentMove;
     bool _hasAgentMove = false;
     BotMatchOverride _matchOverride;
+    std::string _pendingLeaveAfterChatRoomId;
+    std::string _pendingLeaveReplacementBot;
+    std::string _excludedRoomId;
+    std::int64_t _excludedRoomUntilMs = 0;
+    std::string _excludedPlayerHandle;
+    std::int64_t _excludedPlayerUntilMs = 0;
     std::int64_t _lastProcessedLobbyChatSeq = 0;
     std::int64_t _lastLobbyChatPollMs = 0;
 

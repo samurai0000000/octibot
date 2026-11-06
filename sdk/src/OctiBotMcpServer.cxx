@@ -273,12 +273,26 @@ std::string OctiBotMcpServer::sanitizePublicOutput(const std::string &raw) {
     }());
     out = std::regex_replace(out, s_hostRegex, "<internal-host>");
 
-    // 5. Strip Markdown backticks and **bold** markers so plain-text chat rooms render cleanly
+    // 5. Strip Markdown backticks and **bold** markers and normalize UTF-8 punctuation
     out.erase(std::remove(out.begin(), out.end(), '`'), out.end());
     size_t boldPos = 0;
     while ((boldPos = out.find("**", boldPos)) != std::string::npos) {
         out.erase(boldPos, 2);
     }
+    auto replaceAllUtf8 = [&](const std::string &from, const std::string &to) {
+        size_t pos = 0;
+        while ((pos = out.find(from, pos)) != std::string::npos) {
+            out.replace(pos, from.size(), to);
+            pos += to.size();
+        }
+    };
+    replaceAllUtf8("\xe2\x80\x94", " - ");
+    replaceAllUtf8("\xe2\x80\x93", "-");
+    replaceAllUtf8("\xe2\x80\x98", "'");
+    replaceAllUtf8("\xe2\x80\x99", "'");
+    replaceAllUtf8("\xe2\x80\x9c", "\"");
+    replaceAllUtf8("\xe2\x80\x9d", "\"");
+    replaceAllUtf8("\xe2\x80\xa6", "...");
 
     return out;
 }
@@ -699,7 +713,8 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
                 {"action", {{"type", "string"}}},
                 {"room_id", {{"type", "string"}}},
                 {"seat", {{"type", "integer"}}},
-                {"mode", {{"type", "string"}}}
+                {"mode", {{"type", "string"}}},
+                {"replacement_bot", {{"type", "string"}, {"description", "Optional replacement bot handle (e.g. 'octibot-yale-2001' or 'auto') to summon when action is 'leave'"}}}
             }}
         }}
     });
@@ -1203,6 +1218,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_find_or_host_table") {
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_find_or_host_table\"}";
+        }
         bool autoJoin = args.value("auto_join", false);
         bool autoHost = args.value("auto_host", false);
 
@@ -1248,7 +1266,33 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
 
     if (name == "octibot_table_action") {
         std::string action = args.value("action", "");
+        auto stripRoomPrefix = [](std::string s) {
+            while (!s.empty() && (s.front() == '#' || s.front() == ' ' || s.front() == '\t')) {
+                s.erase(s.begin());
+            }
+            while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+                s.pop_back();
+            }
+            return s;
+        };
         nlohmann::json res;
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            bool allowUntrustedLeave = false;
+            if (action == "leave" && _runner.plyCount() == 0 && !_runner.currentRoomId().empty()) {
+                std::string sender = _runner.activeChatSenderHandle();
+                for (const auto &s : _runner.currentSeats()) {
+                    if (!s.handle.empty() && s.handle == sender) {
+                        allowUntrustedLeave = true;
+                        break;
+                    }
+                }
+            }
+            if (!allowUntrustedLeave) {
+                res["ok"] = false;
+                res["error"] = "Only the robot owner can execute this table action";
+                return res.dump(2);
+            }
+        }
         if (action == "create") {
             auto req = _runner.policyEngine().buildHostTableRequest();
             if (args.contains("mode")) req.mode = args["mode"].get<std::string>();
@@ -1261,7 +1305,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["room_id"] = roomId;
             if (!ok) res["error"] = err;
         } else if (action == "join") {
-            std::string roomId = args.value("room_id", "");
+            std::string roomId = stripRoomPrefix(args.value("room_id", ""));
             BotMatchOverride ov;
             ov.active = true;
             ov.targetRoomId = roomId;
@@ -1275,22 +1319,36 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             if (!ok) res["error"] = err;
         } else if (action == "leave") {
             _runner.clearMatchOverride();
-            std::string roomId = args.value("room_id", _runner.currentRoomId());
-            std::string err;
-            bool ok = _runner.leaveRoomById(roomId, err);
-            res["ok"] = ok;
-            if (!ok) res["error"] = err;
+            std::string roomId = stripRoomPrefix(args.value("room_id", _runner.currentRoomId()));
+            if (roomId.empty()) {
+                roomId = _runner.currentRoomId();
+            }
+            std::string repBot = args.value("replacement_bot", "");
+            if (!_runner.activeChatSenderHandle().empty()) {
+                _runner.requestLeaveAfterChat(roomId, repBot);
+                res["ok"] = true;
+                res["room_id"] = roomId;
+                res["status"] = "leaving_table_immediately_after_reply";
+                if (!repBot.empty()) {
+                    res["replacement_bot"] = repBot;
+                }
+            } else {
+                std::string err;
+                bool ok = _runner.leaveRoomById(roomId, err);
+                res["ok"] = ok;
+                if (!ok) res["error"] = err;
+            }
         } else if (action == "kick") {
-            std::string roomId = args.value("room_id", _runner.currentRoomId());
+            std::string roomId = stripRoomPrefix(args.value("room_id", _runner.currentRoomId()));
             int seat = args.value("seat", 0);
             auto r = _runner.networkClient().kickSeat(roomId, seat);
             res["ok"] = r.ok;
         } else if (action == "observe") {
-            std::string roomId = args.value("room_id", "");
+            std::string roomId = stripRoomPrefix(args.value("room_id", ""));
             auto r = _runner.networkClient().observeTable(roomId);
             res["ok"] = r.ok;
         } else if (action == "unobserve") {
-            std::string roomId = args.value("room_id", "");
+            std::string roomId = stripRoomPrefix(args.value("room_id", ""));
             auto r = _runner.networkClient().unobserveTable(roomId);
             res["ok"] = r.ok;
         } else if (action == "enqueue_matchmaking") {
@@ -1433,6 +1491,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_game_action") {
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_game_action\"}";
+        }
         std::string action = args.value("action", "move");
         std::string err;
         nlohmann::json res;
@@ -1451,6 +1512,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_send_chat") {
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_send_chat\"}";
+        }
         std::string channel = args.value("channel", "lobby");
         std::string msg = args.value("message", "");
         std::string scope = args.value("scope", "ALL");
@@ -1472,6 +1536,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_configure_policy") {
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_configure_policy\"}";
+        }
         nlohmann::json res;
         if (args.contains("key") && args.contains("value")) {
             std::string k = args["key"].get<std::string>();
@@ -1494,6 +1561,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_set_match_override") {
+        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_set_match_override\"}";
+        }
         std::string action = args.value("action", "set");
         nlohmann::json res;
         if (action == "clear" || action == "reset" || action == "off") {
@@ -1841,6 +1911,20 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         std::string mode = args.value("mode", "2P");
         int bases = args.value("bases", 3);
 
+        std::string lowerBot = botHandle;
+        for (char &c : lowerBot) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lowerBot == "yale" || lowerBot == "yale-2001" || lowerBot == "2001") {
+            botHandle = "octibot-yale-2001";
+        } else if (lowerBot == "nnue" || lowerBot == "cc-nnue") {
+            botHandle = "octibot-cc-nnue";
+        } else if (lowerBot == "transformer" || lowerBot == "cc-transformer") {
+            botHandle = "octibot-cc-transformer";
+        } else if (lowerBot == "resnet" || lowerBot == "cc-resnet") {
+            botHandle = "octibot-cc-resnet";
+        } else if (lowerBot == "sdk" || lowerBot == "cpu" || lowerBot == "sdk-cpu") {
+            botHandle = "octibot-sdk-cpu";
+        }
+
         if (botHandle == "octibot-yale-2001") {
             if (mode != "2P" || bases != 3) {
                 res["ok"] = false;
@@ -1851,6 +1935,22 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
 
         if (botHandle.empty() || botHandle == "auto") {
             botHandle = (mode == "2P" && bases == 3) ? "octibot-sdk-cpu" : "octibot-cc-nnue";
+            if (botHandle == _runner.identity().handle) {
+                botHandle = (botHandle == "octibot-sdk-cpu") ? "octibot-cc-nnue" : "octibot-sdk-cpu";
+            }
+        }
+
+        if (!_runner.isLobbyOnly() && !_runner.currentRoomId().empty() &&
+            !_runner.activeChatSenderHandle().empty() && botHandle != _runner.identity().handle) {
+            _runner.clearMatchOverride();
+            _runner.requestLeaveAfterChat(_runner.currentRoomId(), botHandle);
+            res["ok"] = true;
+            res["dispatch_mode"] = "after_leave";
+            res["target_bot"] = botHandle;
+            res["summary"] = "Standing up from #" + _runner.currentRoomId() +
+                             " immediately after replying and summoning @" + botHandle +
+                             " to play with @" + playerHandle + ".";
+            return res.dump(2);
         }
 
         auto targetRunner = OctiBotRunner::findActiveRunnerByHandle(botHandle);
@@ -4448,16 +4548,10 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                 "  \"trustedWorkspaces\": [],\n"
                 "  \"permissions\": {\n"
                 "    \"allow\": [\n"
-                "      \"mcp(octibot_octibot/octibot_get_*)\",\n"
-                "      \"mcp(octibot_octibot/octibot_analyze_position)\",\n"
-                "      \"mcp(octibot_octibot/octibot_assist_match)\",\n"
-                "      \"mcp(octibot_octibot/octibot_record_player_feedback)\",\n"
-                "      \"mcp(octibot_octibot/octibot_repo_*)\",\n"
-                "      \"mcp(octibot/octibot_get_*)\",\n"
-                "      \"mcp(octibot/octibot_analyze_position)\",\n"
-                "      \"mcp(octibot/octibot_assist_match)\",\n"
-                "      \"mcp(octibot/octibot_record_player_feedback)\",\n"
-                "      \"mcp(octibot/octibot_repo_*)\"\n"
+                "      \"mcp(octibot_octibot/*)\",\n"
+                "      \"mcp(octibot_octibot:*)\",\n"
+                "      \"mcp(octibot/*)\",\n"
+                "      \"mcp(octibot:*)\"\n"
                 "    ],\n"
                 "    \"deny\": [\n"
                 "      \"command(*)\",\n"
@@ -4505,16 +4599,10 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                 "  \"trustedWorkspaces\": [],\n"
                 "  \"permissions\": {\n"
                 "    \"allow\": [\n"
-                "      \"mcp(octibot_octibot/octibot_get_*)\",\n"
-                "      \"mcp(octibot_octibot/octibot_analyze_position)\",\n"
-                "      \"mcp(octibot_octibot/octibot_assist_match)\",\n"
-                "      \"mcp(octibot_octibot/octibot_record_player_feedback)\",\n"
-                "      \"mcp(octibot_octibot/octibot_repo_*)\",\n"
-                "      \"mcp(octibot/octibot_get_*)\",\n"
-                "      \"mcp(octibot/octibot_analyze_position)\",\n"
-                "      \"mcp(octibot/octibot_assist_match)\",\n"
-                "      \"mcp(octibot/octibot_record_player_feedback)\",\n"
-                "      \"mcp(octibot/octibot_repo_*)\"\n"
+                "      \"mcp(octibot_octibot/*)\",\n"
+                "      \"mcp(octibot_octibot:*)\",\n"
+                "      \"mcp(octibot/*)\",\n"
+                "      \"mcp(octibot:*)\"\n"
                 "    ],\n"
                 "    \"deny\": [\n"
                 "      \"command(*)\",\n"
@@ -4609,7 +4697,7 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
         if (allowControlTools) {
             args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/*)\",\"mcp(octibot_octibot:*)\",\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
         } else {
-            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/octibot_get_*)\",\"mcp(octibot_octibot/octibot_analyze_position)\",\"mcp(octibot_octibot/octibot_assist_match)\",\"mcp(octibot_octibot/octibot_record_player_feedback)\",\"mcp(octibot_octibot/octibot_repo_*)\",\"mcp(octibot_octibot:octibot_get_*)\",\"mcp(octibot_octibot:octibot_analyze_position)\",\"mcp(octibot_octibot:octibot_assist_match)\",\"mcp(octibot_octibot:octibot_record_player_feedback)\",\"mcp(octibot_octibot:octibot_repo_*)\",\"mcp(octibot/octibot_get_*)\",\"mcp(octibot/octibot_analyze_position)\",\"mcp(octibot/octibot_assist_match)\",\"mcp(octibot/octibot_record_player_feedback)\",\"mcp(octibot/octibot_repo_*)\",\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\",\"mcp(octibot:octibot_assist_match)\",\"mcp(octibot:octibot_record_player_feedback)\",\"mcp(octibot:octibot_repo_*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/octibot_get_*)\",\"mcp(octibot_octibot/octibot_analyze_position)\",\"mcp(octibot_octibot/octibot_assist_match)\",\"mcp(octibot_octibot/octibot_table_action)\",\"mcp(octibot_octibot/octibot_record_player_feedback)\",\"mcp(octibot_octibot/octibot_repo_*)\",\"mcp(octibot_octibot:octibot_get_*)\",\"mcp(octibot_octibot:octibot_analyze_position)\",\"mcp(octibot_octibot:octibot_assist_match)\",\"mcp(octibot_octibot:octibot_table_action)\",\"mcp(octibot_octibot:octibot_record_player_feedback)\",\"mcp(octibot_octibot:octibot_repo_*)\",\"mcp(octibot/octibot_get_*)\",\"mcp(octibot/octibot_analyze_position)\",\"mcp(octibot/octibot_assist_match)\",\"mcp(octibot/octibot_table_action)\",\"mcp(octibot/octibot_record_player_feedback)\",\"mcp(octibot/octibot_repo_*)\",\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\",\"mcp(octibot:octibot_assist_match)\",\"mcp(octibot:octibot_table_action)\",\"mcp(octibot:octibot_record_player_feedback)\",\"mcp(octibot:octibot_repo_*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
         }
         args.push_back("-p");
         args.push_back(prompt);

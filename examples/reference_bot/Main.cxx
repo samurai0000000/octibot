@@ -2,6 +2,9 @@
  * Copyright (C) 2026, Charles Chiou
  */
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -11,6 +14,10 @@
 #include "OctiBotRunner.hxx"
 
 int main(int argc, char **argv) {
+#if defined(_WIN32)
+    ::SetConsoleOutputCP(CP_UTF8);
+    ::SetConsoleCP(CP_UTF8);
+#endif
     bool mcpStdio = false;
     bool mcpStdioExplicit = false;
     int mcpPort = 0;
