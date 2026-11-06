@@ -3468,6 +3468,91 @@ TEST(OctiBotTacticalUpgradeTest, RefuteRedundantLiberationSpamAndBackRankProngHo
     }
 }
 
+TEST(OctiBotTacticalUpgradeTest, RefuteSelfVacatingStepIntoCaptureLanePly16)
+{
+    // #g-20261106-0147 Ply 16: B66de must NOT step to 65, which vacates 66 and allows A64ah to jump-capture via 64ah-66x
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString("2:3:0:0:P:B:-:0:4,0,18,0:4,0,20,0:A33ab,A53abh,A64ah,B46de,B66de,B77f");
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+    bot.setTimeBudgetMs(1000);
+    std::string chosen = bot.chooseMove(board);
+    CHECK_FALSE(chosen == "66de-65");
+}
+
+TEST(OctiBotTacticalUpgradeTest, RefuteLonePodProngMonopolyAndUnsafeHomeBasePodPlacement)
+{
+    // #g-20261106-0147 Plies 28-34:
+    // Player B has lone pod on board B46abcdef (6 prongs), 4 freePods in reserve, and A66abfgh is threatening home square 57 via jump-lane 66abfgh-48x.
+    // Bot must NOT add 7th prong (46abcdef+g, 46abcdef+h), must NOT rearrange (46abcdef+g-a),
+    // and must NOT place a new pod on jump-threatened square 57 (safe home square is 37 or 77).
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString("2:3:0:0:P:B:-:0:3,1,18,0:4,2,17,0:A33a,A34abh,B46abcdef,A66abfgh");
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+    bot.setTimeBudgetMs(1000);
+    std::string chosen = bot.chooseMove(board);
+    CHECK_FALSE(chosen == "46abcdef+g");
+    CHECK_FALSE(chosen == "46abcdef+h");
+    CHECK_FALSE(chosen == "46abcdef+g-a");
+    CHECK_FALSE(chosen == "46abcdef+h-a");
+    CHECK_FALSE(chosen == "57");
+
+    // evaluatePosition checks:
+    // Monopoly/overarming: adding a 7th prong to lone pod vs placing a new pod on 37
+    octi::OctiBoard bProng(octi::GAME_MODE_2);
+    bProng.fromPositionString("2:3:0:0:P:A:-:0:3,1,18,0:4,2,16,0:A33a,A34abh,B46abcdefg,A66abfgh");
+    int evalProng = octi::OctiBotEngine::evaluatePosition(bProng, octi::PLAYER_B);
+
+    octi::OctiBoard bPlaceSafe(octi::GAME_MODE_2);
+    bPlaceSafe.fromPositionString("2:3:0:0:P:A:-:0:3,1,18,0:3,2,17,0:A33a,A34abh,B46abcdef,A66abfgh,B37");
+    int evalPlaceSafe = octi::OctiBotEngine::evaluatePosition(bPlaceSafe, octi::PLAYER_B);
+
+    CHECK_TRUE(evalPlaceSafe > evalProng);
+}
+
+TEST(OctiBotTacticalUpgradeTest, RefuteProngRearrangementOscillationPly97)
+{
+    // #g-20261106-0142 Ply 97:
+    // Pod A35abg should NOT oscillate with +h-b / +b-h prong rearrangements
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A35abg,A53adefh,B64abcdefh");
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+    bot.setTimeBudgetMs(1000);
+    std::string chosen = bot.chooseMove(board);
+    CHECK_FALSE(chosen == "35abg+h-b");
+    CHECK_FALSE(chosen == "35abg+h-a");
+    CHECK_FALSE(chosen == "35abg+h-g");
+    CHECK_FALSE(chosen == "35abg+c-b");
+}
+
+TEST(OctiBotTacticalUpgradeTest, ImmobilizedArmedPodAndCanLiberateUnfreezing)
+{
+    // #g-20261106-0147 Ply 19:
+    // B55f is pinned/immobilized: prong f points SW to 44 and 33, but 44 has A44abh and 33 has A33ab!
+    // B55f cannot step (44 has enemy) and cannot jump (33 is occupied), so legalMoveDirs == 0.
+    // An immobilized armed pod under enemy threat receives heavy penalty.
+    octi::OctiBoard bPinned(octi::GAME_MODE_2);
+    bPinned.fromPositionString("2:3:0:0:P:B:-:0:3,0,18,0:4,1,20,0:A33ab,A44abh,B55f,B46de");
+    int scorePinned = octi::OctiBotEngine::evaluatePosition(bPinned, octi::PLAYER_B);
+
+    octi::OctiBoard bFree(octi::GAME_MODE_2);
+    bFree.fromPositionString("2:3:0:0:P:B:-:0:3,0,18,0:4,1,20,0:A33ab,A44abh,B55fh,B46de");
+    int scoreFree = octi::OctiBotEngine::evaluatePosition(bFree, octi::PLAYER_B);
+    CHECK_TRUE(scoreFree > scorePinned + 1000);
+
+    // #g-20261106-0142: Reduced canLiberate bonus (450 vs 2500)
+    // A pod with 5 prongs on a friendly base (A53adefh) has incentive to advance forward rather than
+    // sit frozen for 80 plies due to passive +2500 canLiberate inflation.
+    octi::OctiBoard bOnBase(octi::GAME_MODE_2);
+    bOnBase.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A53adefh,B64abcdefh");
+    int scoreBase = octi::OctiBotEngine::evaluatePosition(bOnBase, octi::PLAYER_A);
+
+    octi::OctiBoard bAdvBase(octi::GAME_MODE_2);
+    bAdvBase.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A54adefh,B64abcdefh");
+    int scoreAdv = octi::OctiBotEngine::evaluatePosition(bAdvBase, octi::PLAYER_A);
+    // Advancing toward enemy bases now competes strongly against sitting passively on friendly home base
+    CHECK_TRUE(scoreAdv > scoreBase - 1500);
+}
+
 TEST_GROUP(OctiCore_NetworkClient)
 {
 };
