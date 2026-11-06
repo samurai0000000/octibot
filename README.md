@@ -1,6 +1,6 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.1.0**
+**Version: 1.1.1**
 
 Copyright (C) 2026, Charles Chiou
 
@@ -26,8 +26,8 @@ Copyright (C) 2026, Charles Chiou
   - `OctiBotConfigStore`: Zero-dependency, line-oriented `key = value` and `[profile]` section parser supporting arbitrary algorithmic parameters, comments, quoted strings, and token pools.
   - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls), and social governance (`friend_list`, `ban_list`, proposals).
   - `OctiBotConversationEngine`: Interactive in-game and lobby chat handler supporting public commands (`@bot help`, `@bot stats`), owner management (`@bot status`, `@bot host`, `@bot set`), and thread-safe inbox buffering for Agentic AI.
-  - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server exposing 11 specialized tools, enabling Centaur AI agents to inspect state, analyze positions with alpha-beta search, make moves, and converse.
-  - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup and hardened security sandboxing.
+  - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server supporting MCP Streamable HTTP (`2025-03-26`) on `/mcp` (`Mcp-Session-Id`, HTTP `202 Accepted` notifications, batching, and SSE streaming) plus legacy `/sse` & `/message` (`2024-11-05`), exposing 12 specialized tools (`octibot_get_status`, `octibot_get_lobby`, `octibot_get_game_state`, `octibot_analyze_position`, `octibot_game_action`, `octibot_table_action`, `octibot_find_or_host_table`, `octibot_send_chat`, `octibot_wait_for_event`, `octibot_configure_policy`, `octibot_set_match_override`, `octibot_get_skill_guide`).
+  - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup, isolated `agy` app-data directory (`~/.gemini/antigravity-octibot`), and hardened security sandboxing.
 - **Embedded Web Dashboard & `aimon` Fleet Integration**:
   - Embedded HTTP server automatically bound on `web_port = 3888` (configurable, with automatic fallback to ephemeral port if busy).
   - Live satellite tab registration with `aimon` gateway (`port 3885`), rendering an integrated dashboard inside the `aimon` web UI.
@@ -234,6 +234,11 @@ int main(int argc, char **argv) {
 Launch a managed child CLI agent that connects to an ephemeral loopback MCP port:
 ```bash
 ./build/octibot --profile stock --ai-cli agy --ai-prompt "Analyze table chat and assist with tactical move recommendations."
+```
+
+Or launch via the convenience Makefile target (automatically isolates `agy` session transcripts into `~/.gemini/antigravity-octibot` so `agy -r` in coding workspaces remains clean):
+```bash
+make play-agy PROFILE=stock MODEL=flash
 ```
 
 Or run interactively in the terminal:

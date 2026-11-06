@@ -20,7 +20,7 @@ BUILD_DIR := build/asan
 CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=Debug -DOCTIBOT_SANITIZE=ON
 endif
 
-.PHONY: all clean distclean test sync-core-from-octi sync-core-to-octi
+.PHONY: all clean distclean test sync-core-from-octi sync-core-to-octi play-agy
 
 all:
 	@mkdir -p $(BUILD_DIR)
@@ -33,6 +33,15 @@ endif
 test: all
 	@$(MAKE) -C $(BUILD_DIR) test_octibot_sdk -j$(NUM_PROCS)
 	@./$(BUILD_DIR)/test_octibot_sdk
+
+play-agy: all
+	@mkdir -p -m 0700 $(HOME)/.gemini/antigravity-octibot /tmp/octibot-ai-sandbox
+	@for f in antigravity-oauth-token settings.json installation_id; do \
+		if [ ! -L "$(HOME)/.gemini/antigravity-octibot/$$f" ] && [ -e "$(HOME)/.gemini/antigravity-cli/$$f" ]; then \
+			ln -s "../antigravity-cli/$$f" "$(HOME)/.gemini/antigravity-octibot/$$f"; \
+		fi; \
+	done
+	./$(BUILD_DIR)/octibot --profile $(or $(PROFILE),stock) --ai-cli agy $(if $(MODEL),--ai-model $(MODEL)) $(if $(PROMPT),--ai-prompt "$(PROMPT)")
 
 clean:
 	@if [ -d $(BUILD_DIR) ] && [ -f $(BUILD_DIR)/Makefile ]; then \

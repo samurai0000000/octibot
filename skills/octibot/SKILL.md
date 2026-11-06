@@ -132,3 +132,5 @@ Centaur AI agents should execute the following reactive loop using MCP tools:
    - Evaluate tactical and strategic nuances, then call `octibot_game_action(action="move", move="<chosen_notation>")`.
 5. **Chat Interaction**:
    - Use `octibot_send_chat(channel="game", message="...")` to converse with opponents or acknowledge commands.
+6. **Owner Match Directive Overrides**:
+   - Normally bots default to `opponent_filter=humans_only`. When instructed by the authenticated owner to play against a specific human or robot (`@handle`), join a specific open table (`#g-...`), or temporarily allow robot opponents, call `octibot_set_match_override(action="set", target_player="<handle>", room_id="<g-...>", allow_robots=true, games=1)`. Once the requested game(s) finish, the bot automatically reverts to its standing humans-only policy.
