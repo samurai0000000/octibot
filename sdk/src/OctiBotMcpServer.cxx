@@ -4424,17 +4424,24 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                 "  \"mcpServers\": {},\n"
                 "  \"trustedWorkspaces\": [],\n"
                 "  \"permissions\": {\n"
+                "    \"allow\": [\n"
+                "      \"mcp(octibot_octibot/octibot_get_*)\",\n"
+                "      \"mcp(octibot_octibot/octibot_analyze_position)\",\n"
+                "      \"mcp(octibot_octibot/octibot_assist_match)\",\n"
+                "      \"mcp(octibot_octibot/octibot_record_player_feedback)\",\n"
+                "      \"mcp(octibot_octibot/octibot_repo_*)\",\n"
+                "      \"mcp(octibot/octibot_get_*)\",\n"
+                "      \"mcp(octibot/octibot_analyze_position)\",\n"
+                "      \"mcp(octibot/octibot_assist_match)\",\n"
+                "      \"mcp(octibot/octibot_record_player_feedback)\",\n"
+                "      \"mcp(octibot/octibot_repo_*)\"\n"
+                "    ],\n"
                 "    \"deny\": [\n"
                 "      \"command(*)\",\n"
                 "      \"command(regex:[\\\\s\\\\S]*)\",\n"
                 "      \"read_file(*)\",\n"
                 "      \"write_file(*)\",\n"
-                "      \"edit_file(*)\",\n"
                 "      \"read_url(*)\",\n"
-                "      \"search_web(*)\",\n"
-                "      \"invoke_subagent(*)\",\n"
-                "      \"define_subagent(*)\",\n"
-                "      \"schedule(*)\",\n"
                 "      \"mcp(aimon/*)\",\n"
                 "      \"mcp(aimon:*)\"\n"
                 "    ]\n"
@@ -4474,17 +4481,24 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                 "  \"mcpServers\": {},\n"
                 "  \"trustedWorkspaces\": [],\n"
                 "  \"permissions\": {\n"
+                "    \"allow\": [\n"
+                "      \"mcp(octibot_octibot/octibot_get_*)\",\n"
+                "      \"mcp(octibot_octibot/octibot_analyze_position)\",\n"
+                "      \"mcp(octibot_octibot/octibot_assist_match)\",\n"
+                "      \"mcp(octibot_octibot/octibot_record_player_feedback)\",\n"
+                "      \"mcp(octibot_octibot/octibot_repo_*)\",\n"
+                "      \"mcp(octibot/octibot_get_*)\",\n"
+                "      \"mcp(octibot/octibot_analyze_position)\",\n"
+                "      \"mcp(octibot/octibot_assist_match)\",\n"
+                "      \"mcp(octibot/octibot_record_player_feedback)\",\n"
+                "      \"mcp(octibot/octibot_repo_*)\"\n"
+                "    ],\n"
                 "    \"deny\": [\n"
                 "      \"command(*)\",\n"
                 "      \"command(regex:[\\\\s\\\\S]*)\",\n"
                 "      \"read_file(*)\",\n"
                 "      \"write_file(*)\",\n"
-                "      \"edit_file(*)\",\n"
                 "      \"read_url(*)\",\n"
-                "      \"search_web(*)\",\n"
-                "      \"invoke_subagent(*)\",\n"
-                "      \"define_subagent(*)\",\n"
-                "      \"schedule(*)\",\n"
                 "      \"mcp(aimon/*)\",\n"
                 "      \"mcp(aimon:*)\"\n"
                 "    ]\n"
@@ -4570,9 +4584,9 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
         args.push_back("--disable-slash-commands");
         args.push_back("--settings");
         if (allowControlTools) {
-            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"edit_file(*)\",\"read_url(*)\",\"search_web(*)\",\"invoke_subagent(*)\",\"define_subagent(*)\",\"schedule(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/*)\",\"mcp(octibot_octibot:*)\",\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
         } else {
-            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\",\"mcp(octibot:octibot_assist_match)\",\"mcp(octibot:octibot_record_player_feedback)\",\"mcp(octibot:octibot_repo_*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"edit_file(*)\",\"read_url(*)\",\"search_web(*)\",\"invoke_subagent(*)\",\"define_subagent(*)\",\"schedule(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/octibot_get_*)\",\"mcp(octibot_octibot/octibot_analyze_position)\",\"mcp(octibot_octibot/octibot_assist_match)\",\"mcp(octibot_octibot/octibot_record_player_feedback)\",\"mcp(octibot_octibot/octibot_repo_*)\",\"mcp(octibot_octibot:octibot_get_*)\",\"mcp(octibot_octibot:octibot_analyze_position)\",\"mcp(octibot_octibot:octibot_assist_match)\",\"mcp(octibot_octibot:octibot_record_player_feedback)\",\"mcp(octibot_octibot:octibot_repo_*)\",\"mcp(octibot/octibot_get_*)\",\"mcp(octibot/octibot_analyze_position)\",\"mcp(octibot/octibot_assist_match)\",\"mcp(octibot/octibot_record_player_feedback)\",\"mcp(octibot/octibot_repo_*)\",\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\",\"mcp(octibot:octibot_assist_match)\",\"mcp(octibot:octibot_record_player_feedback)\",\"mcp(octibot:octibot_repo_*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
         }
         args.push_back("-p");
         args.push_back(prompt);
@@ -4664,7 +4678,7 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildCommandArgs(
         args.push_back("--sandbox");
         args.push_back("--disable-slash-commands");
         args.push_back("--settings");
-        args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/*)\",\"mcp(octibot_octibot:*)\",\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
         if (interactive) {
             args.push_back("-i");
             args.push_back(prompt);
