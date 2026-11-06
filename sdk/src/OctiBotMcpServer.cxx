@@ -28,6 +28,7 @@
 #include <signal.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -38,6 +39,8 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <direct.h>
+#include <sys/stat.h>
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -3380,15 +3383,33 @@ OctiBotAgentCliLauncher::~OctiBotAgentCliLauncher() {
 }
 
 bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &sandboxDir, int mcpPort) {
-#if !defined(_WIN32)
     std::string sdir = sandboxDir.empty() ? "/tmp/octibot-ai-sandbox" : sandboxDir;
+#if defined(_WIN32)
+    if (sdir.rfind("/tmp/octibot-ai-sandbox", 0) == 0) {
+        const char *tempEnv = std::getenv("TEMP");
+        if (!tempEnv || !tempEnv[0]) tempEnv = std::getenv("TMP");
+        std::string tempBase = (tempEnv && tempEnv[0]) ? tempEnv : "C:/Temp";
+        for (char &c : tempBase) {
+            if (c == '\\') c = '/';
+        }
+        while (!tempBase.empty() && tempBase.back() == '/') {
+            tempBase.pop_back();
+        }
+        ::_mkdir(tempBase.c_str());
+        sdir = tempBase + sdir.substr(4);
+    }
+#endif
 
     auto mkdir700 = [](const std::string &p) {
+#if defined(_WIN32)
+        ::_mkdir(p.c_str());
+#else
         struct stat st;
         if (::stat(p.c_str(), &st) != 0) {
             ::mkdir(p.c_str(), 0700);
         }
         ::chmod(p.c_str(), 0700);
+#endif
     };
 
     mkdir700(sdir);
@@ -3407,7 +3428,9 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
         f << content;
         f.flush();
         f.close();
+#if !defined(_WIN32)
         ::chmod(path.c_str(), 0600);
+#endif
         return true;
     };
 
@@ -3423,6 +3446,44 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                  "{\"mcpServers\":{\"octibot\":{\"url\":\"http://127.0.0.1:" + mcpPortStr + "/mcp\"}}}\n");
     writeFile600(sdir + "/.cursor/skills/octibot/SKILL.md", skillGuide);
 
+#if defined(_WIN32)
+    const char *homeEnv = std::getenv("USERPROFILE");
+    if (!homeEnv || !homeEnv[0]) homeEnv = std::getenv("HOME");
+    if (homeEnv && homeEnv[0] != '\0') {
+        std::string homeStr = homeEnv;
+        for (char &c : homeStr) {
+            if (c == '\\') c = '/';
+        }
+        std::string geminiDir = homeStr + "/.gemini";
+        std::string cliAppDir = geminiDir + "/antigravity-cli";
+        std::string botAppDir = geminiDir + "/antigravity-octibot";
+        struct _stat gst;
+        if (::_stat(geminiDir.c_str(), &gst) == 0) {
+            mkdir700(botAppDir);
+            auto ensureCopy = [&](const char *fname) {
+                std::string srcPath = cliAppDir + "/" + fname;
+                std::string dstPath = botAppDir + "/" + fname;
+                struct _stat srcSt, dstSt;
+                if (::_stat(srcPath.c_str(), &srcSt) == 0) {
+                    if (::_stat(dstPath.c_str(), &dstSt) != 0 ||
+                        srcSt.st_mtime > dstSt.st_mtime ||
+                        srcSt.st_size != dstSt.st_size) {
+                        std::ifstream src(srcPath, std::ios::binary);
+                        if (src.is_open()) {
+                            std::ofstream dst(dstPath, std::ios::binary | std::ios::trunc);
+                            if (dst.is_open()) {
+                                dst << src.rdbuf();
+                            }
+                        }
+                    }
+                }
+            };
+            ensureCopy("antigravity-oauth-token");
+            ensureCopy("settings.json");
+            ensureCopy("installation_id");
+        }
+    }
+#else
     const char *homeEnv = std::getenv("HOME");
     if (homeEnv && homeEnv[0] != '\0') {
         std::string geminiDir = std::string(homeEnv) + "/.gemini";
@@ -3443,13 +3504,9 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
             ensureSymlink("installation_id");
         }
     }
+#endif
 
     return true;
-#else
-    (void) sandboxDir;
-    (void) mcpPort;
-    return false;
-#endif
 }
 
 static std::string normalizeAgyModelName(const std::string &model) {
@@ -3490,6 +3547,21 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
 
     std::vector<std::string> args;
     std::string exe = executable.empty() ? backend : executable;
+#if defined(_WIN32)
+    if (backend == "agy" && (exe.empty() || exe == "agy" || exe.rfind("/home/", 0) == 0)) {
+        const char *localAppData = std::getenv("LOCALAPPDATA");
+        if (localAppData && localAppData[0] != '\0') {
+            std::string candidate = std::string(localAppData) + "/agy/bin/agy.exe";
+            for (char &c : candidate) {
+                if (c == '\\') c = '/';
+            }
+            struct _stat st;
+            if (::_stat(candidate.c_str(), &st) == 0) {
+                exe = candidate;
+            }
+        }
+    }
+#endif
     args.push_back(exe);
 
     std::string sdir = sandboxDir.empty() ? "/tmp/octibot-ai-sandbox" : sandboxDir;
@@ -3570,6 +3642,21 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildCommandArgs(
 
     std::vector<std::string> args;
     std::string exe = executable.empty() ? backend : executable;
+#if defined(_WIN32)
+    if (backend == "agy" && (exe.empty() || exe == "agy" || exe.rfind("/home/", 0) == 0)) {
+        const char *localAppData = std::getenv("LOCALAPPDATA");
+        if (localAppData && localAppData[0] != '\0') {
+            std::string candidate = std::string(localAppData) + "/agy/bin/agy.exe";
+            for (char &c : candidate) {
+                if (c == '\\') c = '/';
+            }
+            struct _stat st;
+            if (::_stat(candidate.c_str(), &st) == 0) {
+                exe = candidate;
+            }
+        }
+    }
+#endif
     args.push_back(exe);
 
     std::string sdir = workspaceDir.empty() ? "/tmp/octibot-ai-sandbox" : workspaceDir;

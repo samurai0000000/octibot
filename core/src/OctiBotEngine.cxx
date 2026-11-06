@@ -826,6 +826,8 @@ int scoreMoveHeuristic(const OctiBoard &board,
                 score += 900; // Strongly prioritize arming 0-prong pods first!
             } else if (op.pod.getNumProngs() < 3) {
                 score += 450;
+            } else if (curDist >= 4) {
+                score -= 700 * (op.pod.getNumProngs() - 2);
             }
 
             bool hasOrth = isOrthogonalDir(op.addProngDir);
@@ -860,7 +862,18 @@ int scoreMoveHeuristic(const OctiBoard &board,
             }
         } else if (op.addPod) {
             if (op.liberate) {
-                score += 6500;
+                const OctiSquare &sq = board.squareAt(op.x0, op.y0);
+                int unarmedOnSq = 0;
+                for (int pi = 0; pi < sq.getNumPods(); ++pi) {
+                    if (sq.getPodAt(pi).getNumProngs() == 0) {
+                        ++unarmedOnSq;
+                    }
+                }
+                if (unarmedOnSq == 0 && sq.getNumPods() == 1) {
+                    score += 1800;
+                } else {
+                    score -= 6000 * (unarmedOnSq + 1);
+                }
             } else {
                 const OctiSquare &sq = board.squareAt(op.x0, op.y0);
                 if (sq.getNumPods() > 0 || hasUnarmedPodOnHomeSquare(board, turn)) {
@@ -1663,6 +1676,20 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                 if (numPods > 1 && !onCapturedEnemyBase) {
                     int stackPen = (numPods - 1) * 450 + unarmedCount * 950;
                     totalScore += sqAlly ? -stackPen : stackPen;
+                } else if (onCapturedEnemyBase) {
+                    int capBasePen = 0;
+                    if (unarmedCount >= 1) {
+                        // First unarmed pod holds the base (1800 pen if solo holder, 2800 if stacked with armed pod)
+                        capBasePen += (numPods == 1) ? 1800 : 2800;
+                        // Every additional unarmed pod beyond the first is a wasted liberation turn (> 3800 capturedPodPen)
+                        if (unarmedCount > 1) {
+                            capBasePen += (unarmedCount - 1) * 4800;
+                        }
+                    }
+                    if (numPods > 2) {
+                        capBasePen += (numPods - 2) * 1200;
+                    }
+                    totalScore += sqAlly ? -capBasePen : capBasePen;
                 }
             }
 
@@ -1688,20 +1715,23 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                                            sq.isCapturedByTeamOf(owner);
 
                 int scalePct = isAlly ? allyBaseThreatScalePct : enemyBaseThreatScalePct;
+                int advanceScalePct = (isAlly ? allyBaseWinFeasible : enemyBaseWinFeasible)
+                    ? std::max(scalePct, 65)
+                    : scalePct;
                 int podVal = 0;
                 if (numProngs == 0 && !onCapturedEnemyBase && sqType != NEUTRAL_OCTI_SQUARE) {
                     podVal = podZeroVal;
                 } else if (numProngs == 1) {
-                    int distBonus = (std::max(0, (10 - dist)) * 110 * scalePct) / 100;
+                    int distBonus = (std::max(0, (10 - dist)) * 110 * advanceScalePct) / 100;
                     podVal = podOneVal + distBonus;
                     if (!isAlliedHomeSquareFor(sqType, mode, owner) && dist <= 4 && dist >= 2) {
                         podVal -= profile.loneOneProngRushPenalty;
                     }
                 } else if (numProngs == 2) {
-                    int distBonus = (std::max(0, (10 - dist)) * 180 * scalePct) / 100;
+                    int distBonus = (std::max(0, (10 - dist)) * 180 * advanceScalePct) / 100;
                     podVal = podTwoVal + distBonus;
                 } else {
-                    int distBonus = (std::max(0, (10 - dist)) * 210 * scalePct) / 100;
+                    int distBonus = (std::max(0, (10 - dist)) * 210 * advanceScalePct) / 100;
                     podVal = podThreePlusVal + distBonus;
                 }
 
@@ -1807,7 +1837,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                     podVal += threat.capturablePods * profile.jumpCapturablePodWeight;
                     podVal += threat.capturableProngs * profile.jumpCapturableProngWeight;
                     if (threat.minJumpDistToTargets < dist) {
-                        podVal += ((dist - threat.minJumpDistToTargets) * profile.jumpReachStepWeight * scalePct) / 100;
+                        podVal += ((dist - threat.minJumpDistToTargets) * profile.jumpReachStepWeight * advanceScalePct) / 100;
                     }
                     if (isAlly) {
                         allyJumpThreatMask[0] |= threat.capturedSqMask[0];
@@ -1832,7 +1862,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
     if (enemyArmedPods >= 2) totalScore -= profile.secondArmedPodBonus;
     if (enemyArmedPods >= 3) totalScore -= profile.thirdArmedPodBonus;
 
-    // Single-Pod Monopoly Penalty
+    // Single-Pod Monopoly & Back-Rank Prong-Hoarding Penalty
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             const OctiSquare &sq = board.squareAt(x, y);
@@ -1845,6 +1875,17 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                         totalScore -= (prongs - 2) * profile.singlePodMonopolyPenalty;
                     } else if (!isAlly && enemyUnarmedHomePods >= 2) {
                         totalScore += (prongs - 2) * profile.singlePodMonopolyPenalty;
+                    }
+                    if (prongs > 3) {
+                        const auto &targets = isAlly ? allyTargets : enemyTargets;
+                        int d = minChebyshevToTargets(x, y, targets, w, h, edgeless);
+                        if (d >= 4) {
+                            if (isAlly && allyArmedPods >= 3) {
+                                totalScore -= (prongs - 3) * 320;
+                            } else if (!isAlly && enemyArmedPods >= 3) {
+                                totalScore += (prongs - 3) * 320;
+                            }
+                        }
                     }
                 }
             }

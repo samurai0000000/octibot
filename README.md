@@ -1,6 +1,6 @@
 # OCTIBOT - AI Robot Toolkit & SDK for OCTI
 
-**Version: 1.1.1**
+**Version: 1.1.2**
 
 Copyright (C) 2026, Charles Chiou
 

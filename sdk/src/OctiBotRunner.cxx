@@ -23,6 +23,14 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#else
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 #include <nlohmann/json.hpp>
 #include "OctiDefs.hxx"
@@ -966,6 +974,33 @@ bool iequalsStr(const std::string &a, const std::string &b) {
     }
     return true;
 }
+
+std::string firstTargetHandle(const std::string &raw) {
+    size_t comma = raw.find(',');
+    std::string head = (comma == std::string::npos) ? raw : raw.substr(0, comma);
+    return normalizeHandleOrId(head, '@');
+}
+
+std::string popFirstTargetHandle(const std::string &raw) {
+    size_t comma = raw.find(',');
+    if (comma == std::string::npos) {
+        return normalizeHandleOrId(raw, '@');
+    }
+    return normalizeHandleOrId(raw.substr(comma + 1), '@');
+}
+
+int countTargetHandles(const std::string &raw) {
+    if (raw.empty()) return 0;
+    int count = 0;
+    std::stringstream ss(raw);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        if (!normalizeHandleOrId(item, '@').empty()) {
+            ++count;
+        }
+    }
+    return count;
+}
 } // namespace
 
 BotMatchOverride OctiBotRunner::matchOverride() const {
@@ -989,11 +1024,16 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
     ov.active = true;
     ov.targetPlayerHandle = normalizeHandleOrId(ov.targetPlayerHandle, '@');
     ov.targetRoomId = normalizeHandleOrId(ov.targetRoomId, '#');
+    int numTargets = countTargetHandles(ov.targetPlayerHandle);
     if (ov.remainingGames <= 0) {
         ov.remainingGames = 1;
     }
+    if (ov.remainingGames < numTargets) {
+        ov.remainingGames = numTargets;
+    }
+    std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
 
-    if (!ov.targetPlayerHandle.empty() && !ov.allowRobots) {
+    if (!curTarget.empty() && !ov.allowRobots) {
         std::string lowerTarget = ov.targetPlayerHandle;
         std::transform(lowerTarget.begin(), lowerTarget.end(), lowerTarget.begin(), ::tolower);
         if (lowerTarget.find("octibot") != std::string::npos ||
@@ -1003,7 +1043,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
             auto lobbyRes = _client.fetchLobbyState();
             if (lobbyRes.ok) {
                 for (const auto &p : lobbyRes.data.players) {
-                    if (iequalsStr(p.handle, ov.targetPlayerHandle) && p.isRobot) {
+                    if (iequalsStr(p.handle, curTarget) && p.isRobot) {
                         ov.allowRobots = true;
                         break;
                     }
@@ -1051,7 +1091,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
     }
 
     // 2. Specific target player (human or robot) requested
-    if (!ov.targetPlayerHandle.empty()) {
+    if (!curTarget.empty()) {
         std::string targetWaitingRoomId;
         auto tablesRes = _client.listTables(false);
         if (tablesRes.ok) {
@@ -1059,9 +1099,9 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
                 if (t.phase != "WAITING_FOR_PLAYERS" || t.seatsFilled >= t.seatsTotal) {
                     continue;
                 }
-                bool hasTarget = iequalsStr(t.hostHandle, ov.targetPlayerHandle);
+                bool hasTarget = iequalsStr(t.hostHandle, curTarget);
                 for (const auto &s : t.seats) {
-                    if (iequalsStr(s.handle, ov.targetPlayerHandle)) {
+                    if (iequalsStr(s.handle, curTarget)) {
                         hasTarget = true;
                         break;
                     }
@@ -1077,14 +1117,14 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
                             if (joinRoomById(t.roomId, joinedSeat, errorOut)) {
                                 _client.postGameChat(
                                     t.roomId, "ALL",
-                                    "@" + ov.targetPlayerHandle +
+                                    "@" + curTarget +
                                     " Joined your table #" + t.roomId + " for our match!");
-                                outSummary = "Joined @" + ov.targetPlayerHandle + "'s open table #" +
+                                outSummary = "Joined @" + curTarget + "'s open table #" +
                                              t.roomId + " (seat " + std::to_string(joinedSeat) + ").";
                                 return true;
                             }
                         } else {
-                            outSummary = "Waiting in table #" + curRoom + " with @" + ov.targetPlayerHandle + ".";
+                            outSummary = "Waiting in table #" + curRoom + " with @" + curTarget + ".";
                             return true;
                         }
                     } else if (targetWaitingRoomId.empty() && t.roomId != curRoom) {
@@ -1112,7 +1152,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
         if (!hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, errorOut)) {
             return false;
         }
-        std::string inviteMsg = "@" + ov.targetPlayerHandle +
+        std::string inviteMsg = "@" + curTarget +
                                 " Let's play a match! Join my table #" + hostedRoomId;
         _client.postGameChat(hostedRoomId, "ALL", inviteMsg);
         _client.postLobbyChat(inviteMsg);
@@ -1123,7 +1163,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
         }
         outSummary = "Hosted table #" + hostedRoomId + " (allow_robots=" +
                      (hostReq.allowRobots ? "true" : "false") + ") and invited @" +
-                     ov.targetPlayerHandle + ".";
+                     curTarget + ".";
         return true;
     }
 
@@ -1214,24 +1254,30 @@ void OctiBotRunner::loopStep() {
                     return;
                 }
             }
+            std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
+            std::string targetWaitingRoomId;
             auto tablesRes = _client.listTables(false);
-            if (tablesRes.ok && !ov.targetPlayerHandle.empty()) {
+            if (tablesRes.ok && !curTarget.empty()) {
                 for (const auto &t : tablesRes.data) {
-                    if (t.phase != "WAITING_FOR_PLAYERS" || t.seatsFilled >= t.seatsTotal || !t.allowRobots) {
+                    if (t.phase != "WAITING_FOR_PLAYERS" || t.seatsFilled >= t.seatsTotal) {
                         continue;
                     }
-                    bool hasTarget = iequalsStr(t.hostHandle, ov.targetPlayerHandle);
+                    bool hasTarget = iequalsStr(t.hostHandle, curTarget);
                     for (const auto &s : t.seats) {
-                        if (iequalsStr(s.handle, ov.targetPlayerHandle)) {
+                        if (iequalsStr(s.handle, curTarget)) {
                             hasTarget = true;
                             break;
                         }
                     }
                     if (hasTarget) {
-                        int joinedSeat = 0;
-                        std::string joinErr;
-                        if (joinRoomById(t.roomId, joinedSeat, joinErr)) {
-                            return;
+                        if (t.allowRobots) {
+                            int joinedSeat = 0;
+                            std::string joinErr;
+                            if (joinRoomById(t.roomId, joinedSeat, joinErr)) {
+                                return;
+                            }
+                        } else if (targetWaitingRoomId.empty()) {
+                            targetWaitingRoomId = t.roomId;
                         }
                     }
                 }
@@ -1247,6 +1293,17 @@ void OctiBotRunner::loopStep() {
             int hostedSeat = 0;
             std::string hostErr;
             if (hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, hostErr)) {
+                if (!curTarget.empty()) {
+                    std::string inviteMsg = "@" + curTarget +
+                                            " Let's play a match! Join my table #" + hostedRoomId;
+                    _client.postGameChat(hostedRoomId, "ALL", inviteMsg);
+                    _client.postLobbyChat(inviteMsg);
+                    if (!targetWaitingRoomId.empty() && targetWaitingRoomId != hostedRoomId) {
+                        _client.observeTable(targetWaitingRoomId);
+                        _client.postGameChat(targetWaitingRoomId, "ALL", inviteMsg);
+                        _client.unobserveTable(targetWaitingRoomId);
+                    }
+                }
                 return;
             }
         }
@@ -1447,12 +1504,13 @@ void OctiBotRunner::loopStep() {
                     tsi.handle = seat.handle;
                     tsi.isRobot = seat.isRobot;
                     bool shouldKick = false;
+                    std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
                     if (ov.active) {
-                        if (!ov.targetPlayerHandle.empty() &&
-                            !iequalsStr(seat.handle, ov.targetPlayerHandle)) {
+                        if (!curTarget.empty() &&
+                            !iequalsStr(seat.handle, curTarget)) {
                             shouldKick = true;
                         } else if (!ov.allowRobots && seat.isRobot &&
-                                   (ov.targetPlayerHandle.empty() || !iequalsStr(seat.handle, ov.targetPlayerHandle))) {
+                                   (curTarget.empty() || !iequalsStr(seat.handle, curTarget))) {
                             shouldKick = true;
                         }
                     } else {
@@ -1470,13 +1528,14 @@ void OctiBotRunner::loopStep() {
                 if (tablesRes.ok) {
                     std::string lowerMyHandle = _identity.handle;
                     std::transform(lowerMyHandle.begin(), lowerMyHandle.end(), lowerMyHandle.begin(), ::tolower);
+                    std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
                     for (const auto &t : tablesRes.data) {
                         if (t.roomId != roomId && t.phase == "WAITING_FOR_PLAYERS" &&
                             t.seatsFilled < t.seatsTotal && t.allowRobots) {
-                            if (ov.active && !ov.targetPlayerHandle.empty()) {
-                                bool hasTarget = iequalsStr(t.hostHandle, ov.targetPlayerHandle);
+                            if (ov.active && !curTarget.empty()) {
+                                bool hasTarget = iequalsStr(t.hostHandle, curTarget);
                                 for (const auto &s : t.seats) {
-                                    if (iequalsStr(s.handle, ov.targetPlayerHandle)) {
+                                    if (iequalsStr(s.handle, curTarget)) {
                                         hasTarget = true;
                                         break;
                                     }
@@ -1488,7 +1547,7 @@ void OctiBotRunner::loopStep() {
                                     if (joinRoomById(t.roomId, joinedSeat, dummyErr)) {
                                         _client.postGameChat(
                                             t.roomId, "ALL",
-                                            "@" + ov.targetPlayerHandle +
+                                            "@" + curTarget +
                                             " Joined your table #" + t.roomId + " for our match!");
                                     }
                                     return;
@@ -1638,6 +1697,9 @@ void OctiBotRunner::loopStep() {
                         if (_matchOverride.remainingGames <= 0) {
                             _matchOverride = BotMatchOverride();
                             overrideExpired = true;
+                        } else if (_matchOverride.targetPlayerHandle.find(',') != std::string::npos) {
+                            _matchOverride.targetPlayerHandle =
+                                popFirstTargetHandle(_matchOverride.targetPlayerHandle);
                         }
                     }
                 }
@@ -1946,12 +2008,186 @@ void OctiBotRunner::playEngineTurn() {
     }
 }
 
+#if !defined(OCTIBOT_MINIMAL)
+static std::string resolveSandboxDirPath(const std::string &sandboxDir) {
+    std::string sdir = sandboxDir.empty() ? "/tmp/octibot-ai-sandbox" : sandboxDir;
+#if defined(_WIN32)
+    if (sdir.rfind("/tmp/octibot-ai-sandbox", 0) == 0) {
+        const char *tempEnv = std::getenv("TEMP");
+        if (!tempEnv || !tempEnv[0]) tempEnv = std::getenv("TMP");
+        std::string tempBase = (tempEnv && tempEnv[0]) ? tempEnv : "C:/Temp";
+        for (char &c : tempBase) {
+            if (c == '\\') c = '/';
+        }
+        while (!tempBase.empty() && tempBase.back() == '/') {
+            tempBase.pop_back();
+        }
+        sdir = tempBase + sdir.substr(4);
+    }
+#endif
+    return sdir;
+}
+
+static bool runCliProcessCaptureStdout(const std::vector<std::string> &args,
+                                       const std::string &workingDir,
+                                       std::string &outputOut) {
+    outputOut.clear();
+    if (args.empty()) {
+        return false;
+    }
+#if defined(_WIN32)
+    auto quoteWin32Arg = [](const std::string &arg) -> std::string {
+        if (!arg.empty() && arg.find_first_of(" \t\n\v\r\"") == std::string::npos) {
+            return arg;
+        }
+        std::string out;
+        out.push_back('"');
+        for (size_t i = 0; i < arg.size(); ) {
+            size_t numBackslashes = 0;
+            while (i < arg.size() && arg[i] == '\\') {
+                ++numBackslashes;
+                ++i;
+            }
+            if (i == arg.size()) {
+                out.append(numBackslashes * 2, '\\');
+                break;
+            } else if (arg[i] == '"') {
+                out.append(numBackslashes * 2 + 1, '\\');
+                out.push_back('"');
+                ++i;
+            } else {
+                out.append(numBackslashes, '\\');
+                out.push_back(arg[i]);
+                ++i;
+            }
+        }
+        out.push_back('"');
+        return out;
+    };
+
+    std::string cmdLine;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i > 0) cmdLine.push_back(' ');
+        cmdLine += quoteWin32Arg(args[i]);
+    }
+
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    HANDLE hRead = NULL;
+    HANDLE hWrite = NULL;
+    if (!::CreatePipe(&hRead, &hWrite, &sa, 0)) {
+        return false;
+    }
+    ::SetHandleInformation(hRead, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE hNullIn = ::CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hNullErr = ::CreateFileA("NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = hWrite;
+    si.hStdError = (hNullErr != INVALID_HANDLE_VALUE) ? hNullErr : hWrite;
+    si.hStdInput = (hNullIn != INVALID_HANDLE_VALUE) ? hNullIn : NULL;
+
+    PROCESS_INFORMATION pi{};
+    std::vector<char> cmdBuf(cmdLine.begin(), cmdLine.end());
+    cmdBuf.push_back('\0');
+
+    BOOL ok = ::CreateProcessA(
+        NULL,
+        cmdBuf.data(),
+        NULL,
+        NULL,
+        TRUE,
+        CREATE_NO_WINDOW,
+        NULL,
+        workingDir.empty() ? NULL : workingDir.c_str(),
+        &si,
+        &pi);
+
+    ::CloseHandle(hWrite);
+    if (hNullIn != INVALID_HANDLE_VALUE && hNullIn != NULL) ::CloseHandle(hNullIn);
+    if (hNullErr != INVALID_HANDLE_VALUE && hNullErr != NULL) ::CloseHandle(hNullErr);
+
+    if (!ok) {
+        ::CloseHandle(hRead);
+        return false;
+    }
+
+    char buf[512];
+    DWORD bytesRead = 0;
+    while (::ReadFile(hRead, buf, sizeof(buf) - 1, &bytesRead, NULL) && bytesRead > 0) {
+        outputOut.append(buf, static_cast<size_t>(bytesRead));
+    }
+    ::CloseHandle(hRead);
+
+    ::WaitForSingleObject(pi.hProcess, 60000);
+    ::CloseHandle(pi.hProcess);
+    ::CloseHandle(pi.hThread);
+    return true;
+#else
+    int pipefd[2];
+    if (::pipe(pipefd) < 0) {
+        return false;
+    }
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pipefd[0]);
+        ::close(pipefd[1]);
+        return false;
+    }
+
+    if (pid == 0) {
+        ::close(pipefd[0]);
+        ::dup2(pipefd[1], STDOUT_FILENO);
+        ::close(pipefd[1]);
+        int devNull = ::open("/dev/null", O_WRONLY);
+        if (devNull >= 0) {
+            ::dup2(devNull, STDERR_FILENO);
+            ::close(devNull);
+        }
+        if (!workingDir.empty() && ::chdir(workingDir.c_str()) != 0) {
+            if (::chdir("/tmp") != 0) {}
+        }
+
+        std::vector<char *> cArgs;
+        for (const auto &a : args) {
+            cArgs.push_back(const_cast<char *>(a.c_str()));
+        }
+        cArgs.push_back(nullptr);
+        ::execvp(cArgs[0], cArgs.data());
+        ::_exit(127);
+    }
+
+    ::close(pipefd[1]);
+    char buf[512];
+    while (true) {
+        ssize_t n = ::read(pipefd[0], buf, sizeof(buf) - 1);
+        if (n <= 0) break;
+        buf[n] = '\0';
+        outputOut.append(buf, static_cast<size_t>(n));
+    }
+    ::close(pipefd[0]);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    return true;
+#endif
+}
+#endif
+
 void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
                                         const std::string &roomId,
                                         const std::string &senderHandle,
                                         const std::string &messageText,
                                         bool isTrustedOwner) {
-#if !defined(OCTIBOT_MINIMAL) && !defined(_WIN32)
+#if !defined(OCTIBOT_MINIMAL)
     std::string backend = _config.getString("ai_cli_backend", "none");
     if (backend.empty() || backend == "none") {
         return;
@@ -2156,6 +2392,7 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     if (sandboxDir == "/tmp/octibot-ai-sandbox" && mcpPort > 0) {
         sandboxDir += "-port-" + std::to_string(mcpPort);
     }
+    sandboxDir = resolveSandboxDirPath(sandboxDir);
     OctiBotAgentCliLauncher::materializeSandboxWorkspace(sandboxDir, mcpPort);
 
     std::uint64_t convSeq = recordConversation(channel, roomId, senderHandle, safeMsg, "", "ai_cli:" + backend);
@@ -2168,57 +2405,14 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             ~BusyGuard() { flag.store(false); }
         } guard{_aiChatBusy};
 
-        int pipefd[2];
-        if (::pipe(pipefd) < 0) {
-            logMsg(1, "[AI Chat] pipe() failed");
-            return;
-        }
-
-        pid_t pid = ::fork();
-        if (pid < 0) {
-            ::close(pipefd[0]);
-            ::close(pipefd[1]);
-            logMsg(1, "[AI Chat] fork() failed");
-            return;
-        }
-
-        if (pid == 0) {
-            ::close(pipefd[0]);
-            ::dup2(pipefd[1], STDOUT_FILENO);
-            ::close(pipefd[1]);
-            int devNull = ::open("/dev/null", O_WRONLY);
-            if (devNull >= 0) {
-                ::dup2(devNull, STDERR_FILENO);
-                ::close(devNull);
-            }
-            if (::chdir(sandboxDir.c_str()) != 0) {
-                if (::chdir("/tmp") != 0) {}
-            }
-
-            auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
-                backend, exe, mcpPort, model, fullPrompt, sandboxDir, isTrustedOwner);
-
-            std::vector<char *> cArgs;
-            for (const auto &a : args) {
-                cArgs.push_back(const_cast<char *>(a.c_str()));
-            }
-            cArgs.push_back(nullptr);
-            ::execvp(cArgs[0], cArgs.data());
-            ::_exit(127);
-        }
-
-        ::close(pipefd[1]);
+        auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
+            backend, exe, mcpPort, model, fullPrompt, sandboxDir, isTrustedOwner);
         std::string output;
-        char buf[512];
-        while (true) {
-            ssize_t n = ::read(pipefd[0], buf, sizeof(buf) - 1);
-            if (n <= 0) break;
-            buf[n] = '\0';
-            output.append(buf, static_cast<size_t>(n));
+        if (!runCliProcessCaptureStdout(args, sandboxDir, output)) {
+            logMsg(1, "[AI Chat] Failed to spawn CLI process for " + backend);
+            updateConversationReply(convSeq, "", "seen");
+            return;
         }
-        ::close(pipefd[0]);
-        int status = 0;
-        ::waitpid(pid, &status, 0);
 
         // Trim whitespace and newlines
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' ')) {
@@ -2268,7 +2462,7 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
                                             const std::string &opponentHandle,
                                             const std::string &eventSummary,
                                             bool waitForCompletion) {
-#if !defined(OCTIBOT_MINIMAL) && !defined(_WIN32)
+#if !defined(OCTIBOT_MINIMAL)
     std::string backend = _config.getString("ai_cli_backend", "none");
     if (backend.empty() || backend == "none") {
         return;
@@ -2478,6 +2672,7 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
     if (sandboxDir == "/tmp/octibot-ai-sandbox" && mcpPort > 0) {
         sandboxDir += "-port-" + std::to_string(mcpPort);
     }
+    sandboxDir = resolveSandboxDirPath(sandboxDir);
     OctiBotAgentCliLauncher::materializeSandboxWorkspace(sandboxDir, mcpPort);
 
     std::string eventSeenLabel = "[Event: " + eventKind + "] " + eventSummary;
@@ -2492,73 +2687,21 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
             ~BusyGuard() { flag.store(false); }
         } guard{_aiChatBusy};
 
-        int pipefd[2];
-        if (::pipe(pipefd) < 0) {
-            logMsg(1, "[AI Commentary] pipe() failed");
-            if (eventKind == "goodbye") {
-                std::string byeMsg = _conversation.formatGoodbyeChat(_identity.handle, opponentHandle);
-                if (!byeMsg.empty()) {
-                    _client.postGameChat(roomId, "ALL", byeMsg);
-                    updateConversationReply(convSeq, byeMsg, "fallback:canned");
-                    _postGameSilenceStartMs.store(nowMs());
-                }
-            }
-            return;
-        }
-
-        pid_t pid = ::fork();
-        if (pid < 0) {
-            ::close(pipefd[0]);
-            ::close(pipefd[1]);
-            logMsg(1, "[AI Commentary] fork() failed");
-            if (eventKind == "goodbye") {
-                std::string byeMsg = _conversation.formatGoodbyeChat(_identity.handle, opponentHandle);
-                if (!byeMsg.empty()) {
-                    _client.postGameChat(roomId, "ALL", byeMsg);
-                    updateConversationReply(convSeq, byeMsg, "fallback:canned");
-                    _postGameSilenceStartMs.store(nowMs());
-                }
-            }
-            return;
-        }
-
-        if (pid == 0) {
-            ::close(pipefd[0]);
-            ::dup2(pipefd[1], STDOUT_FILENO);
-            ::close(pipefd[1]);
-            int devNull = ::open("/dev/null", O_WRONLY);
-            if (devNull >= 0) {
-                ::dup2(devNull, STDERR_FILENO);
-                ::close(devNull);
-            }
-            if (::chdir(sandboxDir.c_str()) != 0) {
-                if (::chdir("/tmp") != 0) {}
-            }
-
-            auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
-                backend, exe, mcpPort, model, fullPrompt, sandboxDir);
-
-            std::vector<char *> cArgs;
-            for (const auto &a : args) {
-                cArgs.push_back(const_cast<char *>(a.c_str()));
-            }
-            cArgs.push_back(nullptr);
-            ::execvp(cArgs[0], cArgs.data());
-            ::_exit(127);
-        }
-
-        ::close(pipefd[1]);
+        auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
+            backend, exe, mcpPort, model, fullPrompt, sandboxDir);
         std::string output;
-        char buf[512];
-        while (true) {
-            ssize_t n = ::read(pipefd[0], buf, sizeof(buf) - 1);
-            if (n <= 0) break;
-            buf[n] = '\0';
-            output.append(buf, static_cast<size_t>(n));
+        if (!runCliProcessCaptureStdout(args, sandboxDir, output)) {
+            logMsg(1, "[AI Commentary] Failed to spawn CLI process for " + backend);
+            if (eventKind == "goodbye") {
+                std::string byeMsg = _conversation.formatGoodbyeChat(_identity.handle, opponentHandle);
+                if (!byeMsg.empty()) {
+                    _client.postGameChat(roomId, "ALL", byeMsg);
+                    updateConversationReply(convSeq, byeMsg, "fallback:canned");
+                    _postGameSilenceStartMs.store(nowMs());
+                }
+            }
+            return;
         }
-        ::close(pipefd[0]);
-        int status = 0;
-        ::waitpid(pid, &status, 0);
 
         while (!output.empty() && (output.back() == '\n' || output.back() == '\r' || output.back() == ' ')) {
             output.pop_back();

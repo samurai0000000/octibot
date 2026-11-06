@@ -3405,6 +3405,69 @@ TEST(OctiBotTacticalUpgradeTest, BotEngineThreeVariants2P4POfkEvaluationAndTacti
     }
 }
 
+TEST(OctiBotTacticalUpgradeTest, RefuteRedundantLiberationSpamAndBackRankProngHoarding)
+{
+    // Nominal 1: Anti-Redundant-Liberation Spam from #g-20261106-0116 Ply 63
+    // In #g-20261106-0116, Player A held enemy base 57 with A57abch and had liberated A57.
+    // Playing a second liberation 57* stacks a second 0-prong pod on 57, wasting a captured pod and
+    // incurring capBasePen. evaluatePosition after 57* must be strictly lower, and chooseMove must not choose 57*.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2);
+        board.fromPositionString("2:3:0:0:P:A:-:0:0,3,6,0:0,2,14,0:A57abch,A57,A44abeh,A73abh,B63cdefg,B67fg");
+        int scoreBeforeLib = octi::OctiBotEngine::evaluatePosition(board, octi::PLAYER_A);
+
+        octi::OctiBoard boardAfterLib(octi::GAME_MODE_2);
+        boardAfterLib.fromPositionString("2:3:0:0:P:B:-:0:0,2,6,0:0,2,14,0:A57abch,A57,A57,A44abeh,A73abh,B63cdefg,B67fg");
+        int scoreAfterLib = octi::OctiBotEngine::evaluatePosition(boardAfterLib, octi::PLAYER_A);
+
+        CHECK_TRUE(scoreBeforeLib > scoreAfterLib);
+
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+        bot.setTimeBudgetMs(1000);
+        std::string chosen = bot.chooseMove(board);
+        CHECK_FALSE(chosen == "57*");
+    }
+
+    // Boundary: Solo 0-Prong Base Holder Retention
+    // When an armed pod vacates a captured enemy base, leaving a single 0-prong pod (A57) to hold the base,
+    // the position retains base capture value and must evaluate > 5000 points higher than leaving the base empty.
+    {
+        octi::OctiBoard boardHeld(octi::GAME_MODE_2);
+        boardHeld.fromPositionString("2:3:0:0:P:B:-:0:0,3,6,0:0,2,14,0:A57,A47abch,B67fg");
+        int scoreHeld = octi::OctiBotEngine::evaluatePosition(boardHeld, octi::PLAYER_A);
+
+        octi::OctiBoard boardEmpty(octi::GAME_MODE_2);
+        boardEmpty.fromPositionString("2:3:0:0:P:B:-:0:0,4,6,0:0,2,14,0:A47abch,B67fg");
+        int scoreEmpty = octi::OctiBotEngine::evaluatePosition(boardEmpty, octi::PLAYER_A);
+
+        CHECK_TRUE(scoreHeld > scoreEmpty + 5000);
+    }
+
+    // Dominance / Midgame Advancement Over Back-Rank 4th+ Prong Hoarding
+    // With 3 armed pods on row 3 (dist >= 4), adding a 4th prong to a back-rank pod incurs the hoarding penalty,
+    // whereas advancing across the midline (e.g. 53abc-54) yields forward distance and reach bonuses.
+    {
+        octi::OctiBoard bBack3(octi::GAME_MODE_2);
+        bBack3.fromPositionString("2:3:0:0:P:A:-:0:1,0,16,0:1,0,25,0:A33abc,A53abc,A73abc,B37,B57,B77");
+        int score3Prongs = octi::OctiBotEngine::evaluatePosition(bBack3, octi::PLAYER_A);
+
+        // Position with 4th prong added to back-rank pod A33: freeProngs drops by 1 (16 -> 15)
+        octi::OctiBoard bBack4(octi::GAME_MODE_2);
+        bBack4.fromPositionString("2:3:0:0:P:B:-:0:1,0,15,0:1,0,25,0:A33abcd,A53abc,A73abc,B37,B57,B77");
+        int score4Prongs = octi::OctiBotEngine::evaluatePosition(bBack4, octi::PLAYER_A);
+
+        // Position with 53abc advancing to 54 (dist reduced from 4 to 3 toward targets)
+        octi::OctiBoard bAdv(octi::GAME_MODE_2);
+        bAdv.fromPositionString("2:3:0:0:P:B:-:0:1,0,16,0:1,0,25,0:A33abc,A54abc,A73abc,B37,B57,B77");
+        int scoreAdv = octi::OctiBotEngine::evaluatePosition(bAdv, octi::PLAYER_A);
+
+        // Advancing forward scores higher than staying back and hoarding a 4th prong
+        CHECK_TRUE(scoreAdv > score4Prongs);
+        // And the hoarding penalty is active on bBack4 compared to pod prong base growth
+        CHECK_TRUE(score4Prongs - score3Prongs < 500);
+    }
+}
+
 TEST_GROUP(OctiCore_NetworkClient)
 {
 };
