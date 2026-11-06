@@ -631,6 +631,10 @@ bool writeJavaFile(const std::string &path,
         return true;
     }
 
+    static constexpr std::size_t kChunkSize = 550;
+    const std::size_t total = bookMap.size();
+    const std::size_t numChunks = (total == 0) ? 1 : ((total + kChunkSize - 1) / kChunkSize);
+
     std::ostringstream out;
     out << "/*\n"
         << " * OctiOpeningBookData.java\n"
@@ -641,28 +645,51 @@ bool writeJavaFile(const std::string &path,
         << "public final class OctiOpeningBookData {\n\n"
         << "    private OctiOpeningBookData() {\n"
         << "    }\n\n"
-        << "    public static final OctiBotEngine.OpeningBookEntry[] ENTRIES =\n"
-        << "            new OctiBotEngine.OpeningBookEntry[] {\n";
+        << "    public static final OctiBotEngine.OpeningBookEntry[] ENTRIES = buildEntries();\n\n"
+        << "    private static OctiBotEngine.OpeningBookEntry[] buildEntries() {\n";
 
-    std::size_t idx = 0;
-    const std::size_t total = bookMap.size();
-    for (const auto &kv : bookMap) {
-        const GeneratedBookEntry &e = kv.second;
-        std::size_t numCands = std::min<std::size_t>(3, e.candidates.size());
-        out << "        // " << e.variantLabel << " ply " << e.ply
-            << " (" << e.moveHistoryDesc << ")\n";
-        out << "        new OctiBotEngine.OpeningBookEntry("
-            << formatHexKey(e.canonicalKey) << "L, " << e.depth;
-        for (std::size_t c = 0; c < numCands; ++c) {
-            out << ",\n            new OctiBotEngine.OpeningBookCandidate(\""
-                << e.candidates[c].move << "\", "
-                << e.candidates[c].score << ")";
-        }
-        out << ")" << (idx + 1 < total ? "," : "") << "\n";
-        ++idx;
+    for (std::size_t ch = 0; ch < numChunks; ++ch) {
+        out << "        OctiBotEngine.OpeningBookEntry[] c" << ch << " = chunk" << ch << "();\n";
     }
-    out << "    };\n"
-        << "}\n";
+    out << "        OctiBotEngine.OpeningBookEntry[] all =\n"
+        << "                new OctiBotEngine.OpeningBookEntry[";
+    for (std::size_t ch = 0; ch < numChunks; ++ch) {
+        out << (ch > 0 ? " + " : "") << "c" << ch << ".length";
+    }
+    out << "];\n"
+        << "        int pos = 0;\n";
+    for (std::size_t ch = 0; ch < numChunks; ++ch) {
+        out << "        System.arraycopy(c" << ch << ", 0, all, pos, c" << ch << ".length);\n"
+            << "        pos += c" << ch << ".length;\n";
+    }
+    out << "        return all;\n"
+        << "    }\n\n";
+
+    auto it = bookMap.begin();
+    for (std::size_t ch = 0; ch < numChunks; ++ch) {
+        std::size_t chunkStart = ch * kChunkSize;
+        std::size_t chunkEnd = std::min(total, chunkStart + kChunkSize);
+        out << "    private static OctiBotEngine.OpeningBookEntry[] chunk" << ch << "() {\n"
+            << "        return new OctiBotEngine.OpeningBookEntry[] {\n";
+        for (std::size_t idx = chunkStart; idx < chunkEnd && it != bookMap.end(); ++idx, ++it) {
+            const GeneratedBookEntry &e = it->second;
+            std::size_t numCands = std::min<std::size_t>(3, e.candidates.size());
+            out << "        // " << e.variantLabel << " ply " << e.ply
+                << " (" << e.moveHistoryDesc << ")\n";
+            out << "        new OctiBotEngine.OpeningBookEntry("
+                << formatHexKey(e.canonicalKey) << "L, " << e.depth;
+            for (std::size_t c = 0; c < numCands; ++c) {
+                out << ",\n            new OctiBotEngine.OpeningBookCandidate(\""
+                    << e.candidates[c].move << "\", "
+                    << e.candidates[c].score << ")";
+            }
+            out << ")" << (idx + 1 < chunkEnd ? "," : "") << "\n";
+        }
+        out << "        };\n"
+            << "    }\n"
+            << (ch + 1 < numChunks ? "\n" : "");
+    }
+    out << "}\n";
 
     return atomicWriteTextFile(path, out.str(), "Java");
 }

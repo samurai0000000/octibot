@@ -69,16 +69,6 @@ std::string toLowerAscii(const std::string &s)
     return out;
 }
 
-std::string toUpperAscii(const std::string &s)
-{
-    std::string out = s;
-    for (std::size_t i = 0; i < out.size(); ++i) {
-        out[i] = static_cast<char>(
-            std::toupper(static_cast<unsigned char>(out[i])));
-    }
-    return out;
-}
-
 std::string urlEncode(const std::string &val)
 {
     static const char hex[] = "0123456789ABCDEF";
@@ -229,7 +219,6 @@ TableSummaryInfo parseTableSummary(const Json &j)
     t.rated = j.value("rated", true);
     t.allowTakeback = j.value("allow_takeback", false);
     t.observerPolicy = j.value("observer_policy", "OPEN");
-    t.voicePolicy = j.value("voice_policy", "PLAYERS_ONLY");
     t.phase = j.value("phase", "WAITING_FOR_PLAYERS");
     t.hasPasscode = j.value("has_passcode", false);
     t.allowRobots = j.value("allow_robots", true);
@@ -317,7 +306,6 @@ GameViewData parseGameView(const Json &j)
     v.rated = j.value("rated", true);
     v.allowTakeback = j.value("allow_takeback", false);
     v.observerPolicy = j.value("observer_policy", "OPEN");
-    v.voicePolicy = j.value("voice_policy", "PLAYERS_ONLY");
     v.phase = j.value("phase", "WAITING_FOR_PLAYERS");
     v.paused = j.value("paused", false);
     v.hasPasscode = j.value("has_passcode", false);
@@ -380,12 +368,6 @@ GameViewData parseGameView(const Json &j)
         for (std::size_t i = 0; i < j["moves"].size(); ++i) {
             if (j["moves"][i].is_string()) {
                 v.moves.push_back(j["moves"][i].get<std::string>());
-            } else if (j["moves"][i].is_object()) {
-                std::string m = j["moves"][i].value(
-                    "notation", j["moves"][i].value("move", ""));
-                if (!m.empty()) {
-                    v.moves.push_back(m);
-                }
             }
         }
     }
@@ -421,18 +403,6 @@ GameViewData parseGameView(const Json &j)
             p.expiresAtMs = pr[i].value(
                 "expires_at_ms", static_cast<std::int64_t>(0));
             v.proposals.push_back(p);
-        }
-    }
-    if (j.contains("voice_peers") && j["voice_peers"].is_array()) {
-        const Json &vp = j["voice_peers"];
-        for (std::size_t i = 0; i < vp.size(); ++i) {
-            if (!vp[i].is_object()) {
-                continue;
-            }
-            VoicePeerInfo peer;
-            peer.playerUuid = vp[i].value("player_uuid", "");
-            peer.micMuted = vp[i].value("mic_muted", false);
-            v.voicePeers.push_back(peer);
         }
     }
     v.seq = j.value("seq", static_cast<std::int64_t>(0));
@@ -704,14 +674,6 @@ std::vector<SseEvent> OctiNetworkClient::parseSseBuffer(std::string &buffer)
         }
 
         if (hasEventOrData && !ev.event.empty()) {
-            if (ev.id == 0 && !ev.dataJson.empty()) {
-                try {
-                    Json j = Json::parse(ev.dataJson, nullptr, false);
-                    if (j.is_object() && j.contains("seq") && j["seq"].is_number_unsigned()) {
-                        ev.id = j["seq"].get<std::uint64_t>();
-                    }
-                } catch (...) {}
-            }
             events.push_back(std::move(ev));
         }
     }
@@ -745,7 +707,6 @@ struct OctiNetworkClient::Impl {
         std::atomic<bool> stopRequested{false};
         std::atomic<bool> active{false};
         std::atomic<std::uint64_t> lastId{0};
-        std::atomic<std::uint64_t> generation{0};
 
         ~SseRunner()
         {
@@ -754,7 +715,6 @@ struct OctiNetworkClient::Impl {
 
         void stop()
         {
-            generation.fetch_add(1);
             stopRequested.store(true);
             std::shared_ptr<httplib::Client> cli;
 #ifdef _WIN32
@@ -778,11 +738,7 @@ struct OctiNetworkClient::Impl {
 #endif
             cv.notify_all();
             if (worker.joinable()) {
-                if (worker.get_id() == std::this_thread::get_id()) {
-                    worker.detach();
-                } else {
-                    worker.join();
-                }
+                worker.join();
             }
             {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -1309,7 +1265,7 @@ struct OctiNetworkClient::Impl {
                 return false;
             }
 
-            WinHttpSetTimeouts(hSession, 5000, 5000, 30000, 120000);
+            WinHttpSetTimeouts(hSession, 5000, 5000, 30000, 30000);
 
             std::wstring wideHost = toWide(host);
             HINTERNET hConnect = WinHttpConnect(
@@ -1571,16 +1527,14 @@ struct OctiNetworkClient::Impl {
         std::function<void(const SseEvent &)> onEvent)
     {
         runner.stop();
-        std::uint64_t myGen = runner.generation.fetch_add(1) + 1;
         runner.stopRequested.store(false);
         runner.lastId.store(sinceSeq);
         runner.active.store(true);
 
         runner.worker = std::thread(
-            [this, &runner, basePath, onEvent, myGen]() {
+            [this, &runner, basePath, onEvent]() {
                 try {
-                    while (!runner.stopRequested.load() &&
-                           runner.generation.load() == myGen) {
+                    while (!runner.stopRequested.load()) {
                         std::uint64_t curSeq = runner.lastId.load();
                         std::string path = basePath +
                                            (basePath.find('?') == std::string::npos
@@ -1596,8 +1550,7 @@ struct OctiNetworkClient::Impl {
                         if (port == 443) {
                             bool winHttpOk = streamWinHttpSse(
                                 runner, path, curSeq, onEvent);
-                            if (runner.stopRequested.load() ||
-                                runner.generation.load() != myGen) {
+                            if (runner.stopRequested.load()) {
                                 break;
                             }
                             if (!winHttpOk && host == OCTI_SERVER_HOST && port == OCTI_SERVER_PORT) {
@@ -1629,25 +1582,19 @@ struct OctiNetworkClient::Impl {
                         }
 #endif
 
-                        if (runner.stopRequested.load() ||
-                            runner.generation.load() != myGen) {
+                        if (runner.stopRequested.load()) {
                             break;
                         }
 
                         std::unique_lock<std::mutex> lock(runner.mutex);
                         runner.cv.wait_for(
                             lock, std::chrono::milliseconds(150),
-                            [&runner, myGen]() {
-                                return runner.stopRequested.load() ||
-                                       runner.generation.load() != myGen;
-                            });
+                            [&runner]() { return runner.stopRequested.load(); });
                     }
                 } catch (const std::exception &) {
                 } catch (...) {
                 }
-                if (runner.generation.load() == myGen) {
-                    runner.active.store(false);
-                }
+                runner.active.store(false);
             });
     }
 };
@@ -2323,8 +2270,6 @@ ApiResult<CreateTableResponse> OctiNetworkClient::createTable(
     body["rated"] = req.rated;
     body["allow_takeback"] = req.allowTakeback;
     body["observer_policy"] = req.observerPolicy;
-    body["voice_policy"] = req.voicePolicy;
-    body["seat"] = req.seat;
     if (!req.passcode.empty()) {
         body["passcode"] = req.passcode;
     }
@@ -2547,7 +2492,7 @@ ApiResult<MatchmakingStatusData> OctiNetworkClient::fetchMatchmakingStatus()
     return res;
 }
 
-/* ---- 23..32: Live Game, Chat, Voice Signaling & Moderation ---- */
+/* ---- 23..30: Live Game, Chat & Moderation ---- */
 
 ApiResult<GameViewData> OctiNetworkClient::fetchGameView(
     const std::string &roomId)
@@ -2664,61 +2609,6 @@ ApiResult<std::int64_t> OctiNetworkClient::postGameChat(
     return res;
 }
 
-ApiResult<std::int64_t> OctiNetworkClient::submitVoiceSignal(
-    const std::string &roomId,
-    const std::string &toPlayerUuid,
-    const std::string &signalType,
-    const std::string &payloadJson)
-{
-    ApiResult<std::int64_t> res;
-    Json body;
-    body["target"] = toPlayerUuid;
-    body["type"] = signalType;
-    Json parsedPayload = Json::parse(payloadJson, nullptr, false);
-    if (!parsedPayload.is_discarded()) {
-        body["payload"] = parsedPayload;
-    } else {
-        body["payload"] = payloadJson;
-    }
-    Impl::RawResponse raw = _impl->doPost(
-        "/api/v1/games/" + urlEncode(roomId) + "/voice-signal", body);
-    if (!raw.transportOk || raw.status != 200 || !raw.json.is_object()) {
-        Impl::populateError(raw, res);
-        return res;
-    }
-    res.ok = true;
-    res.httpStatus = raw.status;
-    res.data = raw.json.value("seq", static_cast<std::int64_t>(0));
-    return res;
-}
-
-ApiResult<std::int64_t> OctiNetworkClient::submitVoiceMeta(
-    const std::string &roomId,
-    const std::string &eventType,
-    const std::string &targetPlayerUuid)
-{
-    (void)targetPlayerUuid;
-    ApiResult<std::int64_t> res;
-    std::string action = toUpperAscii(eventType);
-    if (action == "SPEAKING_START") {
-        action = "MIC_UNMUTED";
-    } else if (action == "SPEAKING_STOP") {
-        action = "MIC_MUTED";
-    }
-    Json body;
-    body["action"] = action;
-    Impl::RawResponse raw = _impl->doPost(
-        "/api/v1/games/" + urlEncode(roomId) + "/voice-meta", body);
-    if (!raw.transportOk || raw.status != 200 || !raw.json.is_object()) {
-        Impl::populateError(raw, res);
-        return res;
-    }
-    res.ok = true;
-    res.httpStatus = raw.status;
-    res.data = raw.json.value("seq", static_cast<std::int64_t>(0));
-    return res;
-}
-
 ApiResult<bool> OctiNetworkClient::banObserver(
     const std::string &roomId,
     const std::string &targetPlayerUuid,
@@ -2745,14 +2635,12 @@ ApiResult<bool> OctiNetworkClient::banObserver(
 ApiResult<bool> OctiNetworkClient::muteParticipant(
     const std::string &roomId,
     const std::string &targetPlayerUuid,
-    bool muteChat,
-    bool muteVoice)
+    bool muteChat)
 {
     ApiResult<bool> res;
     Json body;
     body["target"] = targetPlayerUuid;
     body["mute_chat"] = muteChat;
-    body["mute_voice"] = muteVoice;
     Impl::RawResponse raw = _impl->doPost(
         "/api/v1/games/" + urlEncode(roomId) + "/mute", body);
     if (!raw.transportOk || raw.status != 200) {
@@ -2767,16 +2655,12 @@ ApiResult<bool> OctiNetworkClient::muteParticipant(
 
 ApiResult<RoomSettingsData> OctiNetworkClient::updateRoomSettings(
     const std::string &roomId,
-    const std::string &observerPolicy,
-    const std::string &voicePolicy)
+    const std::string &observerPolicy)
 {
     ApiResult<RoomSettingsData> res;
     Json body = Json::object();
     if (!observerPolicy.empty()) {
         body["observer_policy"] = observerPolicy;
-    }
-    if (!voicePolicy.empty()) {
-        body["voice_policy"] = voicePolicy;
     }
     Impl::RawResponse raw = _impl->doPost(
         "/api/v1/games/" + urlEncode(roomId) + "/settings", body);
@@ -2788,7 +2672,6 @@ ApiResult<RoomSettingsData> OctiNetworkClient::updateRoomSettings(
     res.httpStatus = raw.status;
     res.data.observerPolicy =
         raw.json.value("observer_policy", observerPolicy);
-    res.data.voicePolicy = raw.json.value("voice_policy", voicePolicy);
     res.data.seq = raw.json.value("seq", static_cast<std::int64_t>(0));
     return res;
 }

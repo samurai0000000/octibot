@@ -245,7 +245,6 @@ struct TableSummaryInfo {
     bool rated = true;
     bool allowTakeback = false;
     std::string observerPolicy = "OPEN";
-    std::string voicePolicy = "PLAYERS_ONLY";
     std::string phase = "WAITING_FOR_PLAYERS";
     bool hasPasscode = false;
     std::string hostUuid;
@@ -281,10 +280,8 @@ struct CreateTableRequest {
     bool rated = true;
     bool allowTakeback = false;
     std::string observerPolicy = "OPEN";
-    std::string voicePolicy = "PLAYERS_ONLY";
     std::string passcode;
     bool allowRobots = true;
-    int seat = 1;
 };
 
 struct CreateTableResponse {
@@ -347,11 +344,6 @@ struct GameProposalInfo {
     std::int64_t expiresAtMs = 0;
 };
 
-struct VoicePeerInfo {
-    std::string playerUuid;
-    bool micMuted = false;
-};
-
 struct GameViewData {
     bool live = true;
     std::string roomId;
@@ -366,7 +358,6 @@ struct GameViewData {
     bool rated = true;
     bool allowTakeback = false;
     std::string observerPolicy = "OPEN";
-    std::string voicePolicy = "PLAYERS_ONLY";
     std::string phase = "WAITING_FOR_PLAYERS";
     bool paused = false;
     bool hasPasscode = false;
@@ -383,7 +374,6 @@ struct GameViewData {
     std::string termination;
     int winnerSeat = 0;
     std::vector<GameProposalInfo> proposals;
-    std::vector<VoicePeerInfo> voicePeers;
     std::int64_t seq = 0;
     bool archived = false;
     std::string rematchRoomId;
@@ -449,7 +439,6 @@ struct GameActionData {
 
 struct RoomSettingsData {
     std::string observerPolicy;
-    std::string voicePolicy;
     std::int64_t seq = 0;
 };
 
@@ -617,7 +606,7 @@ public:
     ApiResult<bool> dequeueMatchmaking();
     ApiResult<MatchmakingStatusData> fetchMatchmakingStatus();
 
-    /* ---- 23..32: Live Game, Chat, Voice Signaling & Moderation ---- */
+    /* ---- 23..30: Live Game, Chat & Moderation ---- */
     ApiResult<GameViewData> fetchGameView(const std::string &roomId);
     ApiResult<GameViewData> fetchRoomState(const std::string &roomId)
     {
@@ -644,15 +633,6 @@ public:
         const std::string &roomId,
         const std::string &scope,
         const std::string &text);
-    ApiResult<std::int64_t> submitVoiceSignal(
-        const std::string &roomId,
-        const std::string &toPlayerUuid,
-        const std::string &signalType,
-        const std::string &payloadJson);
-    ApiResult<std::int64_t> submitVoiceMeta(
-        const std::string &roomId,
-        const std::string &eventType,
-        const std::string &targetPlayerUuid = "");
     ApiResult<bool> banObserver(
         const std::string &roomId,
         const std::string &targetPlayerUuid,
@@ -660,12 +640,10 @@ public:
     ApiResult<bool> muteParticipant(
         const std::string &roomId,
         const std::string &targetPlayerUuid,
-        bool muteChat,
-        bool muteVoice);
+        bool muteChat);
     ApiResult<RoomSettingsData> updateRoomSettings(
         const std::string &roomId,
-        const std::string &observerPolicy,
-        const std::string &voicePolicy);
+        const std::string &observerPolicy);
 
     /* ---- 33..35: Game Archive & .octi Transcript ---- */
     ApiResult<ArchivedGamesPage> listArchivedGames(

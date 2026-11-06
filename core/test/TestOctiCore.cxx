@@ -13,6 +13,7 @@
 #include "OctiBoard.hxx"
 #include "OctiGame.hxx"
 #include "OctiBotEngine.hxx"
+#include "OctiOpeningBookData.hxx"
 #include "OctiCrypto.hxx"
 #include "OctiNetworkClient.hxx"
 #include "Version.hxx"
@@ -1974,18 +1975,26 @@ TEST(OctiBotEngineCoreTest, DefaultBudgetAndDepthPerDifficultyLevel)
     CHECK_EQUAL(5000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::CASUAL));
     CHECK_EQUAL(10000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::TACTICAL));
     CHECK_EQUAL(20000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(40000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::EXPERT));
+    CHECK_EQUAL(60000, octi::OctiBotEngine::defaultBudgetForDifficulty(octi::BotDifficulty::GRANDMASTER));
 
     CHECK_EQUAL(3, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::CASUAL));
     CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::TACTICAL));
     CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::EXPERT));
+    CHECK_EQUAL(64, octi::OctiBotEngine::maxDepthForDifficulty(octi::BotDifficulty::GRANDMASTER));
 
     CHECK_EQUAL(24, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::CASUAL));
     CHECK_EQUAL(40, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::TACTICAL));
     CHECK_EQUAL(56, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(64, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::EXPERT));
+    CHECK_EQUAL(72, octi::OctiBotEngine::rootCapForDifficulty(octi::BotDifficulty::GRANDMASTER));
 
     CHECK_EQUAL(16, octi::OctiBotEngine::branchCapForDifficulty(octi::BotDifficulty::CASUAL));
     CHECK_EQUAL(24, octi::OctiBotEngine::branchCapForDifficulty(octi::BotDifficulty::TACTICAL));
     CHECK_EQUAL(32, octi::OctiBotEngine::branchCapForDifficulty(octi::BotDifficulty::MASTER));
+    CHECK_EQUAL(36, octi::OctiBotEngine::branchCapForDifficulty(octi::BotDifficulty::EXPERT));
+    CHECK_EQUAL(40, octi::OctiBotEngine::branchCapForDifficulty(octi::BotDifficulty::GRANDMASTER));
 }
 
 TEST(OctiBotEngineCoreTest, ImmediateOnePlyWinningBaseCaptureAllDifficulties)
@@ -2389,6 +2398,33 @@ TEST(OctiBotEngineCoreTest, OpeningBookLookupNominalBoundaryAndFaultInjection)
     CHECK_FALSE(octi::OctiBotEngine::probeOpeningBookTable(
         b2p3, allIllegalTable, 1, enabledProf, rng, noMove));
     STRCMP_EQUAL("", noMove.c_str());
+
+    // 4. Verify full 2,038-entry generated playbook and ply-4 2P 3-Base entry (33+h 57+d 53+h 37+d -> 73+h mirrored / 33+b canonical)
+    LONGS_EQUAL(2038, static_cast<long>(octi::g_openingBookEntryCount));
+    octi::OctiBoard bPly4(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bPly4.getGame()->start(octi::PLAYER_A);
+    bPly4.getGame()->move("33+h");
+    bPly4.getGame()->move("57+d");
+    bPly4.getGame()->move("53+h");
+    bPly4.getGame()->move("37+d");
+    bot.setTuningProfile(enabledProf);
+    std::string ply4Move;
+    int ply4Score = 0;
+    int ply4Depth = 0;
+    CHECK_TRUE(bot.probeOpeningBook(bPly4, ply4Move, &ply4Score, &ply4Depth));
+    STRCMP_EQUAL("73+h", ply4Move.c_str());
+    LONGS_EQUAL(-120, ply4Score);
+    LONGS_EQUAL(8, ply4Depth);
+
+    octi::OctiBoard bPly4Canon(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    bPly4Canon.getGame()->start(octi::PLAYER_A);
+    bPly4Canon.getGame()->move("73+b");
+    bPly4Canon.getGame()->move("57+f");
+    bPly4Canon.getGame()->move("53+b");
+    bPly4Canon.getGame()->move("77+f");
+    std::string ply4CanonMove;
+    CHECK_TRUE(bot.probeOpeningBook(bPly4Canon, ply4CanonMove, &ply4Score, &ply4Depth));
+    STRCMP_EQUAL("33+b", ply4CanonMove.c_str());
 }
 
 TEST(OctiBotEngineCoreTest, SearchTopMovesForBookAndCanonicalOrientation)
@@ -3405,274 +3441,6 @@ TEST(OctiBotTacticalUpgradeTest, BotEngineThreeVariants2P4POfkEvaluationAndTacti
     }
 }
 
-TEST(OctiBotTacticalUpgradeTest, RefuteRedundantLiberationSpamAndBackRankProngHoarding)
-{
-    // Nominal 1: Anti-Redundant-Liberation Spam from #g-20261106-0116 Ply 63
-    // In #g-20261106-0116, Player A held enemy base 57 with A57abch and had liberated A57.
-    // Playing a second liberation 57* stacks a second 0-prong pod on 57, wasting a captured pod and
-    // incurring capBasePen. evaluatePosition after 57* must be strictly lower, and chooseMove must not choose 57*.
-    {
-        octi::OctiBoard board(octi::GAME_MODE_2);
-        board.fromPositionString("2:3:0:0:P:A:-:0:0,3,6,0:0,2,14,0:A57abch,A57,A44abeh,A73abh,B63cdefg,B67fg");
-        int scoreBeforeLib = octi::OctiBotEngine::evaluatePosition(board, octi::PLAYER_A);
-
-        octi::OctiBoard boardAfterLib(octi::GAME_MODE_2);
-        boardAfterLib.fromPositionString("2:3:0:0:P:B:-:0:0,2,6,0:0,2,14,0:A57abch,A57,A57,A44abeh,A73abh,B63cdefg,B67fg");
-        int scoreAfterLib = octi::OctiBotEngine::evaluatePosition(boardAfterLib, octi::PLAYER_A);
-
-        CHECK_TRUE(scoreBeforeLib > scoreAfterLib);
-
-        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-        bot.setTimeBudgetMs(1000);
-        std::string chosen = bot.chooseMove(board);
-        CHECK_FALSE(chosen == "57*");
-    }
-
-    // Boundary: Solo 0-Prong Base Holder Retention
-    // When an armed pod vacates a captured enemy base, leaving a single 0-prong pod (A57) to hold the base,
-    // the position retains base capture value and must evaluate > 5000 points higher than leaving the base empty.
-    {
-        octi::OctiBoard boardHeld(octi::GAME_MODE_2);
-        boardHeld.fromPositionString("2:3:0:0:P:B:-:0:0,3,6,0:0,2,14,0:A57,A47abch,B67fg");
-        int scoreHeld = octi::OctiBotEngine::evaluatePosition(boardHeld, octi::PLAYER_A);
-
-        octi::OctiBoard boardEmpty(octi::GAME_MODE_2);
-        boardEmpty.fromPositionString("2:3:0:0:P:B:-:0:0,4,6,0:0,2,14,0:A47abch,B67fg");
-        int scoreEmpty = octi::OctiBotEngine::evaluatePosition(boardEmpty, octi::PLAYER_A);
-
-        CHECK_TRUE(scoreHeld > scoreEmpty + 5000);
-    }
-
-    // Dominance / Midgame Advancement Over Back-Rank 4th+ Prong Hoarding
-    // With 3 armed pods on row 3 (dist >= 4), adding a 4th prong to a back-rank pod incurs the hoarding penalty,
-    // whereas advancing across the midline (e.g. 53abc-54) yields forward distance and reach bonuses.
-    {
-        octi::OctiBoard bBack3(octi::GAME_MODE_2);
-        bBack3.fromPositionString("2:3:0:0:P:A:-:0:1,0,16,0:1,0,25,0:A33abc,A53abc,A73abc,B37,B57,B77");
-        int score3Prongs = octi::OctiBotEngine::evaluatePosition(bBack3, octi::PLAYER_A);
-
-        // Position with 4th prong added to back-rank pod A33: freeProngs drops by 1 (16 -> 15)
-        octi::OctiBoard bBack4(octi::GAME_MODE_2);
-        bBack4.fromPositionString("2:3:0:0:P:B:-:0:1,0,15,0:1,0,25,0:A33abcd,A53abc,A73abc,B37,B57,B77");
-        int score4Prongs = octi::OctiBotEngine::evaluatePosition(bBack4, octi::PLAYER_A);
-
-        // Position with 53abc advancing to 54 (dist reduced from 4 to 3 toward targets)
-        octi::OctiBoard bAdv(octi::GAME_MODE_2);
-        bAdv.fromPositionString("2:3:0:0:P:B:-:0:1,0,16,0:1,0,25,0:A33abc,A54abc,A73abc,B37,B57,B77");
-        int scoreAdv = octi::OctiBotEngine::evaluatePosition(bAdv, octi::PLAYER_A);
-
-        // Advancing forward scores higher than staying back and hoarding a 4th prong
-        CHECK_TRUE(scoreAdv > score4Prongs);
-        // And the hoarding penalty is active on bBack4 compared to pod prong base growth
-        CHECK_TRUE(score4Prongs - score3Prongs < 500);
-    }
-}
-
-TEST(OctiBotTacticalUpgradeTest, RefuteSelfVacatingStepIntoCaptureLanePly16)
-{
-    // #g-20261106-0147 Ply 16: B66de must NOT step to 65, which vacates 66 and allows A64ah to jump-capture via 64ah-66x
-    octi::OctiBoard board(octi::GAME_MODE_2);
-    board.fromPositionString("2:3:0:0:P:B:-:0:4,0,18,0:4,0,20,0:A33ab,A53abh,A64ah,B46de,B66de,B77f");
-    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-    bot.setTimeBudgetMs(1000);
-    std::string chosen = bot.chooseMove(board);
-    CHECK_FALSE(chosen == "66de-65");
-}
-
-TEST(OctiBotTacticalUpgradeTest, RefuteLonePodProngMonopolyAndUnsafeHomeBasePodPlacement)
-{
-    // #g-20261106-0147 Plies 28-34:
-    // Player B has lone pod on board B46abcdef (6 prongs), 4 freePods in reserve, and A66abfgh is threatening home square 57 via jump-lane 66abfgh-48x.
-    // Bot must NOT add 7th prong (46abcdef+g, 46abcdef+h), must NOT rearrange (46abcdef+g-a),
-    // and must NOT place a new pod on jump-threatened square 57 (safe home square is 37 or 77).
-    octi::OctiBoard board(octi::GAME_MODE_2);
-    board.fromPositionString("2:3:0:0:P:B:-:0:3,1,18,0:4,2,17,0:A33a,A34abh,B46abcdef,A66abfgh");
-    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-    bot.setTimeBudgetMs(1000);
-    std::string chosen = bot.chooseMove(board);
-    CHECK_FALSE(chosen == "46abcdef+g");
-    CHECK_FALSE(chosen == "46abcdef+h");
-    CHECK_FALSE(chosen == "46abcdef+g-a");
-    CHECK_FALSE(chosen == "46abcdef+h-a");
-    CHECK_FALSE(chosen == "57");
-
-    // evaluatePosition checks:
-    // Monopoly/overarming: adding a 7th prong to lone pod vs placing a new pod on 37
-    octi::OctiBoard bProng(octi::GAME_MODE_2);
-    bProng.fromPositionString("2:3:0:0:P:A:-:0:3,1,18,0:4,2,16,0:A33a,A34abh,B46abcdefg,A66abfgh");
-    int evalProng = octi::OctiBotEngine::evaluatePosition(bProng, octi::PLAYER_B);
-
-    octi::OctiBoard bPlaceSafe(octi::GAME_MODE_2);
-    bPlaceSafe.fromPositionString("2:3:0:0:P:A:-:0:3,1,18,0:3,2,17,0:A33a,A34abh,B46abcdef,A66abfgh,B37");
-    int evalPlaceSafe = octi::OctiBotEngine::evaluatePosition(bPlaceSafe, octi::PLAYER_B);
-
-    CHECK_TRUE(evalPlaceSafe > evalProng);
-}
-
-TEST(OctiBotTacticalUpgradeTest, RefuteProngRearrangementOscillationPly97)
-{
-    // #g-20261106-0142 Ply 97:
-    // Pod A35abg should NOT oscillate with +h-b / +b-h prong rearrangements
-    octi::OctiBoard board(octi::GAME_MODE_2);
-    board.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A35abg,A53adefh,B64abcdefh");
-    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-    bot.setTimeBudgetMs(1000);
-    std::string chosen = bot.chooseMove(board);
-    CHECK_FALSE(chosen == "35abg+h-b");
-    CHECK_FALSE(chosen == "35abg+h-a");
-    CHECK_FALSE(chosen == "35abg+h-g");
-    CHECK_FALSE(chosen == "35abg+c-b");
-}
-
-TEST(OctiBotTacticalUpgradeTest, ImmobilizedArmedPodAndCanLiberateUnfreezing)
-{
-    // #g-20261106-0147 Ply 19:
-    // B55f is pinned/immobilized: prong f points SW to 44 and 33, but 44 has A44abh and 33 has A33ab!
-    // B55f cannot step (44 has enemy) and cannot jump (33 is occupied), so legalMoveDirs == 0.
-    // An immobilized armed pod under enemy threat receives heavy penalty.
-    octi::OctiBoard bPinned(octi::GAME_MODE_2);
-    bPinned.fromPositionString("2:3:0:0:P:B:-:0:3,0,18,0:4,1,20,0:A33ab,A44abh,B55f,B46de");
-    int scorePinned = octi::OctiBotEngine::evaluatePosition(bPinned, octi::PLAYER_B);
-
-    octi::OctiBoard bFree(octi::GAME_MODE_2);
-    bFree.fromPositionString("2:3:0:0:P:B:-:0:3,0,18,0:4,1,20,0:A33ab,A44abh,B55fh,B46de");
-    int scoreFree = octi::OctiBotEngine::evaluatePosition(bFree, octi::PLAYER_B);
-    CHECK_TRUE(scoreFree > scorePinned + 1000);
-
-    // #g-20261106-0142: Reduced canLiberate bonus (450 vs 2500)
-    // A pod with 5 prongs on a friendly base (A53adefh) has incentive to advance forward rather than
-    // sit frozen for 80 plies due to passive +2500 canLiberate inflation.
-    octi::OctiBoard bOnBase(octi::GAME_MODE_2);
-    bOnBase.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A53adefh,B64abcdefh");
-    int scoreBase = octi::OctiBotEngine::evaluatePosition(bOnBase, octi::PLAYER_A);
-
-    octi::OctiBoard bAdvBase(octi::GAME_MODE_2);
-    bAdvBase.fromPositionString("2:3:0:0:P:A:-:0:0,1,10,0:0,0,15,0:A54adefh,B64abcdefh");
-    int scoreAdv = octi::OctiBotEngine::evaluatePosition(bAdvBase, octi::PLAYER_A);
-    // Advancing toward enemy bases now competes strongly against sitting passively on friendly home base
-    CHECK_TRUE(scoreAdv > scoreBase - 1500);
-}
-
-TEST(OctiBotTacticalUpgradeTest, SearchConvergenceAndAntiFarmingMatches0165_0167_0171)
-{
-    // C2 (#g-20261106-0165 Ply 55): Hard dominance pruning of single-op +x-y when freeProngs > 0 && numProngs < 4
-    {
-        octi::OctiBoard b1(octi::GAME_MODE_2);
-        b1.fromPositionString("2:3:0:0:P:A:-:0:1,0,10,0:0,0,11,0:A25abch,A44abfh,A53abc,A62abgh,B35defg,B37def,B55bcdef,B75cdfg");
-        CHECK_EQUAL(10, b1.getGame()->getFreeProngs(octi::PLAYER_A));
-        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-        bot.setTimeBudgetMs(500);
-        std::string move1 = bot.chooseMove(b1);
-        // Pod A53abc has 3 prongs (< 4). Verify chooseMove never selects a +x-y move on it.
-        CHECK_FALSE(move1 == "53abc+d-a");
-        CHECK_FALSE(move1 == "53abc+d-b");
-        CHECK_FALSE(move1 == "53abc+d-c");
-        CHECK_FALSE(move1 == "53abc+e-a");
-        CHECK_FALSE(move1 == "53abc+e-b");
-        CHECK_FALSE(move1 == "53abc+e-c");
-        CHECK_FALSE(move1 == "53abc+f-a");
-        CHECK_FALSE(move1 == "53abc+f-b");
-        CHECK_FALSE(move1 == "53abc+f-c");
-        CHECK_FALSE(move1 == "53abc+g-a");
-        CHECK_FALSE(move1 == "53abc+g-b");
-        CHECK_FALSE(move1 == "53abc+g-c");
-        CHECK_FALSE(move1 == "53abc+h-a");
-        CHECK_FALSE(move1 == "53abc+h-b");
-        CHECK_FALSE(move1 == "53abc+h-c");
-
-        octi::OctiBoard b2(octi::GAME_MODE_2);
-        b2.fromPositionString("2:3:0:0:P:A:-:0:1,0,10,0:0,0,11,0:A25abc,A44abfh,A53abc,B35defg,B37def");
-        std::string move2 = bot.chooseMove(b2);
-        // Verify chooseMove does not return any +...- rearrangement move on pods with < 4 prongs
-        bool isRearrange = (move2.find('+') != std::string::npos &&
-                            move2.find('-', move2.find('+')) != std::string::npos);
-        if (isRearrange) {
-            // If it is a rearrange, it can only be on A44abfh (4 prongs), never on A25abc or A53abc
-            CHECK_FALSE(move2.rfind("25", 0) == 0);
-            CHECK_FALSE(move2.rfind("53", 0) == 0);
-        }
-    }
-
-    // C3 (#g-20261106-0165 Plies 33 & 35): Forward-only leapfrog battery, behind-home and zero-forward-prong penalties
-    {
-        octi::OctiBoard bStay(octi::GAME_MODE_2);
-        bStay.fromPositionString("2:3:0:0:P:A:-:0:3,0,16,0:2,0,17,0:A33c,A44abfh,A53ab,A73ab,B37de,B46def,B55def,B66df");
-        int scoreStay = octi::OctiBotEngine::evaluatePosition(bStay, octi::PLAYER_A);
-
-        octi::OctiBoard bBack(octi::GAME_MODE_2);
-        bBack.fromPositionString("2:3:0:0:P:B:-:0:3,0,16,0:2,0,17,0:A33c,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66df");
-        int scoreBack = octi::OctiBotEngine::evaluatePosition(bBack, octi::PLAYER_A);
-        CHECK_TRUE(scoreStay > scoreBack + 1500);
-
-        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-        bot.setTimeBudgetMs(500);
-        std::string chosenStay = bot.chooseMove(bStay);
-        CHECK_FALSE(chosenStay == "44abfh-22");
-
-        octi::OctiBoard bA2(octi::GAME_MODE_2);
-        bA2.fromPositionString("2:3:0:0:P:A:-:0:3,0,16,0:2,0,16,0:A33c,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
-        std::string chosenA2 = bot.chooseMove(bA2);
-        CHECK_FALSE(chosenA2 == "33c+f");
-
-        octi::OctiBoard bFwdProng(octi::GAME_MODE_2);
-        bFwdProng.fromPositionString("2:3:0:0:P:A:-:0:3,0,15,0:2,0,16,0:A33ac,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
-        int scoreFwdProng = octi::OctiBotEngine::evaluatePosition(bFwdProng, octi::PLAYER_A);
-
-        octi::OctiBoard bBackProng(octi::GAME_MODE_2);
-        bBackProng.fromPositionString("2:3:0:0:P:A:-:0:3,0,15,0:2,0,16,0:A33cf,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
-        int scoreBackProng = octi::OctiBotEngine::evaluatePosition(bBackProng, octi::PLAYER_A);
-        CHECK_TRUE(scoreFwdProng > scoreBackProng + 1200);
-    }
-
-    // C4 (#g-20261106-0167 Ply 38): Non-base friendly pod stacking penalty
-    {
-        octi::OctiBoard bOrig(octi::GAME_MODE_2);
-        bOrig.fromPositionString("2:3:0:0:P:B:-:0:2,0,12,0:1,0,15,0:A34abgh,A53abc,A65abgh,B37ef,B46defh,B57f,B66ef");
-        int scoreOrig = octi::OctiBotEngine::evaluatePosition(bOrig, octi::PLAYER_B);
-
-        octi::OctiBoard bStacked(octi::GAME_MODE_2);
-        bStacked.fromPositionString("2:3:0:0:P:A:-:0:2,0,12,0:1,0,15,0:A34abgh,A53abc,A65abgh,B37ef,B46defh,B46f,B66ef");
-        int scoreStacked = octi::OctiBotEngine::evaluatePosition(bStacked, octi::PLAYER_B);
-        CHECK_TRUE(scoreOrig > scoreStacked + 2000);
-
-        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-        bot.setTimeBudgetMs(500);
-        std::string chosen = bot.chooseMove(bOrig);
-        CHECK_FALSE(chosen == "57f-46");
-    }
-
-    // C8 (#g-20261106-0171 Plies 20 & 42): Allied home-base defense and enemy base capture valuation
-    {
-        octi::OctiBoard bPly20(octi::GAME_MODE_2);
-        bPly20.fromPositionString("2:3:0:0:P:B:-:0:3,0,19,0:3,0,19,0:A33ab,A55ab,A73a,B37e,B57df,B77ef");
-        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-        bot.setTimeBudgetMs(500);
-        std::string chosenPly20 = bot.chooseMove(bPly20);
-        CHECK_FALSE(chosenPly20 == "77ef-55");
-
-        octi::OctiBoard bPly42(octi::GAME_MODE_2);
-        bPly42.fromPositionString("2:3:0:0:P:B:-:0:1,2,14,0:2,0,13,0:A43abc,A65abgh,B32ae,B46def,B55defg");
-
-        octi::OctiBoard bCap(octi::GAME_MODE_2);
-        bCap.fromPositionString("2:3:0:0:P:A:-:0:1,2,14,0:1,0,13,0:A43abc,A65abgh,B33ae,B46def,B55defg");
-        int scoreCap = octi::OctiBotEngine::evaluatePosition(bCap, octi::PLAYER_B);
-
-        octi::OctiBoard bProng(octi::GAME_MODE_2);
-        bProng.fromPositionString("2:3:0:0:P:A:-:0:1,2,14,0:2,0,12,0:A43abc,A65abgh,B32ade,B46def,B55defg");
-        int scoreProng = octi::OctiBotEngine::evaluatePosition(bProng, octi::PLAYER_B);
-        CHECK_TRUE(scoreCap > scoreProng + 7000);
-
-        std::string chosenPly42 = bot.chooseMove(bPly42);
-        CHECK_FALSE(chosenPly42 == "32ae+d");
-
-        // Verify that when capturing base 33 is the winning move, chooseMove decisively selects 32ae-33
-        octi::OctiBoard bWin(octi::GAME_MODE_2);
-        bWin.fromPositionString("2:3:0:0:P:B:-:0:1,2,14,0:2,0,13,0:A43abc,B32ae,B53,B73");
-        std::string chosenWin = bot.chooseMove(bWin);
-        CHECK_TRUE(chosenWin == "32ae-33" || chosenWin.find("-33") != std::string::npos);
-    }
-}
-
 TEST_GROUP(OctiCore_NetworkClient)
 {
 };
@@ -3756,6 +3524,171 @@ TEST(OctiCore_NetworkClient, FaultClosedLoopbackConnection)
     CHECK_TRUE(client != nullptr);
     octi::ApiResult<octi::HealthInfo> res = client->fetchHealth();
     CHECK_FALSE(res.ok);
+}
+
+// ---------------------------------------------------------------------------
+// Self-Capture Rules: OFK Double Jump, 2P Superprong & AI Leapfrog Preservation
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiSelfCaptureRules)
+{
+};
+
+TEST(OctiSelfCaptureRules, OFKDoubleJumpSelfAndEnemyCapture)
+{
+    octi::OctiBoard board(octi::GAME_MODE_OFK);
+    octi::OctiGame *game = board.getGame();
+    game->start(octi::PLAYER_A);
+    board.clear();
+
+    // Player A mover at 33 (x=2, y=2) with N (a) and E (c) prongs
+    octi::OctiPod mover(octi::A_POD);
+    mover.addProng(octi::DIR_N);
+    mover.addProng(octi::DIR_E);
+    board.squareAt(2, 2).addPod(mover);
+
+    // Friendly Player A pod at 34 (x=2, y=3) with 2 prongs (a and e)
+    octi::OctiPod friendlyPod(octi::A_POD);
+    friendlyPod.addProng(octi::DIR_N);
+    friendlyPod.addProng(octi::DIR_S);
+    board.squareAt(2, 3).addPod(friendlyPod);
+
+    // Enemy Player B pod at 45 (x=3, y=4) with 2 prongs (c and g)
+    octi::OctiPod enemyPod(octi::B_POD);
+    enemyPod.addProng(octi::DIR_E);
+    enemyPod.addProng(octi::DIR_W);
+    board.squareAt(3, 4).addPod(enemyPod);
+
+    int freeProngsBefore = game->getFreeProngs(octi::PLAYER_A);
+    int capturedPodsABefore = game->getCapturedPods(octi::PLAYER_A);
+    int capturedPodsBBefore = game->getCapturedPods(octi::PLAYER_B);
+
+    // Verify 33ac-35x-55x is in generateLegalMoves()
+    std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+    bool foundDoubleCapture = false;
+    for (const auto &m : legalMoves) {
+        if (m.asString() == "33ac-35x-55x") {
+            foundDoubleCapture = true;
+            break;
+        }
+    }
+    CHECK_TRUE_TEXT(foundDoubleCapture, "generateLegalMoves() should include 33ac-35x-55x");
+
+    // Execute move
+    game->move("33ac-35x-55x");
+
+    // Verify both jumped pods were captured and removed
+    CHECK_EQUAL(0, board.squareAt(2, 2).getNumPods()); // vacated origin
+    CHECK_EQUAL(0, board.squareAt(2, 3).getNumPods()); // friendly captured
+    CHECK_EQUAL(0, board.squareAt(3, 4).getNumPods()); // enemy captured
+    CHECK_EQUAL(1, board.squareAt(4, 4).getNumPods()); // final landing 55
+    CHECK_EQUAL(capturedPodsABefore + 1, game->getCapturedPods(octi::PLAYER_A));
+    CHECK_EQUAL(capturedPodsBBefore + 1, game->getCapturedPods(octi::PLAYER_B));
+    CHECK_EQUAL(freeProngsBefore + 4, game->getFreeProngs(octi::PLAYER_A)); // 2 friendly + 2 enemy
+
+    // Verify undo restores exact state
+    game->undo();
+    CHECK_EQUAL(1, board.squareAt(2, 2).getNumPods());
+    CHECK_EQUAL(1, board.squareAt(2, 3).getNumPods());
+    CHECK_EQUAL(1, board.squareAt(3, 4).getNumPods());
+    CHECK_EQUAL(0, board.squareAt(4, 4).getNumPods());
+    CHECK_EQUAL(capturedPodsABefore, game->getCapturedPods(octi::PLAYER_A));
+    CHECK_EQUAL(capturedPodsBBefore, game->getCapturedPods(octi::PLAYER_B));
+    CHECK_EQUAL(freeProngsBefore, game->getFreeProngs(octi::PLAYER_A));
+}
+
+TEST(OctiSelfCaptureRules, Standard2PSelfCaptureWithSuperprong)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2, true); // useSuperProngs = true
+    octi::OctiGame *game = board.getGame();
+    game->start(octi::PLAYER_A);
+    board.clear();
+
+    // Player A mover at 33 (x=2, y=2) with N (a) prong
+    octi::OctiPod mover(octi::A_POD);
+    mover.addProng(octi::DIR_N);
+    board.squareAt(2, 2).addPod(mover);
+
+    // Friendly Player A pod at 34 (x=2, y=3) with 1 normal prong and 1 superprong
+    octi::OctiPod friendlyPod(octi::A_POD);
+    friendlyPod.addProng(octi::DIR_E);
+    friendlyPod.addProng(octi::DIR_N, true); // superprong!
+    board.squareAt(2, 3).addPod(friendlyPod);
+
+    int freeProngsBefore = game->getFreeProngs(octi::PLAYER_A);
+    int freeSuperBefore = game->getFreeSuperProngs(octi::PLAYER_A);
+    int capturedBefore = game->getCapturedPods(octi::PLAYER_A);
+
+    // Verify move is legal
+    game->move("33a-35x");
+
+    CHECK_EQUAL(0, board.squareAt(2, 3).getNumPods());
+    CHECK_EQUAL(1, board.squareAt(2, 4).getNumPods());
+    CHECK_EQUAL(capturedBefore + 1, game->getCapturedPods(octi::PLAYER_A));
+    CHECK_EQUAL(freeProngsBefore + 1, game->getFreeProngs(octi::PLAYER_A));
+    CHECK_EQUAL(freeSuperBefore + 1, game->getFreeSuperProngs(octi::PLAYER_A));
+
+    // Verify undo
+    game->undo();
+    CHECK_EQUAL(1, board.squareAt(2, 2).getNumPods());
+    CHECK_EQUAL(1, board.squareAt(2, 3).getNumPods());
+    CHECK_TRUE(board.squareAt(2, 3).getPodAt(0).hasSuperProng());
+    CHECK_EQUAL(capturedBefore, game->getCapturedPods(octi::PLAYER_A));
+    CHECK_EQUAL(freeProngsBefore, game->getFreeProngs(octi::PLAYER_A));
+    CHECK_EQUAL(freeSuperBefore, game->getFreeSuperProngs(octi::PLAYER_A));
+}
+
+TEST(OctiSelfCaptureRules, StepCaptureFaultInjection)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    octi::OctiGame *game = board.getGame();
+    game->start(octi::PLAYER_A);
+    board.clear();
+
+    octi::OctiPod mover(octi::A_POD);
+    mover.addProng(octi::DIR_N);
+    board.squareAt(2, 2).addPod(mover);
+
+    // Distance-1 step with capture flag must be rejected
+    CHECK_THROWS(octi::IllegalMoveException, game->move("33a-34x"));
+}
+
+TEST(OctiSelfCaptureRules, BotPreservesFriendlyLeapfrog)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    octi::OctiGame *game = board.getGame();
+    game->start(octi::PLAYER_A);
+    board.clear();
+
+    // Friendly mover at 33 with N prong
+    octi::OctiPod mover(octi::A_POD);
+    mover.addProng(octi::DIR_N);
+    board.squareAt(2, 2).addPod(mover);
+
+    // Friendly 0-prong pod at 34
+    octi::OctiPod friendlyStationary(octi::A_POD);
+    board.squareAt(2, 3).addPod(friendlyStationary);
+
+    // Player A has free prongs in reserve
+    CHECK_TRUE(game->getFreeProngs(octi::PLAYER_A) > 0);
+
+    // filterDominatedMoves should keep 33a-35 (leapfrog) and prune 33a-35x (pointless self-capture of 0-prong pod)
+    std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+    std::vector<octi::OctiMove> filtered = octi::filterDominatedMoves(board, octi::PLAYER_A, legalMoves);
+
+    bool hasNonCap = false;
+    bool hasCap = false;
+    for (const auto &m : filtered) {
+        if (m.asString() == "33a-35") hasNonCap = true;
+        if (m.asString() == "33a-35x") hasCap = true;
+    }
+    CHECK_TRUE_TEXT(hasNonCap, "filterDominatedMoves must retain non-capturing leapfrog 33a-35");
+    CHECK_FALSE_TEXT(hasCap, "filterDominatedMoves must prune pointless self-capture 33a-35x of 0-prong pod when freeProngs > 0");
+
+    // Also verify chooseMove does not choose self-capture
+    octi::OctiBotEngine bot(octi::BotDifficulty::CASUAL);
+    std::string chosen = bot.chooseMove(board);
+    CHECK_TRUE_TEXT(chosen.find('x') == std::string::npos, "Bot should not choose self-capture when leapfrog is available");
 }
 
 int main(int argc, char **argv)

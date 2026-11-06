@@ -20,9 +20,11 @@
 namespace octi {
 
 enum class BotDifficulty {
-    CASUAL   = 1,
-    TACTICAL = 2,
-    MASTER   = 3,
+    CASUAL      = 1, // ~5000ms budget, shallow tactical horizon, slight randomness
+    TACTICAL    = 2, // ~10000ms budget, full iterative deepening + threat penalties
+    MASTER      = 3, // ~20000ms budget, deep principal variation + capture quiescence
+    EXPERT      = 4, // ~40000ms budget, extended search horizon + wider branch caps
+    GRANDMASTER = 5  // ~60000ms budget, maximum search horizon + deepest quiescence
 };
 
 struct BotSearchStats {
@@ -212,6 +214,13 @@ private:
     std::atomic<std::uint64_t> _liveNodesVisited{0};
     std::atomic<int> _liveBestScore{0};
 };
+
+std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
+                                          OctiPlayer turn,
+                                          const std::vector<OctiMove> &moves);
+std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
+                                          const std::vector<OctiMove> &moves);
+std::vector<OctiMove> filterDominatedMoves(const std::vector<OctiMove> &moves);
 
 } // namespace octi
 

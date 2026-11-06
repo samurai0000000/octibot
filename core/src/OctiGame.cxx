@@ -647,9 +647,6 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                         throw IllegalMoveException("cannot jump empty square in bonus move");
                     }
                     if (hop.capture) {
-                        if (!jumpedSq.hasEnemyOf(_turn)) {
-                            throw IllegalMoveException("cannot capture non-enemy square in bonus move");
-                        }
                         bonusCaptures.insert(jCoord);
                     }
                     OctiSquare &landingSq = _board->squareAt(hop.x, hop.y);
@@ -666,22 +663,14 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
         // Process bonus captures
         for (const auto &coord : bonusCaptures) {
             OctiSquare &sq = _board->squareAt(coord.first, coord.second);
-            std::vector<OctiPod> keep;
             for (int i = 0; i < sq.getNumPods(); i++) {
                 const OctiPod &sqPod = sq.getPodAt(i);
                 OctiPlayer owner = podTypeToPlayer(sqPod.getType());
-                if (areAlliedPlayers(_mode, _turn, owner)) {
-                    keep.push_back(sqPod);
-                } else {
-                    _players[_turn].freeProngs += sqPod.getNumNormalProngs();
-                    _players[_turn].freeSuperProngs += sqPod.getNumSuperProngs();
-                    _players[owner].capturedPods++;
-                }
+                _players[_turn].freeProngs += sqPod.getNumNormalProngs();
+                _players[_turn].freeSuperProngs += sqPod.getNumSuperProngs();
+                _players[owner].capturedPods++;
             }
             sq.clear();
-            for (const auto &kp : keep) {
-                sq.addPod(kp);
-            }
         }
     }
 
@@ -1048,9 +1037,6 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                 }
 
                 if (hop.capture) {
-                    if (!jumpedSq.hasEnemyOf(_turn)) {
-                        throw IllegalMoveException("cannot capture non-enemy square");
-                    }
                     if (std::find(capturedSquaresEndOfTurn.begin(), capturedSquaresEndOfTurn.end(), jCoord) == capturedSquaresEndOfTurn.end()) {
                         capturedSquaresEndOfTurn.push_back(jCoord);
                     }
@@ -1080,22 +1066,14 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
     // Process end-of-turn captured pods
     for (const auto &coord : capturedSquaresEndOfTurn) {
         OctiSquare &sq = _board->squareAt(coord.first, coord.second);
-        std::vector<OctiPod> remaining;
         for (int pIdx = 0; pIdx < sq.getNumPods(); pIdx++) {
             const OctiPod &sqPod = sq.getPodAt(pIdx);
             OctiPlayer owner = podTypeToPlayer(sqPod.getType());
-            if (areAlliedPlayers(_mode, _turn, owner)) {
-                remaining.push_back(sqPod);
-            } else {
-                _players[_turn].freeProngs += sqPod.getNumNormalProngs();
-                _players[_turn].freeSuperProngs += sqPod.getNumSuperProngs();
-                _players[owner].capturedPods++;
-            }
+            _players[_turn].freeProngs += sqPod.getNumNormalProngs();
+            _players[_turn].freeSuperProngs += sqPod.getNumSuperProngs();
+            _players[owner].capturedPods++;
         }
         sq.clear();
-        for (const auto &rp : remaining) {
-            sq.addPod(rp);
-        }
     }
 }
 
@@ -1539,8 +1517,8 @@ static void dfsJumpChains(const OctiBoard *board,
             currentHops.pop_back();
         }
 
-        // Branch 2: With capture (if jumped square has enemy)
-        if (jumpedSq.hasEnemyOf(turn)) {
+        // Branch 2: With capture
+        {
             OctiHop hop;
             hop.x = lx;
             hop.y = ly;
