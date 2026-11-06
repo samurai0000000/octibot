@@ -522,6 +522,11 @@ ChatCommandResult OctiBotConversationEngine::processLobbyMessage(
         cmd = trim(text.substr(prefix1.size()));
     } else if (lowerText.rfind(prefix2, 0) == 0) {
         cmd = trim(text.substr(prefix2.size()));
+    } else if (toLower(myHandle) == "octibot-helper" && lowerText.rfind("@helper:", 0) == 0) {
+        cmd = trim(text.substr(8));
+    } else if (toLower(myHandle) == "octibot-helper" && lowerText.rfind("@helper", 0) == 0 &&
+               (lowerText.size() == 7 || std::isspace(static_cast<unsigned char>(lowerText[7])))) {
+        cmd = trim(text.substr(7));
     } else {
         return result; // Not addressed to this robot
     }
@@ -618,7 +623,19 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     std::getline(ss, rest);
     rest = trim(rest);
 
+    bool isLobbyOnly = config.getBool("lobby_only", false) ||
+                       toLower(policy.tableBehavior()) == "lobby_only" ||
+                       toLower(config.getString("algorithm", "")) == "helper" ||
+                       toLower(config.getString("algorithm", "")) == "lobby_helper" ||
+                       toLower(config.getString("algorithm", "")) == "none";
+    std::string aiBackend = toLower(trim(config.getString("ai_cli_backend", "none")));
+    bool hasAi = (!aiBackend.empty() && aiBackend != "none");
+
     if ((verbLower == "help" || verbLower == "info") && rest.empty()) {
+        if (isLobbyOnly && hasAi) {
+            result.action = ChatCommandActionType::NONE;
+            return result;
+        }
         result.action = ChatCommandActionType::REPLY_ONLY;
         result.replyText = "[" + myHandle + "] " + description +
             " | Owner: " + ownerHandle +
@@ -628,6 +645,15 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     }
 
     if ((verbLower == "play" || verbLower == "join") && rest.empty()) {
+        if (isLobbyOnly) {
+            if (hasAi) {
+                result.action = ChatCommandActionType::NONE;
+                return result;
+            }
+            result.action = ChatCommandActionType::REPLY_ONLY;
+            result.replyText = "I am a non-playing lobby concierge and do not join games directly. Type '@octibot-helper help' or chat with me to match with a playing bot!";
+            return result;
+        }
         if (policy.isBanned(senderHandle)) {
             result.action = ChatCommandActionType::REPLY_ONLY;
             result.replyText = "Cannot join: user is banned.";
@@ -639,6 +665,10 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     }
 
     if ((verbLower == "eval" || verbLower == "stats") && rest.empty()) {
+        if (isLobbyOnly && hasAi) {
+            result.action = ChatCommandActionType::NONE;
+            return result;
+        }
         result.action = ChatCommandActionType::REPLY_ONLY;
         if (!allowPublicEvalChat && !isOwner) {
             result.replyText = "Move telemetry is currently disabled.";
@@ -655,6 +685,18 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         (rest.empty() || restLower == "2p" || restLower == "4p" || restLower == "ofk"));
     bool isExactStatusCmd = (verbLower == "status" && rest.empty());
     bool isExactLeaveCmd = (verbLower == "leave" && rest.empty());
+
+    if (isLobbyOnly) {
+        if (isExactHostCmd || verbLower == "joinroom") {
+            if (hasAi) {
+                result.action = ChatCommandActionType::NONE;
+                return result;
+            }
+            result.action = ChatCommandActionType::REPLY_ONLY;
+            result.replyText = "I am a non-playing lobby concierge and do not host or join games.";
+            return result;
+        }
+    }
 
     // Owner-only commands
     bool isOwnerOnlyCmd = (isExactStatusCmd || isExactHostCmd ||
@@ -739,6 +781,18 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         }
         std::string key = trim(rest.substr(0, eqPos));
         std::string val = trim(rest.substr(eqPos + 1));
+        std::string lowerKey = toLower(key);
+        static const std::set<std::string> blockedSetKeys = {
+            "lobby_only", "helper_octi_dir", "helper_octibot_dir",
+            "helper_octibot_cc_dir", "helper_feedback_file",
+            "ai_cli_sandbox_dir", "config_path", "tokens_path", "bot_token"
+        };
+        if (blockedSetKeys.count(lowerKey) > 0 || lowerKey.rfind("bot_token_", 0) == 0) {
+            result.action = ChatCommandActionType::REPLY_ONLY;
+            result.replyText = "Configuration key '" + key + "' is locked and cannot be modified via chat.";
+            return result;
+        }
+
         config.set(key, val);
         policy.configure(config);
 
@@ -749,8 +803,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    std::string aiBackend = toLower(trim(config.getString("ai_cli_backend", "none")));
-    if (!aiBackend.empty() && aiBackend != "none") {
+    if (hasAi) {
         result.action = ChatCommandActionType::NONE;
         return result;
     }

@@ -46,6 +46,23 @@ public:
     nlohmann::json buildToolsListJson() const;
 
     static std::string getSkillGuideContent(const std::string &topic = "all");
+    static std::string sanitizePublicOutput(const std::string &raw);
+    static bool isAllowedRepoRelativePath(const std::string &relPath, std::string &reasonOut);
+    static bool resolveJailedRepoFile(const std::string &repoRootDir,
+                                      const std::string &relPath,
+                                      std::string &canonicalPathOut,
+                                      std::string &errorOut);
+    static bool appendPlayerFeedbackEntry(const std::string &feedbackFilePath,
+                                          const std::string &playerHandle,
+                                          const std::string &category,
+                                          const std::string &title,
+                                          const std::string &summary,
+                                          const std::string &playerQuote,
+                                          const std::string &relatedArea,
+                                          const std::string &clientPlatform,
+                                          std::string &errorOut);
+
+    std::string callTool(const std::string &name, const std::string &argumentsJson);
 
     std::string renderDashboardHtml() const;
     nlohmann::json buildStatusJson();
@@ -53,7 +70,6 @@ public:
 
 private:
     std::string handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion);
-    std::string callTool(const std::string &name, const std::string &argumentsJson);
     void registerHttpRoutes();
 
     OctiBotRunner &_runner;

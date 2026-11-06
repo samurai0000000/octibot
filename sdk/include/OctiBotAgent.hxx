@@ -134,6 +134,19 @@ private:
     bool _preferJumps = true;
 };
 
+class LobbyHelperAgent : public OctiBotAgent {
+public:
+    LobbyHelperAgent() = default;
+    explicit LobbyHelperAgent(const OctiBotConfigStore &config);
+
+    void onConfigure(const OctiBotConfigStore &config) override;
+    std::string computeMove(const OctiBoard &board,
+                            const GameViewData &game,
+                            int mySeat,
+                            std::int64_t remainingClockMs,
+                            BotMoveTelemetry *outTelemetry = nullptr) override;
+};
+
 class OctiBotAgentRegistry {
 public:
     using AgentFactory = std::function<std::unique_ptr<OctiBotAgent>(const OctiBotConfigStore &)>;

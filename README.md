@@ -26,8 +26,13 @@ Copyright (C) 2026, Charles Chiou
   - `OctiBotConfigStore`: Zero-dependency, line-oriented `key = value` and `[profile]` section parser supporting arbitrary algorithmic parameters, comments, quoted strings, and token pools.
   - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls), and social governance (`friend_list`, `ban_list`, proposals).
   - `OctiBotConversationEngine`: Interactive in-game and lobby chat handler supporting public commands (`@bot help`, `@bot stats`), owner management (`@bot status`, `@bot host`, `@bot set`), and thread-safe inbox buffering for Agentic AI.
-  - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server supporting MCP Streamable HTTP (`2025-03-26`) on `/mcp` (`Mcp-Session-Id`, HTTP `202 Accepted` notifications, batching, and SSE streaming) plus legacy `/sse` & `/message` (`2024-11-05`), exposing 12 specialized tools (`octibot_get_status`, `octibot_get_lobby`, `octibot_get_game_state`, `octibot_analyze_position`, `octibot_game_action`, `octibot_table_action`, `octibot_find_or_host_table`, `octibot_send_chat`, `octibot_wait_for_event`, `octibot_configure_policy`, `octibot_set_match_override`, `octibot_get_skill_guide`).
+  - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server supporting MCP Streamable HTTP (`2025-03-26`) on `/mcp` (`Mcp-Session-Id`, HTTP `202 Accepted` notifications, batching, and SSE streaming) plus legacy `/sse` & `/message` (`2024-11-05`), exposing 17 specialized tools (`octibot_get_status`, `octibot_get_lobby`, `octibot_get_game_state`, `octibot_analyze_position`, `octibot_game_action`, `octibot_table_action`, `octibot_find_or_host_table`, `octibot_send_chat`, `octibot_wait_for_event`, `octibot_configure_policy`, `octibot_set_match_override`, `octibot_get_skill_guide`, `octibot_assist_match`, `octibot_record_player_feedback`, `octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`).
   - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup, isolated `agy` app-data directory (`~/.gemini/antigravity-octibot`), and hardened security sandboxing.
+- **Lobby Concierge & Matchmaking Assistant (`octibot-helper`)**:
+  - Non-playing concierge (`algorithm = helper`, `lobby_only = true`, `table_behavior = lobby_only`) designed to welcome players in the `octi.selfso.com` lobby.
+  - Jailed technical Q&A assistant: safely inspects project repositories (`octi`, `octibot`, `octibot_cc`) via read-only tools (`octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`), path-jailed with dot-segment traversal protection and binary file omission.
+  - Bot matchmaking assistant: arranges matches between human players and running fleet bots via `octibot_assist_match` (and sibling `[MATCH ...]` chat commands).
+  - Player feedback ledger: records structured bug reports and feature ideas via `octibot_record_player_feedback` into `plan/player_feedback.md` with injection defenses and strict sanitization.
 - **Embedded Web Dashboard & `aimon` Fleet Integration**:
   - Embedded HTTP server automatically bound on `web_port = 3888` (configurable, with automatic fallback to ephemeral port if busy).
   - Live satellite tab registration with `aimon` gateway (`port 3885`), rendering an integrated dashboard inside the `aimon` web UI.
@@ -150,6 +155,11 @@ max_search_depth = 8
 ./build/octibot-minimal --profile stock
 ```
 
+**Run the lobby concierge and technical guide (`octibot-helper`):**
+```bash
+./build/octibot --profile octibot-helper
+```
+
 ### 5. Embedded Web Dashboard & Fleet Supervision
 
 When `aimon_enabled = true` or `web_port > 0`, `octibot` automatically serves a real-time web dashboard on port `3888` (or an ephemeral fallback port):
@@ -245,6 +255,13 @@ Or run interactively in the terminal:
 ```bash
 ./build/octibot --profile stock --ai-cli claude --ai-interactive
 ```
+
+### Lobby Concierge Mode (`octibot-helper`):
+Run `@octibot-helper` as an autonomous lobby concierge backed by an AI agent CLI (`agy` with Gemini):
+```bash
+./build/octibot --profile octibot-helper
+```
+The helper stays exclusively in the lobby (`lobby_only = true`), answers visitor questions about OCTI rules, tables, and bots, inspects technical documentation in `octi`/`octibot` repositories via jailed MCP tools, coordinates human-vs-bot matches via `octibot_assist_match`, and records structured bug/feature feedback into `plan/player_feedback.md`.
 
 ---
 

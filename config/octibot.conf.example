@@ -92,3 +92,68 @@ max_search_depth = 8
 lazy_smp_threads = 4
 captured_enemy_base_bonus = 32000
 two_ply_base_threat_weight = 3000
+
+# NNUE-evaluated Alpha-Beta search profile
+[bot_nnue]
+robot_name = bot_nnue
+algorithm = nnue
+time_budget_ms = 1500
+search_depth = 4
+search_threads = 2
+hw_backend = cpu                 # cpu (CPU_SIMD AVX2/FMA), ort (ORT_GPU_TPU), cavalry (CAVALRY_NVP)
+# model_path = /path/to/model.onnx
+nn_blend_weight = 0.75           # 0.0 = tactical only, 1.0 = neural net only
+use_opening_book = true
+
+# Transformer-evaluated Batched MCTS profile
+[bot_transformer]
+robot_name = bot_transformer
+algorithm = transformer_mcts
+time_budget_ms = 1500
+search_threads = 2
+mcts_simulations = 256
+mcts_batch_size = 16
+mcts_cpuct = 1.5
+hw_backend = cpu                 # cpu, ort, cavalry
+# model_path = /path/to/model.onnx
+nn_blend_weight = 0.75
+use_opening_book = true
+
+# ResNet-evaluated Batched MCTS profile
+[bot_resnet]
+robot_name = bot_resnet
+algorithm = resnet_mcts
+time_budget_ms = 1500
+search_threads = 2
+mcts_simulations = 256
+mcts_batch_size = 16
+mcts_cpuct = 1.5
+hw_backend = cpu                 # cpu, ort, cavalry
+# model_path = /path/to/model.onnx
+nn_blend_weight = 0.75
+use_opening_book = true
+
+# Lobby concierge & technical Q&A assistant profile
+[octibot-helper]
+# Non-playing lobby concierge, technical Q&A & matchmaking assistant
+handle = octibot-helper
+algorithm = helper
+lobby_only = true
+table_behavior = lobby_only
+web_bind = 0.0.0.0
+web_port = 3891
+aimon_enabled = true
+expose_mcp_tools = true
+ai_cli_backend = agy
+ai_cli_executable = agy
+ai_cli_model = gemini-3-flash-preview
+ai_personality = friendly, knowledgeable OCTI lobby concierge and technical guide
+greeting_lobby = Hello! I am @octibot-helper, the OCTI lobby concierge. Ask me anything about OCTI rules, octi.selfso.com tables, how our bots work, report bugs/feature ideas, or ask me to set up a match with any of our playing bots!
+max_chat_reply_chunks = 3
+helper_repo_access = true
+helper_octi_dir = ~/work/octi
+helper_octibot_dir = ~/work/octibot
+helper_octibot_cc_dir = ~/work/octibot_cc
+helper_feedback_enabled = true
+helper_feedback_file = ~/work/octi/plan/player_feedback.md
+

@@ -80,6 +80,19 @@ public:
 
     bool isRunning() const { return _running; }
     bool isSuperseded() const { return _superseded; }
+    bool isLobbyOnly() const { return _lobbyOnly; }
+    static OctiBotRunner *findActiveRunnerByHandle(const std::string &handle);
+
+    // Active chat sender tracking
+    std::string activeChatSenderHandle() const;
+    bool activeChatSenderIsOwner() const;
+    void setActiveChatSender(const std::string &handle, bool isOwner);
+
+    // Multi-chunk chat reply splitting
+    static std::vector<std::string> splitChatReplyIntoChunks(
+        const std::string &text,
+        std::size_t maxChunkBytes = 450,
+        std::size_t maxChunks = 3);
 
     bool waitForEvent(int timeoutMs, std::string &outReason);
     void notifyEvent(const std::string &reason);
@@ -197,6 +210,10 @@ private:
     std::string _moveControl = "engine"; // "engine" or "agent"
     bool _publishMoveTelemetry = false;
     bool _announceMoveSearchChat = true;
+    bool _lobbyOnly = false;
+    mutable std::mutex _activeChatSenderMutex;
+    std::string _activeChatSenderHandle;
+    bool _activeChatSenderIsOwner = false;
     int _agentMoveTimeoutMs = 15000;
     int _verbosity = 3;
     std::atomic<bool> _aiChatBusy{false};

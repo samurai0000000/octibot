@@ -134,3 +134,52 @@ Centaur AI agents should execute the following reactive loop using MCP tools:
    - Use `octibot_send_chat(channel="game", message="...")` to converse with opponents or acknowledge commands.
 6. **Owner Match Directive Overrides**:
    - Normally bots default to `opponent_filter=humans_only`. When instructed by the authenticated owner to play against a specific human or robot (`@handle`), join a specific open table (`#g-...`), or temporarily allow robot opponents, call `octibot_set_match_override(action="set", target_player="<handle>", room_id="<g-...>", allow_robots=true, games=1)`. Once the requested game(s) finish, the bot automatically reverts to its standing humans-only policy.
+
+---
+
+## Section: server_guide
+
+### 1. `octi.selfso.com` Architecture & Operations
+- **Lobby & Tables**: `octi.selfso.com` hosts real-time OCTI gameplay via HTTP REST and SSE (Server-Sent Events) streaming.
+- **Table Creation**: Players can host tables with custom parameters (`mode`: `2P`, `4P`, or `OFK`; `bases`: `1` or `3`; `super_prongs`: `true`/`false`; `edgeless`: `true`/`false`; `time_control`: initial clock + increment).
+- **Matchmaking & Open Tables**: Players can join open tables in the lobby or enqueue for automated matchmaking.
+- **Game Archive**: Finished games are archived with full move transcripts and canonical position strings.
+- **Robot Token Registration**: Robots register under owner accounts and authenticate with dedicated bot tokens.
+
+---
+
+## Section: octibot_guide
+
+### 1. Configuration & Engine Tuning
+- Configuration is stored in `~/.config/octibot/octibot.conf` with per-bot profile sections (e.g. `[octibot-sdk-cpu]`, `[octibot-helper]`).
+- Hyperparameters control search depth, quiescence search, move ordering heuristics, and evaluation weights.
+- Centaur workflows integrate LLM backends (`agy`, `claude`, `cursor-agent`) for conversational commentary and tactical reasoning.
+- Custom bots subclass `OctiBotAgent` and register with `OctiBotAgentRegistry`.
+- Build and test locally using top-level `Makefile` (`make`, `make test`, `make test SANITIZE=1`).
+
+---
+
+## Section: bot_roster
+
+### 1. Playing Bots Fleet (Created by @samurai / Charles Chiou)
+- **`@octibot-sdk-cpu`**: Flagship C++ Alpha-Beta minimax engine with iterative deepening, quiescence search, and tactical heuristic evaluation. Plays all modes (`2P`, `4P`, `OFK`, 1 or 3 bases).
+- **`@octibot-yale-2001`**: Classic 2001 Yale tournament engine integration. **Strict Constraint**: Only supports standard 2-player 3-base classic rules (`mode=2P`, `bases=3`, no superprongs, no edgeless).
+- **`@octibot-cc-nnue`**: Modern C++ engine featuring efficiently updatable neural network (NNUE) evaluation trained on master self-play games.
+- **`@octibot-cc-transformer`**: Deep transformer-based policy/value network paired with Monte Carlo Tree Search (MCTS).
+- **`@octibot-cc-resnet`**: Dual-headed convolutional residual neural network with MCTS search.
+- **`@octibot-helper`**: Dedicated non-playing lobby concierge robot (`algorithm = helper`, `lobby_only = true`). Never plays, joins, or hosts tables. Guides players, answers technical questions, matches human players with playing bots, and logs feedback.
+
+---
+
+## Section: feedback_collection
+
+### 1. Player Feedback & Bug Reporting Ledger
+- `@octibot-helper` logs player feedback, bug reports, and feature ideas to `plan/player_feedback.md`.
+- Feedback categories:
+  - `[BUG]`: Defects, glitches, crashes, or rule discrepancies.
+  - `[FEATURE]`: Suggestions for new gameplay options, UI enhancements, or analysis tools.
+  - `[UX]`: Friction in controls, board navigation, or matchmaking flow.
+  - `[BOT_FEEDBACK]`: Impressions regarding bot playing strength, styles, or commentary.
+  - `[GENERAL]`: Community notes and general inquiries.
+- Entries are recorded with structured metadata: timestamp, player handle, platform, related subsystem, verbatim quotes, and detailed summaries.
+- Stored under strict access control (`0600`) with defensive wrapping against prompt injection.

@@ -21,6 +21,10 @@
 #include <thread>
 #if !defined(_WIN32)
 #include <fcntl.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+#include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #else
@@ -40,6 +44,8 @@ namespace octi {
 static std::mutex s_logMutex;
 static std::atomic<bool> s_stopRequested{false};
 static OctiBotRunner *s_primaryRunner = nullptr;
+static std::mutex s_activeRunnersMutex;
+static std::set<OctiBotRunner *> s_activeRunners;
 class OctiBotFleetRunner;
 static OctiBotFleetRunner *s_activeFleet = nullptr;
 
@@ -232,7 +238,10 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
     static const std::set<std::string> lockedKeys = {
         "aimon_enabled", "aimon_host", "aimon_port", "aimon_gateway_port",
         "expose_mcp_tools", "web_port", "web_bind", "server_host",
-        "server_port", "server_use_ssl", "default_profile", "robot_name"
+        "server_port", "server_use_ssl", "default_profile", "robot_name",
+        "lobby_only", "ai_cli_sandbox_dir", "config_path", "tokens_path",
+        "helper_octi_dir", "helper_octibot_dir", "helper_octibot_cc_dir",
+        "helper_feedback_file"
     };
 
     for (const auto &kv : updates) {
@@ -241,6 +250,42 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
             kv.first.rfind("bot_token_", 0) == 0) {
             errorOut = "Configuration key '" + kv.first + "' is locked and cannot be modified at runtime.";
             return false;
+        }
+
+        if (kv.first == "ai_cli_backend") {
+            static const std::set<std::string> validBackends = {
+                "none", "agy", "claude", "cursor-agent"
+            };
+            if (validBackends.count(kv.second) == 0) {
+                errorOut = "Invalid ai_cli_backend '" + kv.second + "'; must be one of none, agy, claude, cursor-agent.";
+                return false;
+            }
+        } else if (kv.first == "ai_cli_executable") {
+            if (!kv.second.empty()) {
+                bool ok = (kv.second == "agy" || kv.second == "claude" || kv.second == "cursor-agent");
+#if defined(_WIN32)
+                if (!ok && (kv.second.size() >= 8 &&
+                    (kv.second.rfind("/agy.exe") == kv.second.size() - 8 ||
+                     kv.second.rfind("\\agy.exe") == kv.second.size() - 8))) {
+                    ok = true;
+                }
+#endif
+                if (!ok) {
+                    errorOut = "Invalid ai_cli_executable '" + kv.second + "'; must be agy, claude, cursor-agent, or empty.";
+                    return false;
+                }
+            }
+        }
+
+        if (_lobbyOnly) {
+            if (kv.first == "table_behavior" && kv.second != "lobby_only" && kv.second != "idle") {
+                errorOut = "Cannot change table_behavior to '" + kv.second + "' on a lobby_only robot.";
+                return false;
+            }
+            if (kv.first == "algorithm" && kv.second != "helper" && kv.second != "lobby_helper" && kv.second != "none") {
+                errorOut = "Cannot change algorithm to '" + kv.second + "' on a lobby_only robot.";
+                return false;
+            }
         }
     }
 
@@ -459,6 +504,31 @@ std::string MinimalStarterAgent::computeMove(const OctiBoard &board,
     return bestMove->asString();
 }
 
+// --- LobbyHelperAgent Implementation ---
+
+LobbyHelperAgent::LobbyHelperAgent(const OctiBotConfigStore &config) {
+    onConfigure(config);
+}
+
+void LobbyHelperAgent::onConfigure(const OctiBotConfigStore &config) {
+    (void) config;
+}
+
+std::string LobbyHelperAgent::computeMove(const OctiBoard &board,
+                                          const GameViewData &game,
+                                          int mySeat,
+                                          std::int64_t remainingClockMs,
+                                          BotMoveTelemetry *outTelemetry) {
+    (void) board;
+    (void) game;
+    (void) mySeat;
+    (void) remainingClockMs;
+    if (outTelemetry) {
+        outTelemetry->present = false;
+    }
+    return "";
+}
+
 // --- OctiBotAgentRegistry Implementation ---
 
 OctiBotAgentRegistry &OctiBotAgentRegistry::instance() {
@@ -481,6 +551,15 @@ OctiBotAgentRegistry::OctiBotAgentRegistry() {
     });
     registerAgent("minimal", [](const OctiBotConfigStore &config) {
         return std::make_unique<MinimalStarterAgent>(config);
+    });
+    registerAgent("helper", [](const OctiBotConfigStore &config) {
+        return std::make_unique<LobbyHelperAgent>(config);
+    });
+    registerAgent("lobby_helper", [](const OctiBotConfigStore &config) {
+        return std::make_unique<LobbyHelperAgent>(config);
+    });
+    registerAgent("none", [](const OctiBotConfigStore &config) {
+        return std::make_unique<LobbyHelperAgent>(config);
     });
 }
 
@@ -558,8 +637,22 @@ OctiBotRunner::OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
         _agent->onConfigure(_config);
     }
 
+    std::string algo = _config.getString("algorithm", "alpha_beta");
+    std::string beh = _config.getString("table_behavior", "auto");
+    if (_config.getBool("lobby_only", false) ||
+        beh == "lobby_only" ||
+        algo == "helper" || algo == "lobby_helper" || algo == "none") {
+        _lobbyOnly = true;
+        _policy.setTableBehavior("lobby_only");
+    }
+
     if (!s_primaryRunner) {
         s_primaryRunner = this;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_activeRunnersMutex);
+        s_activeRunners.insert(this);
     }
 
     logMsg(3, "Resolved configuration: profile=" + _config.getString("robot_name", "stock") +
@@ -576,6 +669,10 @@ OctiBotRunner::OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
 
 OctiBotRunner::~OctiBotRunner() {
     stop();
+    {
+        std::lock_guard<std::mutex> lock(s_activeRunnersMutex);
+        s_activeRunners.erase(this);
+    }
     if (s_primaryRunner == this) {
         s_primaryRunner = nullptr;
     }
@@ -621,8 +718,14 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
         _identity.draws = res.data.draws;
 
         if (!_identity.activeRoomId.empty()) {
-            std::lock_guard<std::mutex> lock(_stateMutex);
-            _currentRoomId = _identity.activeRoomId;
+            if (_lobbyOnly) {
+                logMsg(2, "Leaving stale table #" + _identity.activeRoomId + " because robot is lobby_only");
+                _client.leaveTable(_identity.activeRoomId);
+                _identity.activeRoomId.clear();
+            } else {
+                std::lock_guard<std::mutex> lock(_stateMutex);
+                _currentRoomId = _identity.activeRoomId;
+            }
         }
 
         logMsg(2, "Authenticated robot @" + _identity.handle + " (uuid=" + _identity.robotUuid +
@@ -660,8 +763,14 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
             _identity.draws = res.data.draws;
 
             if (!_identity.activeRoomId.empty()) {
-                std::lock_guard<std::mutex> lock(_stateMutex);
-                _currentRoomId = _identity.activeRoomId;
+                if (_lobbyOnly) {
+                    logMsg(2, "Leaving stale table #" + _identity.activeRoomId + " because robot is lobby_only");
+                    _client.leaveTable(_identity.activeRoomId);
+                    _identity.activeRoomId.clear();
+                } else {
+                    std::lock_guard<std::mutex> lock(_stateMutex);
+                    _currentRoomId = _identity.activeRoomId;
+                }
             }
 
             logMsg(2, "Authenticated robot @" + _identity.handle + " (uuid=" + _identity.robotUuid +
@@ -719,6 +828,10 @@ void OctiBotRunner::run() {
     std::string initialRoom;
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
+        if (_lobbyOnly && !_currentRoomId.empty()) {
+            _client.leaveTable(_currentRoomId);
+            _currentRoomId.clear();
+        }
         initialRoom = _currentRoomId;
     }
 
@@ -803,6 +916,10 @@ int OctiBotRunner::currentSeat() const {
 }
 
 bool OctiBotRunner::submitAgentMove(const std::string &moveNotation, std::string &errorOut) {
+    if (_lobbyOnly) {
+        errorOut = "Robot is configured as lobby_only and cannot join/host/play games";
+        return false;
+    }
     std::lock_guard<std::mutex> lock(_stateMutex);
     if (_currentRoomId.empty() || _currentPhase != "IN_PROGRESS") {
         errorOut = "No game currently in progress";
@@ -815,6 +932,10 @@ bool OctiBotRunner::submitAgentMove(const std::string &moveNotation, std::string
 }
 
 bool OctiBotRunner::executeGameAction(const std::string &action, const std::string &arg, std::string &errorOut) {
+    if (_lobbyOnly) {
+        errorOut = "Robot is configured as lobby_only and cannot join/host/play games";
+        return false;
+    }
     std::string roomId = currentRoomId();
     if (roomId.empty()) {
         errorOut = "Not in a game room";
@@ -849,6 +970,10 @@ bool OctiBotRunner::executeGameAction(const std::string &action, const std::stri
 }
 
 bool OctiBotRunner::joinRoomById(const std::string &roomId, int &outSeat, std::string &errorOut) {
+    if (_lobbyOnly) {
+        errorOut = "Robot is configured as lobby_only and cannot join/host/play games";
+        return false;
+    }
     auto joinRes = _client.joinTable(roomId);
     if (!joinRes.ok) {
         errorOut = joinRes.errorMessage;
@@ -878,6 +1003,10 @@ bool OctiBotRunner::joinRoomById(const std::string &roomId, int &outSeat, std::s
 }
 
 bool OctiBotRunner::hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut) {
+    if (_lobbyOnly) {
+        errorOut = "Robot is configured as lobby_only and cannot join/host/play games";
+        return false;
+    }
     auto createRes = _client.createTable(req);
     if (!createRes.ok && req.seat == 0 && createRes.httpStatus == 400) {
         CreateTableRequest retryReq = req;
@@ -1003,6 +1132,132 @@ int countTargetHandles(const std::string &raw) {
 }
 } // namespace
 
+OctiBotRunner *OctiBotRunner::findActiveRunnerByHandle(const std::string &handle) {
+    if (handle.empty()) {
+        return nullptr;
+    }
+    std::string target = handle;
+    if (!target.empty() && target[0] == '@') {
+        target = target.substr(1);
+    }
+    std::lock_guard<std::mutex> lock(s_activeRunnersMutex);
+    for (auto *runner : s_activeRunners) {
+        if (!runner) continue;
+        std::string h = runner->identity().handle;
+        if (!h.empty() && iequalsStr(h, target)) {
+            return runner;
+        }
+        std::string cfgName = runner->config().getString("robot_name");
+        if (!cfgName.empty() && iequalsStr(cfgName, target)) {
+            return runner;
+        }
+    }
+    return nullptr;
+}
+
+std::string OctiBotRunner::activeChatSenderHandle() const {
+    std::lock_guard<std::mutex> lock(_activeChatSenderMutex);
+    return _activeChatSenderHandle;
+}
+
+bool OctiBotRunner::activeChatSenderIsOwner() const {
+    std::lock_guard<std::mutex> lock(_activeChatSenderMutex);
+    return _activeChatSenderIsOwner;
+}
+
+void OctiBotRunner::setActiveChatSender(const std::string &handle, bool isOwner) {
+    std::lock_guard<std::mutex> lock(_activeChatSenderMutex);
+    _activeChatSenderHandle = handle;
+    _activeChatSenderIsOwner = isOwner;
+}
+
+std::vector<std::string> OctiBotRunner::splitChatReplyIntoChunks(
+    const std::string &text,
+    std::size_t maxChunkBytes,
+    std::size_t maxChunks) {
+
+    if (maxChunkBytes == 0 || maxChunks == 0) {
+        return {};
+    }
+
+    std::string norm = text;
+    for (char &c : norm) {
+        if (c == '\r' || c == '\n' || c == '\t') {
+            c = ' ';
+        }
+    }
+
+    auto trimStr = [](const std::string &s) -> std::string {
+        std::size_t start = 0;
+        while (start < s.size() && static_cast<unsigned char>(s[start]) == ' ') {
+            start++;
+        }
+        if (start == s.size()) return "";
+        std::size_t end = s.size();
+        while (end > start && static_cast<unsigned char>(s[end - 1]) == ' ') {
+            end--;
+        }
+        return s.substr(start, end - start);
+    };
+
+    norm = trimStr(norm);
+    if (norm.empty()) {
+        return {};
+    }
+
+    std::vector<std::string> chunks;
+    std::string rem = norm;
+
+    while (!rem.empty() && chunks.size() < maxChunks) {
+        rem = trimStr(rem);
+        if (rem.empty()) {
+            break;
+        }
+
+        if (rem.size() <= maxChunkBytes) {
+            chunks.push_back(rem);
+            break;
+        }
+
+        std::string cand = rem.substr(0, maxChunkBytes);
+        std::size_t splitPos = std::string::npos;
+        std::size_t nextRemStart = maxChunkBytes;
+
+        if (cand.size() >= 2) {
+            for (std::size_t i = cand.size() - 1; i >= 1; --i) {
+                if (cand[i] == ' ' &&
+                    (cand[i - 1] == '.' || cand[i - 1] == '!' ||
+                     cand[i - 1] == '?' || cand[i - 1] == ';')) {
+                    splitPos = i - 1;
+                    nextRemStart = i + 1;
+                    break;
+                }
+            }
+        }
+
+        if (splitPos == std::string::npos) {
+            std::size_t lastSpace = cand.rfind(' ');
+            if (lastSpace != std::string::npos && lastSpace > 0) {
+                splitPos = lastSpace - 1;
+                nextRemStart = lastSpace + 1;
+            }
+        }
+
+        if (splitPos == std::string::npos) {
+            chunks.push_back(cand);
+            rem = rem.substr(maxChunkBytes);
+        } else {
+            std::string chunk = trimStr(rem.substr(0, splitPos + 1));
+            if (!chunk.empty()) {
+                chunks.push_back(chunk);
+            }
+            rem = rem.substr(nextRemStart);
+        }
+    }
+
+    return chunks;
+}
+
 BotMatchOverride OctiBotRunner::matchOverride() const {
     std::lock_guard<std::mutex> lock(_stateMutex);
     return _matchOverride;
@@ -1019,6 +1274,10 @@ void OctiBotRunner::clearMatchOverride() {
 bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
                                        std::string &outSummary,
                                        std::string &errorOut) {
+    if (_lobbyOnly) {
+        errorOut = "Robot is configured as lobby_only and cannot join/host/play games";
+        return false;
+    }
     std::lock_guard<std::mutex> ovLock(_overrideMutex);
     BotMatchOverride ov = rawOv;
     ov.active = true;
@@ -1069,6 +1328,13 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
 
     if (curPhase == "IN_PROGRESS") {
         outSummary = "Match override queued for after current game in #" + curRoom + ".";
+        return true;
+    }
+
+    if (!_running) {
+        outSummary = "Match override activated: target_player=" +
+                     (ov.targetPlayerHandle.empty() ? "(any)" : ("@" + ov.targetPlayerHandle)) +
+                     ", target_room=" + (ov.targetRoomId.empty() ? "(any)" : ("#" + ov.targetRoomId));
         return true;
     }
 
@@ -1235,7 +1501,25 @@ void OctiBotRunner::loopStep() {
         return;
     }
 
+    if (_lobbyOnly) {
+        std::string staleRoom;
+        {
+            std::lock_guard<std::mutex> lock(_stateMutex);
+            staleRoom = _currentRoomId;
+        }
+        if (!staleRoom.empty()) {
+            _client.leaveTable(staleRoom);
+            std::lock_guard<std::mutex> lock(_stateMutex);
+            _currentRoomId.clear();
+            _currentPhase = "IDLE";
+        }
+    }
+
     pollRecentLobbyChat();
+
+    if (_lobbyOnly || _policy.tableBehavior() == "lobby_only") {
+        return;
+    }
 
     std::string roomId;
     BotMatchOverride ov;
@@ -2145,6 +2429,15 @@ static bool runCliProcessCaptureStdout(const std::vector<std::string> &args,
     }
 
     if (pid == 0) {
+        ::setpgid(0, 0);
+#if defined(__linux__)
+        ::prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+        ::unsetenv("SSH_AUTH_SOCK");
+        ::unsetenv("SSH_AGENT_PID");
+        ::unsetenv("OCTI_BOT_TOKEN");
+        ::unsetenv("GITHUB_TOKEN");
+
         ::close(pipefd[0]);
         ::dup2(pipefd[1], STDOUT_FILENO);
         ::close(pipefd[1]);
@@ -2168,16 +2461,51 @@ static bool runCliProcessCaptureStdout(const std::vector<std::string> &args,
 
     ::close(pipefd[1]);
     char buf[512];
+    auto startMs = nowMs();
+    constexpr int kTimeoutMs = 45000;
+    bool timedOut = false;
+
     while (true) {
-        ssize_t n = ::read(pipefd[0], buf, sizeof(buf) - 1);
-        if (n <= 0) break;
-        buf[n] = '\0';
-        outputOut.append(buf, static_cast<size_t>(n));
+        int elapsed = static_cast<int>(nowMs() - startMs);
+        int remaining = kTimeoutMs - elapsed;
+        if (remaining <= 0) {
+            timedOut = true;
+            break;
+        }
+
+        struct pollfd pfd;
+        pfd.fd = pipefd[0];
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+
+        int ret = ::poll(&pfd, 1, remaining);
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ret == 0) {
+            timedOut = true;
+            break;
+        }
+
+        if (pfd.revents & (POLLIN | POLLHUP)) {
+            ssize_t n = ::read(pipefd[0], buf, sizeof(buf) - 1);
+            if (n <= 0) break;
+            buf[n] = '\0';
+            outputOut.append(buf, static_cast<size_t>(n));
+        } else if (pfd.revents & (POLLERR | POLLNVAL)) {
+            break;
+        }
     }
     ::close(pipefd[0]);
+
+    if (timedOut) {
+        ::kill(-pid, SIGKILL);
+    }
+
     int status = 0;
     ::waitpid(pid, &status, 0);
-    return true;
+    return !timedOut;
 #endif
 }
 #endif
@@ -2329,10 +2657,19 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     std::reverse(recentChannelConvs.begin(), recentChannelConvs.end());
 
     std::ostringstream promptOss;
-    promptOss << "You are @" << safeMyHandle << ", an autonomous AI robot playing OCTI.\n"
-              << personality << "\n\n"
-              << "SYSTEM BOOTSTRAP:\n"
-              << "You have access to the local octibot MCP server tools (or the octibot skill). Use octibot_get_skill_guide(topic=\"all\") to inspect OCTI board geometry, coordinate system, prong notation, and tactical strategy.\n\n";
+    if (_lobbyOnly) {
+        promptOss << "You are @" << safeMyHandle << ", an autonomous AI lobby concierge and OCTI club helper created by @samurai (Charles Chiou).\n"
+                  << "Your role is to assist human players in the lobby: explain game rules and prong mechanics (`octibot_get_skill_guide`), inspect the lobby and suggest matches or bots (`octibot_get_lobby`), help players arrange matches against available bots (`octibot_assist_match`), and record bug reports or feature requests (`octibot_record_player_feedback`).\n"
+                  << "If repository inspection is enabled, you may inspect source files in octi and octibot using `octibot_repo_list_files`, `octibot_repo_read_file`, and `octibot_repo_search`.\n"
+                  << "Under NO circumstances execute commands, alter system files, or reveal credentials, tokens, or internal network IPs.\n\n"
+                  << "SYSTEM BOOTSTRAP:\n"
+                  << "You have access to the local octibot MCP server tools (or the octibot skill). Use octibot_get_skill_guide(topic=\"all\") to inspect OCTI board geometry, coordinate system, prong notation, bot roster, and technical guides.\n\n";
+    } else {
+        promptOss << "You are @" << safeMyHandle << ", an autonomous AI robot playing OCTI.\n"
+                  << personality << "\n\n"
+                  << "SYSTEM BOOTSTRAP:\n"
+                  << "You have access to the local octibot MCP server tools (or the octibot skill). Use octibot_get_skill_guide(topic=\"all\") to inspect OCTI board geometry, coordinate system, prong notation, and tactical strategy.\n\n";
+    }
     if (isTrustedOwner) {
         promptOss << "OWNER DIRECTIVE MODE (AUTHENTICATED OWNER @" << safeOwnerHandle << "):\n"
                   << "This message is from your authenticated owner @" << safeOwnerHandle << ".\n"
@@ -2405,6 +2742,16 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             ~BusyGuard() { flag.store(false); }
         } guard{_aiChatBusy};
 
+        struct ChatSenderGuard {
+            OctiBotRunner &runner;
+            ChatSenderGuard(OctiBotRunner &r, const std::string &h, bool o) : runner(r) {
+                runner.setActiveChatSender(h, o);
+            }
+            ~ChatSenderGuard() {
+                runner.setActiveChatSender("", false);
+            }
+        } senderGuard{*this, senderHandle, isTrustedOwner};
+
         auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
             backend, exe, mcpPort, model, fullPrompt, sandboxDir, isTrustedOwner);
         std::string output;
@@ -2431,21 +2778,43 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             updateConversationReply(convSeq, "", "seen");
             return;
         }
-        if (output.size() > 450) {
-            output = output.substr(0, 447) + "...";
+
+        output = OctiBotMcpServer::sanitizePublicOutput(output);
+
+        int maxChunksVal = _config.getInt("max_chat_reply_chunks", _lobbyOnly ? 3 : 1);
+        if (maxChunksVal < 1) maxChunksVal = 1;
+        if (maxChunksVal > 5) maxChunksVal = 5;
+
+        auto chunks = splitChatReplyIntoChunks(output, 450, static_cast<std::size_t>(maxChunksVal));
+        if (chunks.empty()) {
+            updateConversationReply(convSeq, "", "seen");
+            return;
         }
 
-        updateConversationReply(convSeq, output, "ai_cli:" + backend);
-        logMsg(2, "[AI Chat] " + backend + " reply to @" + senderHandle + ": \"" + output + "\"");
-        if (channel == "lobby") {
-            auto lres = _client.postLobbyChat(output);
-            std::string curRm = currentRoomId();
-            if (!lres.ok && !curRm.empty()) {
-                _client.postGameChat(curRm, "ALL", output);
+        std::string fullReply;
+        for (std::size_t i = 0; i < chunks.size(); ++i) {
+            if (i > 0) fullReply += " ";
+            fullReply += chunks[i];
+        }
+
+        updateConversationReply(convSeq, fullReply, "ai_cli:" + backend);
+        logMsg(2, "[AI Chat] " + backend + " reply to @" + senderHandle + " (" +
+               std::to_string(chunks.size()) + " chunks): \"" + fullReply + "\"");
+
+        for (const auto &chunk : chunks) {
+            if (channel == "lobby") {
+                auto lres = _client.postLobbyChat(chunk);
+                std::string curRm = currentRoomId();
+                if (!lres.ok && !curRm.empty()) {
+                    _client.postGameChat(curRm, "ALL", chunk);
+                }
+            } else if (channel == "game" && !roomId.empty()) {
+                _client.postGameChat(roomId, "ALL", chunk);
+                _postGameSilenceStartMs.store(nowMs());
             }
-        } else if (channel == "game" && !roomId.empty()) {
-            _client.postGameChat(roomId, "ALL", output);
-            _postGameSilenceStartMs.store(nowMs());
+            if (chunks.size() > 1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
         }
     }).detach();
 #else
@@ -2729,6 +3098,8 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
             return;
         }
 
+        output = OctiBotMcpServer::sanitizePublicOutput(output);
+
         if (output.size() > 450) {
             output = output.substr(0, 447) + "...";
         }
@@ -2759,6 +3130,67 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
         }
     }
 #endif
+}
+
+struct ParsedSiblingMatchDirective {
+    bool hasMatch = false;
+    std::string player;
+    std::string room;
+    std::string mode;
+    int bases = 0;
+};
+
+static ParsedSiblingMatchDirective parseSiblingMatchDirective(const std::string &text) {
+    ParsedSiblingMatchDirective res;
+    std::string lowerText = text;
+    std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
+
+    size_t matchPos = lowerText.find("[match");
+    if (matchPos != std::string::npos) {
+        size_t closePos = lowerText.find(']', matchPos);
+        if (closePos != std::string::npos) {
+            res.hasMatch = true;
+            std::string inside = text.substr(matchPos + 1, closePos - (matchPos + 1));
+            std::stringstream ss(inside);
+            std::string tok;
+            while (ss >> tok) {
+                std::string lowerTok = tok;
+                std::transform(lowerTok.begin(), lowerTok.end(), lowerTok.begin(), ::tolower);
+                if (lowerTok.rfind("player=", 0) == 0) {
+                    std::string p = tok.substr(7);
+                    if (!p.empty() && p[0] == '@') p = p.substr(1);
+                    res.player = p;
+                } else if (lowerTok.rfind("room=", 0) == 0) {
+                    std::string r = tok.substr(5);
+                    if (!r.empty() && r[0] == '#') r = r.substr(1);
+                    res.room = r;
+                } else if (lowerTok.rfind("mode=", 0) == 0) {
+                    res.mode = tok.substr(5);
+                    std::transform(res.mode.begin(), res.mode.end(), res.mode.begin(), ::toupper);
+                } else if (lowerTok.rfind("bases=", 0) == 0) {
+                    res.bases = std::atoi(tok.substr(6).c_str());
+                }
+            }
+        }
+    }
+
+    if (res.room.empty()) {
+        size_t gPos = lowerText.find("g-");
+        if (gPos != std::string::npos) {
+            size_t endPos = gPos + 2;
+            while (endPos < text.size() &&
+                   (std::isalnum(static_cast<unsigned char>(text[endPos])) || text[endPos] == '-')) {
+                ++endPos;
+            }
+            std::string r = text.substr(gPos, endPos - gPos);
+            if (r.size() > 2) {
+                res.room = r;
+                res.hasMatch = true;
+            }
+        }
+    }
+
+    return res;
 }
 
 void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std::string &data) {
@@ -2809,38 +3241,49 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
             std::string curRoom = currentRoomId();
             std::string curPhase = currentPhase();
 
-            // Check if a sibling robot (owned by the same owner) invited us to a #g-... match table
+            // Check if a sibling robot (owned by the same owner) invited us to a #g-... match table or gave a [MATCH ...] directive
             if (isSiblingRobot && curPhase != "IN_PROGRESS") {
                 std::string lowerText = msg.text;
                 std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
                 std::string lowerHandle = _identity.handle;
                 std::transform(lowerHandle.begin(), lowerHandle.end(), lowerHandle.begin(), ::tolower);
                 if (!lowerHandle.empty() && lowerText.find("@" + lowerHandle) != std::string::npos) {
-                    size_t gPos = lowerText.find("g-");
-                    if (gPos != std::string::npos) {
-                        size_t endPos = gPos + 2;
-                        while (endPos < msg.text.size() &&
-                               (std::isalnum(static_cast<unsigned char>(msg.text[endPos])) || msg.text[endPos] == '-')) {
-                            ++endPos;
-                        }
-                        std::string invitedRoomId = msg.text.substr(gPos, endPos - gPos);
-                        if (invitedRoomId.size() > 2) {
-                            BotMatchOverride sibOv;
-                            sibOv.active = true;
+                    ParsedSiblingMatchDirective parsed = parseSiblingMatchDirective(msg.text);
+                    if (parsed.hasMatch) {
+                        BotMatchOverride sibOv;
+                        sibOv.active = true;
+                        if (!parsed.player.empty()) {
+                            sibOv.targetPlayerHandle = parsed.player;
+                        } else {
                             sibOv.targetPlayerHandle = msg.handle;
-                            sibOv.targetRoomId = invitedRoomId;
-                            sibOv.allowRobots = true;
-                            sibOv.remainingGames = 1;
-                            std::string summary, err;
-                            if (applyMatchOverride(sibOv, summary, err)) {
-                                if (summary.rfind("Already in requested table", 0) != 0) {
-                                    std::string ack = "@" + msg.handle + " On my way! Joining table #" + invitedRoomId + " for our match.";
-                                    _client.postLobbyChat(ack);
-                                    recordConversation("lobby", "", msg.handle, msg.text, ack, "sibling_invite");
+                        }
+                        sibOv.targetRoomId = parsed.room;
+                        if (!parsed.mode.empty()) sibOv.hostMode = parsed.mode;
+                        if (parsed.bases > 0) sibOv.hostBases = parsed.bases;
+                        sibOv.allowRobots = true;
+                        sibOv.remainingGames = 1;
+                        std::string summary, err;
+                        if (applyMatchOverride(sibOv, summary, err)) {
+                            if (summary.rfind("Already in requested table", 0) != 0) {
+                                std::string ack;
+                                if (!parsed.player.empty() && !iequalsStr(parsed.player, msg.handle)) {
+                                    if (!parsed.room.empty()) {
+                                        ack = "@" + parsed.player + " @" + msg.handle +
+                                              " On my way! Joining table #" + parsed.room +
+                                              " to play with @" + parsed.player + ".";
+                                    } else {
+                                        ack = "@" + parsed.player + " @" + msg.handle +
+                                              " Challenge accepted! Ready to play with @" + parsed.player + ".";
+                                    }
+                                } else {
+                                    ack = "@" + msg.handle + " On my way! Joining table #" +
+                                          parsed.room + " for our match.";
                                 }
-                                notifyEvent("CHAT_MENTION");
-                                return;
+                                _client.postLobbyChat(ack);
+                                recordConversation("lobby", "", msg.handle, msg.text, ack, "sibling_directive");
                             }
+                            notifyEvent("CHAT_MENTION");
+                            return;
                         }
                     }
                 }
@@ -2886,10 +3329,19 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                 std::string lowerHandle = _identity.handle;
                 std::transform(lowerHandle.begin(), lowerHandle.end(), lowerHandle.begin(), ::tolower);
                 size_t myMentionPos = (!lowerHandle.empty()) ? lowerText.find("@" + lowerHandle) : std::string::npos;
+                if (myMentionPos == std::string::npos && _lobbyOnly && iequalsStr(_identity.handle, "octibot-helper")) {
+                    size_t hPos = lowerText.find("@helper");
+                    if (hPos != std::string::npos) {
+                        size_t after = hPos + 7;
+                        if (after >= lowerText.size() || !std::isalnum(static_cast<unsigned char>(lowerText[after]))) {
+                            myMentionPos = hPos;
+                        }
+                    }
+                }
                 size_t firstAtPos = lowerText.find('@');
                 bool addressedToOther = (firstAtPos != std::string::npos && myMentionPos != std::string::npos && firstAtPos < myMentionPos);
 
-                if (isOwner && curPhase != "IN_PROGRESS" && myMentionPos != std::string::npos) {
+                if (isOwner && !_lobbyOnly && curPhase != "IN_PROGRESS" && myMentionPos != std::string::npos) {
                     bool hasMatchVerb =
                         lowerText.find("play") != std::string::npos ||
                         lowerText.find("challenge") != std::string::npos ||
@@ -3001,31 +3453,45 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 std::string lowerHandle = _identity.handle;
                 std::transform(lowerHandle.begin(), lowerHandle.end(), lowerHandle.begin(), ::tolower);
                 if (!lowerHandle.empty() && lowerText.find("@" + lowerHandle) != std::string::npos) {
-                    size_t gPos = lowerText.find("g-");
-                    if (gPos != std::string::npos) {
-                        size_t endPos = gPos + 2;
-                        while (endPos < text.size() &&
-                               (std::isalnum(static_cast<unsigned char>(text[endPos])) || text[endPos] == '-')) {
-                            ++endPos;
-                        }
-                        std::string invitedRoomId = text.substr(gPos, endPos - gPos);
-                        if (invitedRoomId.size() > 2) {
-                            BotMatchOverride sibOv;
-                            sibOv.active = true;
+                    ParsedSiblingMatchDirective parsed = parseSiblingMatchDirective(text);
+                    if (parsed.hasMatch) {
+                        BotMatchOverride sibOv;
+                        sibOv.active = true;
+                        if (!parsed.player.empty()) {
+                            sibOv.targetPlayerHandle = parsed.player;
+                        } else {
                             sibOv.targetPlayerHandle = senderHandle;
-                            sibOv.targetRoomId = invitedRoomId;
-                            sibOv.allowRobots = true;
-                            sibOv.remainingGames = 1;
-                            std::string summary, err;
-                            if (applyMatchOverride(sibOv, summary, err)) {
-                                if (summary.rfind("Already in requested table", 0) != 0) {
-                                    std::string ack = "@" + senderHandle + " On my way! Joined table #" + invitedRoomId + " for our match.";
-                                    _client.postGameChat(invitedRoomId, "ALL", ack);
-                                    recordConversation("game", invitedRoomId, senderHandle, text, ack, "sibling_invite");
+                        }
+                        sibOv.targetRoomId = parsed.room;
+                        if (!parsed.mode.empty()) sibOv.hostMode = parsed.mode;
+                        if (parsed.bases > 0) sibOv.hostBases = parsed.bases;
+                        sibOv.allowRobots = true;
+                        sibOv.remainingGames = 1;
+                        std::string summary, err;
+                        if (applyMatchOverride(sibOv, summary, err)) {
+                            if (summary.rfind("Already in requested table", 0) != 0) {
+                                std::string ack;
+                                if (!parsed.player.empty() && !iequalsStr(parsed.player, senderHandle)) {
+                                    if (!parsed.room.empty()) {
+                                        ack = "@" + parsed.player + " @" + senderHandle +
+                                              " On my way! Joining table #" + parsed.room +
+                                              " to play with @" + parsed.player + ".";
+                                    } else {
+                                        ack = "@" + parsed.player + " @" + senderHandle +
+                                              " Challenge accepted! Ready to play with @" + parsed.player + ".";
+                                    }
+                                } else {
+                                    ack = "@" + senderHandle + " On my way! Joined table #" +
+                                          parsed.room + " for our match.";
                                 }
-                                notifyEvent("CHAT_MENTION");
-                                return;
+                                std::string ackRoom = parsed.room.empty() ? currentRoomId() : parsed.room;
+                                if (!ackRoom.empty()) {
+                                    _client.postGameChat(ackRoom, "ALL", ack);
+                                }
+                                recordConversation("game", ackRoom, senderHandle, text, ack, "sibling_directive");
                             }
+                            notifyEvent("CHAT_MENTION");
+                            return;
                         }
                     }
                 }
