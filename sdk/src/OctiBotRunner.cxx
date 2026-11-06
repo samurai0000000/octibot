@@ -811,7 +811,7 @@ void OctiBotRunner::run() {
         if (initLobby.data.latestSeq > 0) {
             initialLobbySeq = static_cast<std::uint64_t>(initLobby.data.latestSeq);
         }
-        std::int64_t maxChatSeq = 0;
+        std::int64_t maxChatSeq = initLobby.data.latestSeq;
         for (const auto &c : initLobby.data.recentChat) {
             if (c.seq > maxChatSeq) {
                 maxChatSeq = c.seq;
@@ -2729,7 +2729,7 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     }
     promptOss << (isTrustedOwner ? "Authenticated Owner @" : "Player @") << safeSender << " says: " << safeMsg << "\n"
               << "</UNTRUSTED_NETWORK_DATA>\n\n"
-              << "Reply to @" << safeSender << " (in character, plain text only, 1-2 short sentences):";
+              << "Reply to @" << safeSender << " (in character, pure plain text only with NO Markdown backticks ` or **bold** markers, 1-2 short sentences):";
 
     std::string fullPrompt = promptOss.str();
     std::string sandboxDir = _config.getString("ai_cli_sandbox_dir", "/tmp/octibot-ai-sandbox");
@@ -3182,7 +3182,9 @@ static ParsedSiblingMatchDirective parseSiblingMatchDirective(const std::string 
         }
     }
 
-    if (res.room.empty()) {
+    if (res.room.empty() &&
+        lowerText.find("on my way!") == std::string::npos &&
+        lowerText.find("challenge accepted!") == std::string::npos) {
         size_t gPos = lowerText.find("g-");
         if (gPos != std::string::npos) {
             size_t endPos = gPos + 2;
@@ -3202,7 +3204,9 @@ static ParsedSiblingMatchDirective parseSiblingMatchDirective(const std::string 
 }
 
 void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std::string &data) {
-    logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+    if (eventType != "LOBBY_CHAT") {
+        logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+    }
 
     if (eventType == "LOBBY_CHAT") {
         try {
@@ -3217,16 +3221,18 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
             std::string senderOwnerUuid = j.value("owner_uuid", "");
             std::string senderOwnerHandle = j.value("owner_handle", "");
 
-            if (msg.handle == _identity.handle) {
-                return;
-            }
-
             if (msg.seq > 0) {
                 std::lock_guard<std::mutex> lock(_stateMutex);
                 if (msg.seq <= _lastProcessedLobbyChatSeq) {
                     return;
                 }
                 _lastProcessedLobbyChatSeq = msg.seq;
+            }
+
+            logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+
+            if (msg.handle == _identity.handle) {
+                return;
             }
 
             bool isOwner = !msg.isRobot &&
@@ -3255,7 +3261,9 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                 std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
                 std::string lowerHandle = _identity.handle;
                 std::transform(lowerHandle.begin(), lowerHandle.end(), lowerHandle.begin(), ::tolower);
-                if (!lowerHandle.empty() && lowerText.find("@" + lowerHandle) != std::string::npos) {
+                bool allowSiblingParse = !iequalsStr(msg.handle, "octibot-helper") ||
+                                         (lowerText.find("[match") != std::string::npos);
+                if (allowSiblingParse && !lowerHandle.empty() && lowerText.find("@" + lowerHandle) != std::string::npos) {
                     ParsedSiblingMatchDirective parsed = parseSiblingMatchDirective(msg.text);
                     if (parsed.hasMatch) {
                         BotMatchOverride sibOv;
@@ -3369,7 +3377,10 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                                 ++hEnd;
                             }
                             if (hEnd > at + 1) {
-                                mentions.push_back(msg.text.substr(at + 1, hEnd - (at + 1)));
+                                std::string mHandle = msg.text.substr(at + 1, hEnd - (at + 1));
+                                if (!iequalsStr(mHandle, "octibot-helper") && !iequalsStr(mHandle, "helper")) {
+                                    mentions.push_back(mHandle);
+                                }
                             }
                             pos = hEnd;
                         }

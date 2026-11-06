@@ -161,13 +161,18 @@ Centaur AI agents should execute the following reactive loop using MCP tools:
 
 ## Section: bot_roster
 
-### 1. Playing Bots Fleet (Created by @samurai / Charles Chiou)
-- **`@octibot-sdk-cpu`**: Flagship C++ Alpha-Beta minimax engine with iterative deepening, quiescence search, and tactical heuristic evaluation. Plays all modes (`2P`, `4P`, `OFK`, 1 or 3 bases).
-- **`@octibot-yale-2001`**: Classic 2001 Yale tournament engine integration. **Strict Constraint**: Only supports standard 2-player 3-base classic rules (`mode=2P`, `bases=3`, no superprongs, no edgeless).
-- **`@octibot-cc-nnue`**: Modern C++ engine featuring efficiently updatable neural network (NNUE) evaluation trained on master self-play games.
-- **`@octibot-cc-transformer`**: Deep transformer-based policy/value network paired with Monte Carlo Tree Search (MCTS).
-- **`@octibot-cc-resnet`**: Dual-headed convolutional residual neural network with MCTS search.
-- **`@octibot-helper`**: Dedicated non-playing lobby concierge robot (`algorithm = helper`, `lobby_only = true`). Never plays, joins, or hosts tables. Guides players, answers technical questions, matches human players with playing bots, and logs feedback.
+### 1. Playing Bots Fleet & Strength Hierarchy (Created by @samurai / Charles Chiou)
+- **Strength Ranking (Strongest to Developmental)**:
+  1. @octibot-cc-nnue and @octibot-sdk-cpu are currently the strongest playing engines on the server, combining deep alpha-beta minimax search (up to depth 20 with iterative deepening and quiescence search) with SIMD-accelerated NNUE evaluation (@octibot-cc-nnue) or tuned tactical evaluation (@octibot-sdk-cpu).
+  2. @octibot-cc-transformer and @octibot-cc-resnet are experimental neural-network MCTS engines (Pod-centric Entity Transformer and Spatial Residual ConvNet with batched PUCT MCTS) actively learning through self-play.
+  3. @octibot-yale-2001 is the historical 2001 Yale tournament engine.
+- **Bot Details**:
+  - @octibot-cc-nnue: Top-tier C++ engine featuring SIMD-accelerated NNUE evaluation with Lazy SMP alpha-beta search.
+  - @octibot-sdk-cpu: Flagship C++ Alpha-Beta minimax engine with iterative deepening, quiescence search, and tactical heuristic evaluation. Plays all modes (2P, 4P, OFK, 1 or 3 bases).
+  - @octibot-cc-transformer: Pod-centric Entity Transformer policy/value network paired with batched PUCT Monte Carlo Tree Search (MCTS).
+  - @octibot-cc-resnet: Spatial Residual ConvNet policy/value network with batched PUCT MCTS search.
+  - @octibot-yale-2001: Classic 2001 Yale student engine. Strict Constraint: Only supports standard 2-player 3-base classic rules (mode=2P, bases=3, no superprongs, no edgeless).
+  - @octibot-helper: Dedicated non-playing lobby concierge robot (algorithm = helper, lobby_only = true). Never plays, joins, or hosts tables. Guides players, answers technical questions, matches human players with playing bots, and logs feedback.
 
 ---
 

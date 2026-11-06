@@ -1977,6 +1977,10 @@ TEST(OctiBotHelperTest, SanitizePublicOutputNominalAndRapidCheck) {
     CHECK_TRUE(s4.find("giraffe") == std::string::npos);
     CHECK_TRUE(s4.find("hippo") == std::string::npos);
 
+    std::string raw5 = "The **strongest** bots are `@octibot-cc-nnue` and `@octibot-sdk-cpu`.";
+    std::string s5 = OctiBotMcpServer::sanitizePublicOutput(raw5);
+    CHECK_EQUAL("The strongest bots are @octibot-cc-nnue and @octibot-sdk-cpu.", s5);
+
     // 2. RapidCheck property test
     bool passed = rc::check("sanitizePublicOutput strips secrets and internal IPs/paths", [homePrefix]() {
         std::string tokenPayload = "octi_bot_" + *rc::gen::arbitrary<std::string>();
