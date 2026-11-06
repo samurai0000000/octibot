@@ -3553,6 +3553,126 @@ TEST(OctiBotTacticalUpgradeTest, ImmobilizedArmedPodAndCanLiberateUnfreezing)
     CHECK_TRUE(scoreAdv > scoreBase - 1500);
 }
 
+TEST(OctiBotTacticalUpgradeTest, SearchConvergenceAndAntiFarmingMatches0165_0167_0171)
+{
+    // C2 (#g-20261106-0165 Ply 55): Hard dominance pruning of single-op +x-y when freeProngs > 0 && numProngs < 4
+    {
+        octi::OctiBoard b1(octi::GAME_MODE_2);
+        b1.fromPositionString("2:3:0:0:P:A:-:0:1,0,10,0:0,0,11,0:A25abch,A44abfh,A53abc,A62abgh,B35defg,B37def,B55bcdef,B75cdfg");
+        CHECK_EQUAL(10, b1.getGame()->getFreeProngs(octi::PLAYER_A));
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+        bot.setTimeBudgetMs(500);
+        std::string move1 = bot.chooseMove(b1);
+        // Pod A53abc has 3 prongs (< 4). Verify chooseMove never selects a +x-y move on it.
+        CHECK_FALSE(move1 == "53abc+d-a");
+        CHECK_FALSE(move1 == "53abc+d-b");
+        CHECK_FALSE(move1 == "53abc+d-c");
+        CHECK_FALSE(move1 == "53abc+e-a");
+        CHECK_FALSE(move1 == "53abc+e-b");
+        CHECK_FALSE(move1 == "53abc+e-c");
+        CHECK_FALSE(move1 == "53abc+f-a");
+        CHECK_FALSE(move1 == "53abc+f-b");
+        CHECK_FALSE(move1 == "53abc+f-c");
+        CHECK_FALSE(move1 == "53abc+g-a");
+        CHECK_FALSE(move1 == "53abc+g-b");
+        CHECK_FALSE(move1 == "53abc+g-c");
+        CHECK_FALSE(move1 == "53abc+h-a");
+        CHECK_FALSE(move1 == "53abc+h-b");
+        CHECK_FALSE(move1 == "53abc+h-c");
+
+        octi::OctiBoard b2(octi::GAME_MODE_2);
+        b2.fromPositionString("2:3:0:0:P:A:-:0:1,0,10,0:0,0,11,0:A25abc,A44abfh,A53abc,B35defg,B37def");
+        std::string move2 = bot.chooseMove(b2);
+        // Verify chooseMove does not return any +...- rearrangement move on pods with < 4 prongs
+        bool isRearrange = (move2.find('+') != std::string::npos &&
+                            move2.find('-', move2.find('+')) != std::string::npos);
+        if (isRearrange) {
+            // If it is a rearrange, it can only be on A44abfh (4 prongs), never on A25abc or A53abc
+            CHECK_FALSE(move2.rfind("25", 0) == 0);
+            CHECK_FALSE(move2.rfind("53", 0) == 0);
+        }
+    }
+
+    // C3 (#g-20261106-0165 Plies 33 & 35): Forward-only leapfrog battery, behind-home and zero-forward-prong penalties
+    {
+        octi::OctiBoard bStay(octi::GAME_MODE_2);
+        bStay.fromPositionString("2:3:0:0:P:A:-:0:3,0,16,0:2,0,17,0:A33c,A44abfh,A53ab,A73ab,B37de,B46def,B55def,B66df");
+        int scoreStay = octi::OctiBotEngine::evaluatePosition(bStay, octi::PLAYER_A);
+
+        octi::OctiBoard bBack(octi::GAME_MODE_2);
+        bBack.fromPositionString("2:3:0:0:P:B:-:0:3,0,16,0:2,0,17,0:A33c,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66df");
+        int scoreBack = octi::OctiBotEngine::evaluatePosition(bBack, octi::PLAYER_A);
+        CHECK_TRUE(scoreStay > scoreBack + 1500);
+
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+        bot.setTimeBudgetMs(500);
+        std::string chosenStay = bot.chooseMove(bStay);
+        CHECK_FALSE(chosenStay == "44abfh-22");
+
+        octi::OctiBoard bA2(octi::GAME_MODE_2);
+        bA2.fromPositionString("2:3:0:0:P:A:-:0:3,0,16,0:2,0,16,0:A33c,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
+        std::string chosenA2 = bot.chooseMove(bA2);
+        CHECK_FALSE(chosenA2 == "33c+f");
+
+        octi::OctiBoard bFwdProng(octi::GAME_MODE_2);
+        bFwdProng.fromPositionString("2:3:0:0:P:A:-:0:3,0,15,0:2,0,16,0:A33ac,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
+        int scoreFwdProng = octi::OctiBotEngine::evaluatePosition(bFwdProng, octi::PLAYER_A);
+
+        octi::OctiBoard bBackProng(octi::GAME_MODE_2);
+        bBackProng.fromPositionString("2:3:0:0:P:A:-:0:3,0,15,0:2,0,16,0:A33cf,A22abfh,A53ab,A73ab,B37de,B46def,B55def,B66dfg");
+        int scoreBackProng = octi::OctiBotEngine::evaluatePosition(bBackProng, octi::PLAYER_A);
+        CHECK_TRUE(scoreFwdProng > scoreBackProng + 1200);
+    }
+
+    // C4 (#g-20261106-0167 Ply 38): Non-base friendly pod stacking penalty
+    {
+        octi::OctiBoard bOrig(octi::GAME_MODE_2);
+        bOrig.fromPositionString("2:3:0:0:P:B:-:0:2,0,12,0:1,0,15,0:A34abgh,A53abc,A65abgh,B37ef,B46defh,B57f,B66ef");
+        int scoreOrig = octi::OctiBotEngine::evaluatePosition(bOrig, octi::PLAYER_B);
+
+        octi::OctiBoard bStacked(octi::GAME_MODE_2);
+        bStacked.fromPositionString("2:3:0:0:P:A:-:0:2,0,12,0:1,0,15,0:A34abgh,A53abc,A65abgh,B37ef,B46defh,B46f,B66ef");
+        int scoreStacked = octi::OctiBotEngine::evaluatePosition(bStacked, octi::PLAYER_B);
+        CHECK_TRUE(scoreOrig > scoreStacked + 2000);
+
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+        bot.setTimeBudgetMs(500);
+        std::string chosen = bot.chooseMove(bOrig);
+        CHECK_FALSE(chosen == "57f-46");
+    }
+
+    // C8 (#g-20261106-0171 Plies 20 & 42): Allied home-base defense and enemy base capture valuation
+    {
+        octi::OctiBoard bPly20(octi::GAME_MODE_2);
+        bPly20.fromPositionString("2:3:0:0:P:B:-:0:3,0,19,0:3,0,19,0:A33ab,A55ab,A73a,B37e,B57df,B77ef");
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
+        bot.setTimeBudgetMs(500);
+        std::string chosenPly20 = bot.chooseMove(bPly20);
+        CHECK_FALSE(chosenPly20 == "77ef-55");
+
+        octi::OctiBoard bPly42(octi::GAME_MODE_2);
+        bPly42.fromPositionString("2:3:0:0:P:B:-:0:1,2,14,0:2,0,13,0:A43abc,A65abgh,B32ae,B46def,B55defg");
+
+        octi::OctiBoard bCap(octi::GAME_MODE_2);
+        bCap.fromPositionString("2:3:0:0:P:A:-:0:1,2,14,0:1,0,13,0:A43abc,A65abgh,B33ae,B46def,B55defg");
+        int scoreCap = octi::OctiBotEngine::evaluatePosition(bCap, octi::PLAYER_B);
+
+        octi::OctiBoard bProng(octi::GAME_MODE_2);
+        bProng.fromPositionString("2:3:0:0:P:A:-:0:1,2,14,0:2,0,12,0:A43abc,A65abgh,B32ade,B46def,B55defg");
+        int scoreProng = octi::OctiBotEngine::evaluatePosition(bProng, octi::PLAYER_B);
+        CHECK_TRUE(scoreCap > scoreProng + 7000);
+
+        std::string chosenPly42 = bot.chooseMove(bPly42);
+        CHECK_FALSE(chosenPly42 == "32ae+d");
+
+        // Verify that when capturing base 33 is the winning move, chooseMove decisively selects 32ae-33
+        octi::OctiBoard bWin(octi::GAME_MODE_2);
+        bWin.fromPositionString("2:3:0:0:P:B:-:0:1,2,14,0:2,0,13,0:A43abc,B32ae,B53,B73");
+        std::string chosenWin = bot.chooseMove(bWin);
+        CHECK_TRUE(chosenWin == "32ae-33" || chosenWin.find("-33") != std::string::npos);
+    }
+}
+
 TEST_GROUP(OctiCore_NetworkClient)
 {
 };

@@ -852,7 +852,8 @@ int scoreMoveHeuristic(const OctiBoard &board,
                 if (anyCapture) {
                     score += profile.moveOrderBaseEntryBonus;
                 } else {
-                    score += (profile.moveOrderBaseEntryBonus * baseThreatScalePct) / 100;
+                    int effScale = std::max(55, baseThreatScalePct);
+                    score += (profile.moveOrderBaseEntryBonus * effScale) / 100;
                 }
             }
             if (destSq.getType() == NEUTRAL_OCTI_SQUARE && destSq.isEmpty()) {
@@ -873,14 +874,61 @@ int scoreMoveHeuristic(const OctiBoard &board,
             if (isEnemyHomeSquareFor(startSq.getType(), mode, turn)) {
                 if (startSq.getNumPods() <= 1 &&
                     !isEnemyHomeSquareFor(destSq.getType(), mode, turn)) {
-                    score -= 22000;
+                    score -= 35000;
+                }
+            } else if (isAlliedHomeSquareFor(startSq.getType(), mode, turn)) {
+                if (startSq.getNumPods() <= 1 &&
+                    !anyCapture &&
+                    !isEnemyHomeSquareFor(destSq.getType(), mode, turn)) {
+                    bool underThreat = false;
+                    for (int cy = 0; cy < h; ++cy) {
+                        for (int cx = 0; cx < w; ++cx) {
+                            const OctiSquare &csq = board.squareAt(cx, cy);
+                            if (isAlliedHomeSquareFor(csq.getType(), mode, turn)) {
+                                if (csq.isCaptured() && !csq.isCapturedByTeamOf(turn)) {
+                                    underThreat = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (underThreat) break;
+                    }
+                    if (!underThreat) {
+                        for (int cy = 0; cy < h; ++cy) {
+                            for (int cx = 0; cx < w; ++cx) {
+                                const OctiSquare &csq = board.squareAt(cx, cy);
+                                if (csq.hasEnemyOf(turn)) {
+                                    int ed = chebyshevDist(op.x0, op.y0, cx, cy, w, h, edgeless);
+                                    if (ed <= 2) {
+                                        underThreat = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (underThreat) break;
+                        }
+                    }
+                    if (underThreat) {
+                        score -= 14000;
+                    }
                 }
             }
 
             // Avoid stacking multiple friendly pods on non-enemy-base squares
             if (!isEnemyHomeSquareFor(destSq.getType(), mode, turn) &&
                 destSq.getNumPods() >= 1) {
-                score -= 1200 * destSq.getNumPods();
+                if (anyCapture) {
+                    score -= 2800 * destSq.getNumPods();
+                } else {
+                    score -= 5500 * destSq.getNumPods();
+                }
+            }
+
+            // Behind-home-rank retreat penalty in 2-player non-edgeless mode
+            if (!anyCapture && endDist > startDist && mode == GAME_MODE_2 && !edgeless) {
+                if ((turn == PLAYER_A && lastHop.y < 2) || (turn == PLAYER_B && lastHop.y > 6)) {
+                    score -= 3500;
+                }
             }
 
             // Penalize premature 1-prong lone-pod rushes during development
@@ -898,6 +946,25 @@ int scoreMoveHeuristic(const OctiBoard &board,
             int nextDist = minChebyshevToTargets(nx, ny, enemyTargets, w, h, edgeless);
             if (nextDist < curDist) {
                 score += 600;
+            }
+
+            if (isAlliedHomeSquareFor(board.squareAt(op.x0, op.y0).getType(), mode, turn) &&
+                op.pod.getNumProngs() >= 1 && nextDist >= curDist) {
+                bool hasExistingForwardProng = false;
+                for (int d = 0; d < DIR_MAX; ++d) {
+                    OctiDir dDir = static_cast<OctiDir>(d);
+                    if (op.pod.prongAt(dDir) != NO_PRONG) {
+                        int pnx = op.x0 + dirDeltaX(dDir);
+                        int pny = op.y0 + dirDeltaY(dDir);
+                        if (minChebyshevToTargets(pnx, pny, enemyTargets, w, h, edgeless) < curDist) {
+                            hasExistingForwardProng = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasExistingForwardProng) {
+                    score -= 2200;
+                }
             }
             if (op.pod.getNumProngs() == 0) {
                 score += 900; // Strongly prioritize arming 0-prong pods first!
@@ -973,6 +1040,9 @@ int scoreMoveHeuristic(const OctiBoard &board,
             }
         } else if (op.rmProngDir != DIR_UNDEF) {
             score -= 1800 + 600 * op.pod.getNumProngs();
+            if (op.addProngDir != DIR_UNDEF && game && game->getFreeProngs(turn) > 0 && op.pod.getNumProngs() < 4) {
+                score -= 12000;
+            }
         }
     }
     return score;
@@ -990,6 +1060,29 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
         appendCompositeMoves(board, rawMoves, turn);
     }
     std::vector<OctiMove> moves = filterDominatedMoves(rawMoves);
+
+    // Hard dominance pruning of single-op +x-y prong rearrangements when free prongs exist.
+    // If freeProngs > 0 and pod prongs < 4, +x-y is strictly dominated by +x.
+    if (board.getGame() && board.getGame()->getFreeProngs(turn) > 0) {
+        std::vector<OctiMove> prunedMoves;
+        prunedMoves.reserve(moves.size());
+        for (const auto &m : moves) {
+            const auto &ops = m.getOps();
+            bool isDominatedRearrange = (ops.size() == 1 &&
+                                         ops[0].hops.empty() &&
+                                         !ops[0].addPod &&
+                                         ops[0].addProngDir != DIR_UNDEF &&
+                                         ops[0].rmProngDir != DIR_UNDEF &&
+                                         ops[0].pod.getNumProngs() < 4);
+            if (!isDominatedRearrange || (!ttBestMove.empty() && m.asString() == ttBestMove)) {
+                prunedMoves.push_back(m);
+            }
+        }
+        if (!prunedMoves.empty()) {
+            moves = std::move(prunedMoves);
+        }
+    }
+
     std::vector<std::pair<int, int>> targets = targetEnemyBases(board, turn);
 
     // Compute enemy threat mask for blunder penalty in move ordering
@@ -1717,15 +1810,16 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
             const OctiSquare &sq = board.squareAt(x, y);
             OctiSquareType sqType = sq.getType();
 
-            int numBases = std::max(1, game->getBasesToWin());
             if (isEnemyHomeSquareFor(sqType, mode, perspective)) {
                 if (sq.isCapturedByTeamOf(perspective)) {
-                    int baseBonus = ((profile.capturedEnemyBaseBonus / numBases) * allyBaseThreatScalePct) / 100;
+                    int effScale = (allyPhase.basesNeeded <= 1) ? 100 : ((allyPhase.basesNeeded == 2) ? std::max(60, allyBaseThreatScalePct) : std::max(35, allyBaseThreatScalePct));
+                    int baseBonus = (profile.capturedEnemyBaseBonus * effScale) / 100;
                     totalScore += baseBonus;
                 }
             } else if (isAlliedHomeSquareFor(sqType, mode, perspective)) {
                 if (sq.isCaptured() && !sq.isCapturedByTeamOf(perspective)) {
-                    int basePen = ((profile.lostAlliedBasePenalty / numBases) * enemyBaseThreatScalePct) / 100;
+                    int effScale = (enemyPhase.basesNeeded <= 1) ? 100 : ((enemyPhase.basesNeeded == 2) ? std::max(60, enemyBaseThreatScalePct) : std::max(35, enemyBaseThreatScalePct));
+                    int basePen = (profile.lostAlliedBasePenalty * effScale) / 100;
                     totalScore -= basePen;
                 }
             } else if (sqType == NEUTRAL_OCTI_SQUARE) {
@@ -1765,7 +1859,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                 }
 
                 if (numPods > 1 && !onCapturedEnemyBase) {
-                    int stackPen = (numPods - 1) * 450 + unarmedCount * 950;
+                    int stackPen = (numPods - 1) * 2800 + unarmedCount * 950;
                     totalScore += sqAlly ? -stackPen : stackPen;
                 } else if (onCapturedEnemyBase) {
                     int capBasePen = 0;
@@ -1830,6 +1924,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                 bool hasDiag = false;
                 bool hasOneStepBaseThreat = false;
                 bool hasOneJumpBaseThreat = false;
+                bool hasForwardProng = false;
                 int legalMoveDirs = 0;
 
                 for (int d = 0; d < DIR_MAX; ++d) {
@@ -1892,20 +1987,31 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                         if (ndist == 0 && canStepBase) {
                             hasOneStepBaseThreat = true;
                         }
-                        // Leapfrog battery detection
+                        // Leapfrog battery detection (forward only)
                         if (squareHasAllyOf(nsq, mode, owner)) {
                             if (board.isValidCoord(jx, jy)) {
                                 const OctiSquare &destSq = board.squareAt(jx, jy);
                                 bool canJumpBase = (mode == GAME_MODE_OFK) ? destSq.isEmpty() : !destSq.hasEnemyOf(owner);
                                 if (destSq.isEmpty() || canJumpBase) {
-                                    podVal += profile.leapfrogBatteryWeight;
                                     int jdist = minChebyshevToTargets(jx, jy, targets, w, h, edgeless);
                                     if (jdist < dist) {
-                                        podVal += profile.leapfrogForwardBonus;
+                                        podVal += profile.leapfrogBatteryWeight + profile.leapfrogForwardBonus;
                                     }
                                 }
                             }
                         }
+                    }
+
+                    int ndist = minChebyshevToTargets(nx, ny, targets, w, h, edgeless);
+                    bool isForward = (ndist < dist);
+                    if (!isForward && mode != GAME_MODE_4) {
+                        if ((owner == PLAYER_A && (dir == DIR_N || dir == DIR_NE || dir == DIR_NW)) ||
+                            (owner == PLAYER_B && (dir == DIR_S || dir == DIR_SE || dir == DIR_SW))) {
+                            isForward = true;
+                        }
+                    }
+                    if (isForward) {
+                        hasForwardProng = true;
                     }
 
                     if (board.isValidCoord(nx, ny) && board.isValidCoord(jx, jy)) {
@@ -1917,6 +2023,16 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                                 hasOneJumpBaseThreat = true;
                             }
                         }
+                    }
+                }
+
+                if (isAlliedHomeSquareFor(sqType, mode, owner) && numProngs >= 2 && !hasForwardProng) {
+                    podVal -= 900;
+                }
+
+                if (mode == GAME_MODE_2 && !edgeless) {
+                    if ((owner == PLAYER_A && y < 2) || (owner == PLAYER_B && y > 6)) {
+                        podVal -= 850;
                     }
                 }
 
@@ -1943,7 +2059,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                     podVal += (profile.twoPlyBaseThreatWeight * scalePct) / 100;
                 }
 
-                if (hasOrth && hasDiag) {
+                if (hasOrth && hasDiag && (!isAlliedHomeSquareFor(sqType, mode, owner) || numProngs < 2 || hasForwardProng)) {
                     podVal += profile.orthDiagVersatilityBonus;
                 } else if (numProngs >= 2 && hasDiag && !hasOrth) {
                     podVal -= profile.diagOnlyParityPenalty;
