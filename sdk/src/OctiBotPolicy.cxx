@@ -5,6 +5,7 @@
 #include "OctiBotPolicy.hxx"
 #include <algorithm>
 #include <cctype>
+#include <random>
 #include <sstream>
 
 namespace octi {
@@ -87,6 +88,8 @@ void OctiBotPolicyEngine::configure(const OctiBotConfigStore &config) {
     _hostTimeControlEnabled = config.getBool("host_time_control_enabled", false);
     _hostInitialMs = config.getInt64("host_initial_ms", 600000);
     _hostIncrementMs = config.getInt64("host_increment_ms", 5000);
+    _hostAllowRobots = config.getBool("host_allow_robots", _opponentFilter != "humans_only");
+    _hostSeat = trim(config.getString("host_seat", "wait_for_human"));
 }
 
 bool OctiBotPolicyEngine::isFriend(const std::string &handle) const {
@@ -138,6 +141,9 @@ bool OctiBotPolicyEngine::isTableCompatible(const TableSummaryInfo &table,
         return false;
     }
     if (!table.allowRobots) {
+        return false;
+    }
+    if (!myHandle.empty() && caseInsensitiveEqual(table.hostHandle, myHandle)) {
         return false;
     }
 
@@ -268,6 +274,9 @@ bool OctiBotPolicyEngine::shouldKickSeatedPlayer(const TableSeatInfo &seat,
     if (_banList.count(toLower(seat.handle)) > 0) {
         return true;
     }
+    if (_opponentFilter == "humans_only" && seat.isRobot) {
+        return true;
+    }
     if (_friendsOnly) {
         if (_friendList.count(toLower(seat.handle)) == 0 &&
             !caseInsensitiveEqual(seat.handle, ownerHandle)) {
@@ -336,7 +345,25 @@ CreateTableRequest OctiBotPolicyEngine::buildHostTableRequest() const {
     req.timeControlEnabled = _hostTimeControlEnabled;
     req.initialMs = _hostInitialMs;
     req.incrementMs = _hostIncrementMs;
-    req.allowRobots = true;
+    req.allowRobots = _hostAllowRobots && (_opponentFilter != "humans_only");
+
+    int seatCount = (_hostMode == "4P") ? 4 : 2;
+    std::string hs = toLower(trim(_hostSeat));
+    if (hs == "wait_for_human" || hs == "0" || hs == "unseated") {
+        req.seat = 0;
+    } else if (hs == "1" || hs == "a") {
+        req.seat = 1;
+    } else if (hs == "2" || hs == "b") {
+        req.seat = 2;
+    } else if ((hs == "3" || hs == "c") && seatCount == 4) {
+        req.seat = 3;
+    } else if ((hs == "4" || hs == "d") && seatCount == 4) {
+        req.seat = 4;
+    } else {
+        thread_local std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<int> dist(1, seatCount);
+        req.seat = dist(rng);
+    }
     return req;
 }
 
@@ -350,7 +377,7 @@ MatchmakingRequest OctiBotPolicyEngine::buildMatchmakingRequest() const {
     req.timeControlEnabled = _hostTimeControlEnabled;
     req.initialMs = _hostInitialMs;
     req.incrementMs = _hostIncrementMs;
-    req.allowRobots = true;
+    req.allowRobots = _hostAllowRobots && (_opponentFilter != "humans_only");
     return req;
 }
 
@@ -591,7 +618,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
     std::getline(ss, rest);
     rest = trim(rest);
 
-    if (verbLower == "help" || verbLower == "info") {
+    if ((verbLower == "help" || verbLower == "info") && rest.empty()) {
         result.action = ChatCommandActionType::REPLY_ONLY;
         result.replyText = "[" + myHandle + "] " + description +
             " | Owner: " + ownerHandle +
@@ -600,7 +627,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    if (verbLower == "play" || verbLower == "join") {
+    if ((verbLower == "play" || verbLower == "join") && rest.empty()) {
         if (policy.isBanned(senderHandle)) {
             result.action = ChatCommandActionType::REPLY_ONLY;
             result.replyText = "Cannot join: user is banned.";
@@ -611,7 +638,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    if (verbLower == "eval" || verbLower == "stats") {
+    if ((verbLower == "eval" || verbLower == "stats") && rest.empty()) {
         result.action = ChatCommandActionType::REPLY_ONLY;
         if (!allowPublicEvalChat && !isOwner) {
             result.replyText = "Move telemetry is currently disabled.";
@@ -623,9 +650,15 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
+    std::string restLower = toLower(rest);
+    bool isExactHostCmd = (verbLower == "host" &&
+        (rest.empty() || restLower == "2p" || restLower == "4p" || restLower == "ofk"));
+    bool isExactStatusCmd = (verbLower == "status" && rest.empty());
+    bool isExactLeaveCmd = (verbLower == "leave" && rest.empty());
+
     // Owner-only commands
-    bool isOwnerOnlyCmd = (verbLower == "status" || verbLower == "host" ||
-                           verbLower == "joinroom" || verbLower == "leave" ||
+    bool isOwnerOnlyCmd = (isExactStatusCmd || isExactHostCmd ||
+                           verbLower == "joinroom" || isExactLeaveCmd ||
                            verbLower == "friend" || verbLower == "ban" ||
                            verbLower == "set");
     if (isOwnerOnlyCmd && !isOwner) {
@@ -634,7 +667,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    if (verbLower == "status") {
+    if (isExactStatusCmd) {
         result.action = ChatCommandActionType::REPLY_ONLY;
         std::string roomStr = currentRoomId.empty() ? "lobby" : currentRoomId;
         std::string phaseStr = currentPhase.empty() ? "IDLE" : currentPhase;
@@ -645,7 +678,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    if (verbLower == "host") {
+    if (isExactHostCmd) {
         result.action = ChatCommandActionType::HOST_TABLE;
         result.mode = rest.empty() ? "2P" : rest;
         result.replyText = "Hosting " + result.mode + " table...";
@@ -659,7 +692,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         return result;
     }
 
-    if (verbLower == "leave") {
+    if (isExactLeaveCmd) {
         result.action = ChatCommandActionType::LEAVE_ROOM;
         result.replyText = "Leaving table...";
         return result;

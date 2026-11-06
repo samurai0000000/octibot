@@ -380,6 +380,12 @@ GameViewData parseGameView(const Json &j)
         for (std::size_t i = 0; i < j["moves"].size(); ++i) {
             if (j["moves"][i].is_string()) {
                 v.moves.push_back(j["moves"][i].get<std::string>());
+            } else if (j["moves"][i].is_object()) {
+                std::string m = j["moves"][i].value(
+                    "notation", j["moves"][i].value("move", ""));
+                if (!m.empty()) {
+                    v.moves.push_back(m);
+                }
             }
         }
     }
@@ -698,6 +704,14 @@ std::vector<SseEvent> OctiNetworkClient::parseSseBuffer(std::string &buffer)
         }
 
         if (hasEventOrData && !ev.event.empty()) {
+            if (ev.id == 0 && !ev.dataJson.empty()) {
+                try {
+                    Json j = Json::parse(ev.dataJson, nullptr, false);
+                    if (j.is_object() && j.contains("seq") && j["seq"].is_number_unsigned()) {
+                        ev.id = j["seq"].get<std::uint64_t>();
+                    }
+                } catch (...) {}
+            }
             events.push_back(std::move(ev));
         }
     }
@@ -731,6 +745,7 @@ struct OctiNetworkClient::Impl {
         std::atomic<bool> stopRequested{false};
         std::atomic<bool> active{false};
         std::atomic<std::uint64_t> lastId{0};
+        std::atomic<std::uint64_t> generation{0};
 
         ~SseRunner()
         {
@@ -739,6 +754,7 @@ struct OctiNetworkClient::Impl {
 
         void stop()
         {
+            generation.fetch_add(1);
             stopRequested.store(true);
             std::shared_ptr<httplib::Client> cli;
 #ifdef _WIN32
@@ -762,7 +778,11 @@ struct OctiNetworkClient::Impl {
 #endif
             cv.notify_all();
             if (worker.joinable()) {
-                worker.join();
+                if (worker.get_id() == std::this_thread::get_id()) {
+                    worker.detach();
+                } else {
+                    worker.join();
+                }
             }
             {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -1289,7 +1309,7 @@ struct OctiNetworkClient::Impl {
                 return false;
             }
 
-            WinHttpSetTimeouts(hSession, 5000, 5000, 30000, 30000);
+            WinHttpSetTimeouts(hSession, 5000, 5000, 30000, 120000);
 
             std::wstring wideHost = toWide(host);
             HINTERNET hConnect = WinHttpConnect(
@@ -1551,14 +1571,16 @@ struct OctiNetworkClient::Impl {
         std::function<void(const SseEvent &)> onEvent)
     {
         runner.stop();
+        std::uint64_t myGen = runner.generation.fetch_add(1) + 1;
         runner.stopRequested.store(false);
         runner.lastId.store(sinceSeq);
         runner.active.store(true);
 
         runner.worker = std::thread(
-            [this, &runner, basePath, onEvent]() {
+            [this, &runner, basePath, onEvent, myGen]() {
                 try {
-                    while (!runner.stopRequested.load()) {
+                    while (!runner.stopRequested.load() &&
+                           runner.generation.load() == myGen) {
                         std::uint64_t curSeq = runner.lastId.load();
                         std::string path = basePath +
                                            (basePath.find('?') == std::string::npos
@@ -1574,7 +1596,8 @@ struct OctiNetworkClient::Impl {
                         if (port == 443) {
                             bool winHttpOk = streamWinHttpSse(
                                 runner, path, curSeq, onEvent);
-                            if (runner.stopRequested.load()) {
+                            if (runner.stopRequested.load() ||
+                                runner.generation.load() != myGen) {
                                 break;
                             }
                             if (!winHttpOk && host == OCTI_SERVER_HOST && port == OCTI_SERVER_PORT) {
@@ -1606,19 +1629,25 @@ struct OctiNetworkClient::Impl {
                         }
 #endif
 
-                        if (runner.stopRequested.load()) {
+                        if (runner.stopRequested.load() ||
+                            runner.generation.load() != myGen) {
                             break;
                         }
 
                         std::unique_lock<std::mutex> lock(runner.mutex);
                         runner.cv.wait_for(
                             lock, std::chrono::milliseconds(150),
-                            [&runner]() { return runner.stopRequested.load(); });
+                            [&runner, myGen]() {
+                                return runner.stopRequested.load() ||
+                                       runner.generation.load() != myGen;
+                            });
                     }
                 } catch (const std::exception &) {
                 } catch (...) {
                 }
-                runner.active.store(false);
+                if (runner.generation.load() == myGen) {
+                    runner.active.store(false);
+                }
             });
     }
 };
@@ -2295,6 +2324,7 @@ ApiResult<CreateTableResponse> OctiNetworkClient::createTable(
     body["allow_takeback"] = req.allowTakeback;
     body["observer_policy"] = req.observerPolicy;
     body["voice_policy"] = req.voicePolicy;
+    body["seat"] = req.seat;
     if (!req.passcode.empty()) {
         body["passcode"] = req.passcode;
     }

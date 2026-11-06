@@ -88,6 +88,9 @@ public:
 
     bool friendsOnly() const { return _friendsOnly; }
     void setFriendsOnly(bool fo) { _friendsOnly = fo; }
+    const std::string &opponentFilter() const { return _opponentFilter; }
+    const std::string &hostSeat() const { return _hostSeat; }
+    void setHostSeat(const std::string &s) { _hostSeat = s; }
 
     int claimForfeitDelaySec() const { return _claimForfeitDelaySec; }
     int minMoveThinkMs() const { return _minMoveThinkMs; }
@@ -127,6 +130,8 @@ private:
     bool _hostTimeControlEnabled = false;
     std::int64_t _hostInitialMs = 600000;
     std::int64_t _hostIncrementMs = 5000;
+    bool _hostAllowRobots = true;
+    std::string _hostSeat = "wait_for_human";
 };
 
 class OctiBotConversationEngine {

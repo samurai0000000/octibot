@@ -370,16 +370,16 @@ std::vector<std::pair<std::string, std::string>> OctiBotConfigStore::tokenPool()
 }
 
 std::string OctiBotConfigStore::resolveTokenForRobot(const std::string &robotName) const {
-    std::string directToken = getString("bot_token");
-    if (!directToken.empty() && directToken != "auto" &&
-        directToken.rfind("octi_bot_", 0) == 0) {
-        return directToken;
-    }
     if (!robotName.empty()) {
         std::string poolToken = getString("bot_token_" + robotName);
         if (!poolToken.empty() && poolToken.rfind("octi_bot_", 0) == 0) {
             return poolToken;
         }
+    }
+    std::string directToken = getString("bot_token");
+    if (!directToken.empty() && directToken != "auto" &&
+        directToken.rfind("octi_bot_", 0) == 0) {
+        return directToken;
     }
     return "";
 }

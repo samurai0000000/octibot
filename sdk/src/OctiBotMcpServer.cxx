@@ -9,7 +9,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <thread>
 #include <nlohmann/json.hpp>
@@ -308,6 +310,23 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
     });
 
     tools.push_back({
+        {"name", "octibot_set_match_override"},
+        {"description", "Set or clear a temporary match directive override so the bot seeks/plays a match against a specific player (human or robot), joins a specific open table (#g-...), or hosts a table allowing robots, then automatically reverts to its normal humans-only policy after the game(s) complete."},
+        {"inputSchema", {
+            {"type", "object"},
+            {"properties", {
+                {"action", {{"type", "string"}, {"description", "'set' (default) or 'clear'"}}},
+                {"target_player", {{"type", "string"}, {"description", "Optional player or robot handle to play against (e.g. 'octibot-sdk-cpu', 'samurai', etc.)"}}},
+                {"room_id", {{"type", "string"}, {"description", "Optional specific open room ID to join (e.g. 'g-1234abcd')"}}},
+                {"allow_robots", {{"type", "boolean"}, {"description", "Whether to allow robot opponents during this override (default true)"}}},
+                {"mode", {{"type", "string"}, {"description", "Optional hosted game mode override: 2P, 4P, or OFK"}}},
+                {"bases", {{"type", "integer"}, {"description", "Optional hosted base count override: 1 or 3"}}},
+                {"games", {{"type", "integer"}, {"description", "Number of games to play before reverting to normal humans-only policy (default 1)"}}}
+            }}
+        }}
+    });
+
+    tools.push_back({
         {"name", "octibot_wait_for_event"},
         {"description", "Block until an event occurs (bot move turn, chat mention, proposal, game start/end)."},
         {"inputSchema", {
@@ -321,15 +340,58 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
     return tools;
 }
 
-std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
-    nlohmann::json req;
-    try {
-        req = nlohmann::json::parse(jsonRequest);
-    } catch (...) {
+std::string OctiBotMcpServer::createMcpSession() {
+    std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+    int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    for (auto it = _mcpSessions.begin(); it != _mcpSessions.end(); ) {
+        if (it->second.closed || (nowMs - it->second.lastActivityMs > 3600000)) {
+            it = _mcpSessions.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (_mcpSessions.size() >= 256) {
+        auto oldestIt = _mcpSessions.begin();
+        for (auto it = _mcpSessions.begin(); it != _mcpSessions.end(); ++it) {
+            if (it->second.lastActivityMs < oldestIt->second.lastActivityMs) {
+                oldestIt = it;
+            }
+        }
+        if (oldestIt != _mcpSessions.end()) {
+            _mcpSessions.erase(oldestIt);
+        }
+    }
+
+    std::random_device rd;
+    std::mt19937_64 gen1(rd());
+    std::mt19937_64 gen2(rd());
+    uint64_t part1 = gen1();
+    uint64_t part2 = gen2();
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0')
+        << std::setw(16) << part1
+        << std::setw(16) << part2;
+    std::string sid = oss.str();
+
+    McpSessionState state;
+    state.sessionId = sid;
+    state.createdAtMs = nowMs;
+    state.lastActivityMs = nowMs;
+    state.closed = false;
+    _mcpSessions[sid] = std::move(state);
+
+    return sid;
+}
+
+std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion) {
+    if (!req.is_object()) {
         nlohmann::json err;
         err["jsonrpc"] = "2.0";
         err["id"] = nullptr;
-        err["error"] = {{"code", -32700}, {"message", "Parse error"}};
+        err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
         return err.dump();
     }
 
@@ -337,12 +399,21 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     std::string method = req.value("method", "");
     nlohmann::json params = req.value("params", nlohmann::json::object());
 
-    if (!req.is_object() || (!req.contains("method") && (req.contains("result") || req.contains("error")))) {
+    bool isNotification = !req.contains("id") || (req["id"].is_null() && method.rfind("notifications/", 0) == 0);
+    if (isNotification) {
         return "";
     }
 
-    if (method == "notifications/initialized") {
+    if (!req.contains("method") && (req.contains("result") || req.contains("error"))) {
         return "";
+    }
+
+    if (method.empty()) {
+        nlohmann::json err;
+        err["jsonrpc"] = "2.0";
+        err["id"] = id.is_null() ? nullptr : id;
+        err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
+        return err.dump();
     }
 
     nlohmann::json resp;
@@ -350,11 +421,21 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     resp["id"] = id;
 
     if (method == "initialize") {
+        std::string clientVersion;
+        if (params.is_object() && params.contains("protocolVersion") && params["protocolVersion"].is_string()) {
+            clientVersion = params["protocolVersion"].get<std::string>();
+        }
+        std::string chosenVersion = defaultProtocolVersion;
+        if (clientVersion == "2024-11-05" || clientVersion == "2025-03-26" || clientVersion == "2025-11-25") {
+            chosenVersion = clientVersion;
+        }
+
         nlohmann::json result;
-        result["protocolVersion"] = "2024-11-05";
+        result["protocolVersion"] = chosenVersion;
         result["capabilities"] = {
             {"tools", nlohmann::json::object()},
-            {"resources", nlohmann::json::object()}
+            {"resources", nlohmann::json::object()},
+            {"prompts", nlohmann::json::object()}
         };
         result["serverInfo"] = {
             {"name", "octibot"},
@@ -366,6 +447,11 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
 
     if (method == "ping") {
         resp["result"] = nlohmann::json::object();
+        return resp.dump();
+    }
+
+    if (method == "prompts/list") {
+        resp["result"] = {{"prompts", nlohmann::json::array()}};
         return resp.dump();
     }
 
@@ -423,6 +509,60 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &jsonRequest) {
     return resp.dump();
 }
 
+std::string OctiBotMcpServer::handleJsonRpc(const std::string &rawBody, const std::string &defaultProtocolVersion) {
+    nlohmann::json req;
+    try {
+        req = nlohmann::json::parse(rawBody);
+    } catch (...) {
+        nlohmann::json err;
+        err["jsonrpc"] = "2.0";
+        err["id"] = nullptr;
+        err["error"] = {{"code", -32700}, {"message", "Parse error"}};
+        return err.dump();
+    }
+
+    if (req.is_array()) {
+        if (req.empty()) {
+            nlohmann::json err;
+            err["jsonrpc"] = "2.0";
+            err["id"] = nullptr;
+            err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
+            return err.dump();
+        }
+        nlohmann::json batchResp = nlohmann::json::array();
+        for (const auto &item : req) {
+            if (!item.is_object()) {
+                nlohmann::json err;
+                err["jsonrpc"] = "2.0";
+                err["id"] = nullptr;
+                err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
+                batchResp.push_back(err);
+            } else {
+                std::string singleResp = handleSingleJsonRpcObject(item, defaultProtocolVersion);
+                if (!singleResp.empty()) {
+                    try {
+                        batchResp.push_back(nlohmann::json::parse(singleResp));
+                    } catch (...) {}
+                }
+            }
+        }
+        if (batchResp.empty()) {
+            return "";
+        }
+        return batchResp.dump();
+    }
+
+    if (req.is_object()) {
+        return handleSingleJsonRpcObject(req, defaultProtocolVersion);
+    }
+
+    nlohmann::json err;
+    err["jsonrpc"] = "2.0";
+    err["id"] = nullptr;
+    err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
+    return err.dump();
+}
+
 std::string OctiBotMcpServer::callTool(const std::string &name, const std::string &argumentsJson) {
     nlohmann::json args;
     try {
@@ -455,6 +595,14 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         st["table_behavior"] = _runner.policyEngine().tableBehavior();
         st["friends_count"] = _runner.policyEngine().friends().size();
         st["banned_count"] = _runner.policyEngine().banned().size();
+        auto ov = _runner.matchOverride();
+        st["match_override"] = {
+            {"active", ov.active},
+            {"target_player", ov.targetPlayerHandle},
+            {"target_room_id", ov.targetRoomId},
+            {"allow_robots", ov.allowRobots},
+            {"remaining_games", ov.remainingGames}
+        };
         return st.dump(2);
     }
 
@@ -509,16 +657,21 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
 
         if (autoJoin && !ranked.empty()) {
             std::string roomId = ranked.front().roomId;
-            auto joinRes = _runner.networkClient().joinTable(roomId);
+            int joinedSeat = 0;
+            std::string joinErr;
+            bool ok = _runner.joinRoomById(roomId, joinedSeat, joinErr);
             res["action_taken"] = "joined";
             res["joined_room_id"] = roomId;
-            res["join_status"] = joinRes.ok ? "success" : joinRes.errorMessage;
+            res["join_status"] = ok ? "success" : joinErr;
         } else if (autoHost && ranked.empty()) {
             auto hostReq = _runner.policyEngine().buildHostTableRequest();
-            auto createRes = _runner.networkClient().createTable(hostReq);
+            std::string hostedRoomId;
+            int hostedSeat = 0;
+            std::string hostErr;
+            bool ok = _runner.hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, hostErr);
             res["action_taken"] = "hosted";
-            res["hosted_room_id"] = createRes.data.roomId;
-            res["host_status"] = createRes.ok ? "success" : createRes.errorMessage;
+            res["hosted_room_id"] = hostedRoomId;
+            res["host_status"] = ok ? "success" : hostErr;
         } else {
             res["action_taken"] = "none";
         }
@@ -531,18 +684,34 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         if (action == "create") {
             auto req = _runner.policyEngine().buildHostTableRequest();
             if (args.contains("mode")) req.mode = args["mode"].get<std::string>();
-            auto r = _runner.networkClient().createTable(req);
-            res["ok"] = r.ok;
-            res["room_id"] = r.data.roomId;
+            if (args.contains("allow_robots")) req.allowRobots = args["allow_robots"].get<bool>();
+            std::string roomId;
+            int seat = 0;
+            std::string err;
+            bool ok = _runner.hostRoomWithRequest(req, roomId, seat, err);
+            res["ok"] = ok;
+            res["room_id"] = roomId;
+            if (!ok) res["error"] = err;
         } else if (action == "join") {
             std::string roomId = args.value("room_id", "");
-            auto r = _runner.networkClient().joinTable(roomId);
-            res["ok"] = r.ok;
-            res["room_id"] = r.data.roomId;
+            BotMatchOverride ov;
+            ov.active = true;
+            ov.targetRoomId = roomId;
+            ov.allowRobots = true;
+            ov.remainingGames = 1;
+            std::string summary, err;
+            bool ok = _runner.applyMatchOverride(ov, summary, err);
+            res["ok"] = ok;
+            res["room_id"] = _runner.currentRoomId();
+            res["summary"] = summary;
+            if (!ok) res["error"] = err;
         } else if (action == "leave") {
+            _runner.clearMatchOverride();
             std::string roomId = args.value("room_id", _runner.currentRoomId());
-            auto r = _runner.networkClient().leaveTable(roomId);
-            res["ok"] = r.ok;
+            std::string err;
+            bool ok = _runner.leaveRoomById(roomId, err);
+            res["ok"] = ok;
+            if (!ok) res["error"] = err;
         } else if (action == "kick") {
             std::string roomId = args.value("room_id", _runner.currentRoomId());
             int seat = args.value("seat", 0);
@@ -756,6 +925,43 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         return res.dump(2);
     }
 
+    if (name == "octibot_set_match_override") {
+        std::string action = args.value("action", "set");
+        nlohmann::json res;
+        if (action == "clear" || action == "reset" || action == "off") {
+            _runner.clearMatchOverride();
+            res["ok"] = true;
+            res["active"] = false;
+            res["summary"] = "Match override cleared; reverted to standing policy.";
+            return res.dump(2);
+        }
+
+        BotMatchOverride ov;
+        ov.active = true;
+        ov.targetPlayerHandle = args.value("target_player", "");
+        ov.targetRoomId = args.value("room_id", "");
+        ov.allowRobots = args.value("allow_robots", true);
+        ov.hostMode = args.value("mode", "");
+        ov.hostBases = args.value("bases", 0);
+        ov.remainingGames = std::max(1, args.value("games", 1));
+
+        std::string summary, err;
+        bool ok = _runner.applyMatchOverride(ov, summary, err);
+        auto currentOv = _runner.matchOverride();
+        res["ok"] = ok;
+        res["summary"] = summary;
+        if (!err.empty()) res["error"] = err;
+        res["active_room_id"] = _runner.currentRoomId();
+        res["match_override"] = {
+            {"active", currentOv.active},
+            {"target_player", currentOv.targetPlayerHandle},
+            {"target_room_id", currentOv.targetRoomId},
+            {"allow_robots", currentOv.allowRobots},
+            {"remaining_games", currentOv.remainingGames}
+        };
+        return res.dump(2);
+    }
+
     if (name == "octibot_wait_for_event") {
         int timeoutMs = args.value("timeout_ms", 30000);
         std::string reason;
@@ -872,20 +1078,279 @@ void OctiBotMcpServer::registerHttpRoutes() {
         }
     });
 
-    _httpServer->Post("/mcp", [this](const httplib::Request &req, httplib::Response &res) {
-        res.set_content(handleJsonRpc(req.body), "application/json");
+    _httpServer->Post("/api/v1/prompt", [this](const httplib::Request &req, httplib::Response &res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            std::string prompt = j.value("prompt", "");
+            std::string channel = j.value("channel", "dashboard");
+            if (prompt.empty()) {
+                res.status = 400;
+                res.set_content("{\"ok\":false,\"error\":\"Prompt is empty\"}", "application/json");
+                return;
+            }
+            _runner.dispatchOwnerPrompt(prompt, channel, _runner.currentRoomId());
+            nlohmann::json okRes = {
+                {"ok", true},
+                {"message", "Owner prompt dispatched to AI agent handler. Check Conversation Log for response."}
+            };
+            res.set_content(okRes.dump(), "application/json");
+        } catch (const std::exception &e) {
+            res.status = 400;
+            nlohmann::json errRes = {{"ok", false}, {"error", std::string("JSON parse error: ") + e.what()}};
+            res.set_content(errRes.dump(), "application/json");
+        }
     });
 
-    _httpServer->Post("/", [this](const httplib::Request &req, httplib::Response &res) {
-        res.set_content(handleJsonRpc(req.body), "application/json");
+    _httpServer->Post("/api/v1/override", [this](const httplib::Request &req, httplib::Response &res) {
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            std::string out = callTool("octibot_set_match_override", j.dump());
+            res.set_content(out, "application/json");
+        } catch (const std::exception &e) {
+            res.status = 400;
+            nlohmann::json errRes = {{"ok", false}, {"error", std::string("JSON parse error: ") + e.what()}};
+            res.set_content(errRes.dump(), "application/json");
+        }
     });
 
-    _httpServer->Post("/message", [this](const httplib::Request &req, httplib::Response &res) {
-        res.set_content(handleJsonRpc(req.body), "application/json");
-    });
+    auto setCorsHeaders = [](httplib::Response &res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers",
+                       "Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID");
+        res.set_header("Access-Control-Expose-Headers", "Mcp-Session-Id");
+    };
 
-    _httpServer->Get("/sse", [](const httplib::Request &req, httplib::Response &res) {
+    auto handleOptions = [setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
         (void) req;
+        setCorsHeaders(res);
+        res.status = 204;
+    };
+
+    _httpServer->Options("/mcp", handleOptions);
+    _httpServer->Options("/sse", handleOptions);
+    _httpServer->Options("/message", handleOptions);
+
+    auto handleStreamableHttpPost = [this, setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
+        setCorsHeaders(res);
+
+        nlohmann::json parsed;
+        try {
+            parsed = nlohmann::json::parse(req.body);
+        } catch (...) {
+            res.status = 400;
+            nlohmann::json err;
+            err["jsonrpc"] = "2.0";
+            err["id"] = nullptr;
+            err["error"] = {{"code", -32700}, {"message", "Parse error"}};
+            res.set_content(err.dump(), "application/json");
+            return;
+        }
+
+        std::string sessionId;
+        if (req.has_header("Mcp-Session-Id")) {
+            sessionId = req.get_header_value("Mcp-Session-Id");
+        }
+
+        bool isInit = false;
+        if (parsed.is_object()) {
+            if (parsed.value("method", "") == "initialize") {
+                isInit = true;
+            }
+        } else if (parsed.is_array()) {
+            for (const auto &item : parsed) {
+                if (item.is_object() && item.value("method", "") == "initialize") {
+                    isInit = true;
+                    break;
+                }
+            }
+        }
+
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if (sessionId.empty() && isInit) {
+            sessionId = createMcpSession();
+        } else if (!sessionId.empty()) {
+            std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+            auto it = _mcpSessions.find(sessionId);
+            if (it != _mcpSessions.end()) {
+                it->second.lastActivityMs = nowMs;
+            } else {
+                McpSessionState state;
+                state.sessionId = sessionId;
+                state.createdAtMs = nowMs;
+                state.lastActivityMs = nowMs;
+                state.closed = false;
+                _mcpSessions[sessionId] = std::move(state);
+            }
+        }
+
+        if (!sessionId.empty()) {
+            res.set_header("Mcp-Session-Id", sessionId);
+        }
+
+        std::string resp = handleJsonRpc(req.body, "2025-03-26");
+        if (resp.empty()) {
+            res.status = 202;
+            res.body.clear();
+        } else {
+            res.status = 200;
+            res.set_content(resp, "application/json");
+        }
+    };
+
+    _httpServer->Post("/mcp", handleStreamableHttpPost);
+    _httpServer->Post("/sse", handleStreamableHttpPost);
+    _httpServer->Post("/", handleStreamableHttpPost);
+
+    _httpServer->Post("/message", [this, setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
+        setCorsHeaders(res);
+        std::string resp = handleJsonRpc(req.body, "2024-11-05");
+        if (resp.empty()) {
+            res.status = 202;
+            res.body.clear();
+        } else {
+            res.status = 200;
+            res.set_content(resp, "application/json");
+        }
+    });
+
+    _httpServer->Get("/mcp", [this, setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
+        setCorsHeaders(res);
+
+        if (req.has_header("Accept")) {
+            std::string accept = req.get_header_value("Accept");
+            if (accept.find("text/event-stream") == std::string::npos && accept.find("*/*") == std::string::npos) {
+                res.status = 405;
+                return;
+            }
+        }
+
+        std::string sessionId;
+        if (req.has_header("Mcp-Session-Id")) {
+            sessionId = req.get_header_value("Mcp-Session-Id");
+        }
+
+        int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if (sessionId.empty()) {
+            sessionId = createMcpSession();
+        } else {
+            std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+            auto it = _mcpSessions.find(sessionId);
+            if (it != _mcpSessions.end()) {
+                it->second.lastActivityMs = nowMs;
+            } else {
+                McpSessionState state;
+                state.sessionId = sessionId;
+                state.createdAtMs = nowMs;
+                state.lastActivityMs = nowMs;
+                state.closed = false;
+                _mcpSessions[sessionId] = std::move(state);
+            }
+        }
+
+        res.set_header("Mcp-Session-Id", sessionId);
+        res.set_header("Cache-Control", "no-cache");
+        res.set_header("X-Accel-Buffering", "no");
+
+        auto lastKeepalive = std::make_shared<std::chrono::steady_clock::time_point>(std::chrono::steady_clock::now());
+        auto initialSent = std::make_shared<bool>(false);
+
+        auto provider = [this, sessionId, lastKeepalive, initialSent](size_t offset, httplib::DataSink &sink) -> bool {
+            (void) offset;
+            if (!sink.is_writable() || !_httpRunning) {
+                return false;
+            }
+
+            if (!*initialSent) {
+                *initialSent = true;
+                std::string connMsg = ": connected\n\n";
+                return sink.write(connMsg.data(), connMsg.size());
+            }
+
+            std::vector<std::string> toSend;
+            {
+                std::unique_lock<std::mutex> lock(_mcpSessionsMutex);
+                _mcpSseCv.wait_for(lock, std::chrono::milliseconds(200), [this, &sessionId]() {
+                    if (!_httpRunning) return true;
+                    auto it = _mcpSessions.find(sessionId);
+                    if (it == _mcpSessions.end() || it->second.closed) return true;
+                    return !it->second.pendingMessages.empty();
+                });
+
+                if (!_httpRunning) {
+                    return false;
+                }
+
+                auto it = _mcpSessions.find(sessionId);
+                if (it == _mcpSessions.end() || it->second.closed) {
+                    return false;
+                }
+
+                it->second.lastActivityMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+
+                if (!it->second.pendingMessages.empty()) {
+                    toSend = std::move(it->second.pendingMessages);
+                    it->second.pendingMessages.clear();
+                }
+            }
+
+            if (!toSend.empty()) {
+                std::string batch;
+                for (const auto &msg : toSend) {
+                    batch += "event: message\ndata: " + msg + "\n\n";
+                }
+                *lastKeepalive = std::chrono::steady_clock::now();
+                return sink.write(batch.data(), batch.size());
+            }
+
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - *lastKeepalive).count() >= 15) {
+                *lastKeepalive = now;
+                std::string ping = ": keepalive\n\n";
+                return sink.write(ping.data(), ping.size());
+            }
+
+            return true;
+        };
+
+        auto releaser = [this, sessionId](bool success) {
+            (void) success;
+            std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+            auto it = _mcpSessions.find(sessionId);
+            if (it != _mcpSessions.end()) {
+                it->second.lastActivityMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+            }
+        };
+
+        res.set_chunked_content_provider("text/event-stream", provider, releaser);
+    });
+
+    _httpServer->Delete("/mcp", [this, setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
+        setCorsHeaders(res);
+        if (req.has_header("Mcp-Session-Id")) {
+            std::string sessionId = req.get_header_value("Mcp-Session-Id");
+            {
+                std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+                auto it = _mcpSessions.find(sessionId);
+                if (it != _mcpSessions.end()) {
+                    it->second.closed = true;
+                    _mcpSessions.erase(it);
+                }
+            }
+            _mcpSseCv.notify_all();
+        }
+        res.status = 204;
+    });
+
+    _httpServer->Get("/sse", [setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
+        (void) req;
+        setCorsHeaders(res);
         res.set_header("Content-Type", "text/event-stream");
         res.set_header("Cache-Control", "no-cache");
         res.set_header("Connection", "keep-alive");
@@ -970,6 +1435,14 @@ nlohmann::json OctiBotMcpServer::buildStatusJson() {
         });
     }
     match["seats"] = seatsJson;
+    auto ov = _runner.matchOverride();
+    match["override"] = {
+        {"active", ov.active},
+        {"target_player", ov.targetPlayerHandle},
+        {"target_room_id", ov.targetRoomId},
+        {"allow_robots", ov.allowRobots},
+        {"remaining_games", ov.remainingGames}
+    };
     root["match"] = match;
 
     // 4. Search Engine Telemetry & Move History
@@ -1107,6 +1580,7 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["host_time_control_enabled"] = _runner.config().getBool("host_time_control_enabled", false) ? "true" : "false";
     effectiveDefaults["host_initial_ms"] = std::to_string(_runner.config().getInt64("host_initial_ms", 600000));
     effectiveDefaults["host_increment_ms"] = std::to_string(_runner.config().getInt64("host_increment_ms", 5000));
+    effectiveDefaults["host_seat"] = _runner.config().getString("host_seat", "wait_for_human");
 
     effectiveDefaults["accept_draw_eval_threshold"] = std::to_string(_runner.config().getInt("accept_draw_eval_threshold", -1500));
     effectiveDefaults["accept_undo"] = _runner.config().getString("accept_undo", "friends_only");
@@ -1558,6 +2032,7 @@ header {
       <tr><td>Active Profile / Algo</td><td id="botProfileAlgo">-</td></tr>
       <tr><td>Active Room / Phase</td><td id="botRoomPhase">-</td></tr>
       <tr><td>Seat / Turn / Ply</td><td id="botSeatTurnPly">-</td></tr>
+      <tr><td>Match Override</td><td id="botMatchOverride"><span class="badge badge-dim">None (humans_only)</span></td></tr>
       <tr><td>Inactivity TTL</td><td id="botTtl">-</td></tr>
     </table>
     <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-top:4px;">Board Preview (ASCII):</div>
@@ -1572,6 +2047,15 @@ header {
     </div>
     <div class="conv-feed" id="convFeed">
       <div style="color:var(--text-dim);font-size:12px;text-align:center;padding:24px 0;">No conversation events recorded yet.</div>
+    </div>
+    <div style="margin-top:10px;border-top:1px solid var(--border-subtle);padding-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">&#x1F3AF; Owner Prompt Directive (Instruct AI Agent Handler to Play a Match):</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="ownerPromptInput" class="input-control" placeholder="e.g. Play a match against @octibot-sdk-cpu, or join #g-1234..." style="flex:1;padding:6px 10px;font-size:12px;" onkeydown="if(event.key==='Enter')sendOwnerPrompt();">
+        <button class="btn btn-primary btn-sm" onclick="sendOwnerPrompt()">Send Prompt</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearMatchOverrideBtn()" title="Reset to standing humans-only policy">Clear Override</button>
+      </div>
+      <div id="ownerPromptFeedback" style="font-size:11px;color:var(--text-muted);margin-top:4px;"></div>
     </div>
   </div>
 
@@ -2378,6 +2862,20 @@ async function pollStatus() {
       document.getElementById('badgePhase').textContent = data.match.phase || 'IDLE';
       document.getElementById('botRoomPhase').textContent = (data.match.room_id ? ('#' + data.match.room_id) : 'None') + ' / ' + (data.match.phase || 'IDLE');
       document.getElementById('botSeatTurnPly').textContent = 'Seat ' + (data.match.my_seat || 0) + ' / Turn ' + (data.match.turn_seat || 0) + ' / Ply ' + (data.match.ply_count || 0);
+      const ovEl = document.getElementById('botMatchOverride');
+      if (ovEl) {
+        const ov = data.match.override;
+        if (ov && ov.active) {
+          let desc = 'ACTIVE';
+          if (ov.target_player) desc += ' vs @' + escapeHtml(ov.target_player);
+          if (ov.target_room_id) desc += ' (#' + escapeHtml(ov.target_room_id) + ')';
+          if (ov.allow_robots) desc += ' [robots OK]';
+          desc += ' (' + (ov.remaining_games || 1) + 'g left)';
+          ovEl.innerHTML = '<span class="badge badge-green">' + desc + '</span>';
+        } else {
+          ovEl.innerHTML = '<span class="badge badge-dim">None (humans_only)</span>';
+        }
+      }
       document.getElementById('botTtl').textContent = data.match.ttl_remaining_ms ? formatMs(data.match.ttl_remaining_ms) : '59:59';
       if (data.match.board_ascii) {
         document.getElementById('boardAscii').textContent = data.match.board_ascii;
@@ -2584,6 +3082,43 @@ function formatMs(ms) {
   return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
+async function sendOwnerPrompt() {
+  const inp = document.getElementById('ownerPromptInput');
+  const fb = document.getElementById('ownerPromptFeedback');
+  if (!inp || !inp.value.trim()) return;
+  const prompt = inp.value.trim();
+  inp.value = '';
+  if (fb) fb.textContent = 'Dispatching prompt to AI agent handler...';
+  try {
+    const res = await fetch('/api/v1/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, channel: 'dashboard' })
+    });
+    const out = await res.json();
+    if (fb) fb.textContent = out.ok ? out.message : ('Error: ' + (out.error || 'Failed'));
+    setTimeout(pollStatus, 800);
+  } catch (e) {
+    if (fb) fb.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function clearMatchOverrideBtn() {
+  const fb = document.getElementById('ownerPromptFeedback');
+  try {
+    const res = await fetch('/api/v1/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'clear' })
+    });
+    const out = await res.json();
+    if (fb) fb.textContent = out.summary || 'Match override cleared.';
+    pollStatus();
+  } catch (e) {
+    if (fb) fb.textContent = 'Error: ' + e.message;
+  }
+}
+
 // Initial bootstrap
 pollStatus();
 pollLogs();
@@ -2616,6 +3151,7 @@ bool OctiBotMcpServer::startHttpServer(int port, const std::string &bindAddr) {
         actualPort = port;
     }
     _boundPort = actualPort;
+    _httpRunning = true;
 
     _httpThread = std::make_unique<std::thread>([this]() {
         _httpServer->listen_after_bind();
@@ -2627,6 +3163,9 @@ bool OctiBotMcpServer::startHttpServer(int port, const std::string &bindAddr) {
 }
 
 void OctiBotMcpServer::stopHttpServer() {
+    _httpRunning = false;
+    _mcpSseCv.notify_all();
+
     if (_httpServer) {
         _httpServer->stop();
     }
@@ -2636,6 +3175,11 @@ void OctiBotMcpServer::stopHttpServer() {
     }
     _httpServer.reset();
     _boundPort = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(_mcpSessionsMutex);
+        _mcpSessions.clear();
+    }
 }
 
 void OctiBotMcpServer::startAimonBridge() {
@@ -2657,17 +3201,33 @@ void OctiBotMcpServer::startAimonBridge() {
     _aimonRunning = true;
 
     _aimonThread = std::make_unique<std::thread>([this]() {
+#if defined(_WIN32)
+        WSADATA wsaData;
+        ::WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
         std::string host = _runner.config().getString("aimon_host", "127.0.0.1");
         int gwPort = _runner.config().getInt("aimon_gateway_port", 0);
         int aimonPort = _runner.config().getInt("aimon_port", 3883);
         int port = (gwPort > 0) ? gwPort : ((aimonPort == 3883) ? 3885 : aimonPort);
+
+        auto closeSock = [](std::intptr_t s) {
+            if (s < 0) return;
 #if defined(_WIN32)
-        (void) host;
-        (void) port;
+            ::closesocket(static_cast<SOCKET>(s));
+#else
+            ::close(static_cast<int>(s));
 #endif
+        };
+
+        auto sendAll = [](std::intptr_t s, const char *data, std::size_t len) {
+#if defined(_WIN32)
+            ::send(static_cast<SOCKET>(s), data, static_cast<int>(len), 0);
+#else
+            ::send(static_cast<int>(s), data, len, 0);
+#endif
+        };
 
         while (_aimonRunning) {
-#if !defined(_WIN32)
             struct addrinfo hints, *res = nullptr;
             std::memset(&hints, 0, sizeof(hints));
             hints.ai_family = AF_INET;
@@ -2682,7 +3242,12 @@ void OctiBotMcpServer::startAimonBridge() {
                 continue;
             }
 
-            int sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+#if defined(_WIN32)
+            SOCKET rawSock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+            std::intptr_t sock = (rawSock == INVALID_SOCKET) ? -1 : static_cast<std::intptr_t>(rawSock);
+#else
+            std::intptr_t sock = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+#endif
             if (sock < 0) {
                 ::freeaddrinfo(res);
                 res = nullptr;
@@ -2690,8 +3255,13 @@ void OctiBotMcpServer::startAimonBridge() {
                 continue;
             }
 
-            if (::connect(sock, res->ai_addr, res->ai_addrlen) < 0) {
-                ::close(sock);
+#if defined(_WIN32)
+            int connRc = ::connect(static_cast<SOCKET>(sock), res->ai_addr, static_cast<int>(res->ai_addrlen));
+#else
+            int connRc = ::connect(static_cast<int>(sock), res->ai_addr, res->ai_addrlen);
+#endif
+            if (connRc < 0) {
+                closeSock(sock);
                 ::freeaddrinfo(res);
                 res = nullptr;
                 std::this_thread::sleep_for(std::chrono::seconds(3));
@@ -2700,7 +3270,7 @@ void OctiBotMcpServer::startAimonBridge() {
             ::freeaddrinfo(res);
             res = nullptr;
 
-            _aimonSocketFd = sock;
+            _aimonSocketFd.store(sock);
             std::string h = _runner.identity().handle;
             if (h.empty()) h = _runner.config().getString("robot_name", "stock");
             std::string connMsg = "[" + h + "] Connected to aimon gateway at " + host + ":" + std::to_string(port);
@@ -2724,21 +3294,28 @@ void OctiBotMcpServer::startAimonBridge() {
                 reg["params"]["tools"] = buildToolsListJson();
             }
             std::string regStr = reg.dump() + "\n";
-            ::send(sock, regStr.c_str(), regStr.size(), 0);
+            sendAll(sock, regStr.c_str(), regStr.size());
 
             // Read loop
             std::string buf;
             char readBuf[1024];
             while (_aimonRunning) {
-                ssize_t n = ::recv(sock, readBuf, sizeof(readBuf) - 1, 0);
+#if defined(_WIN32)
+                int n = ::recv(static_cast<SOCKET>(sock), readBuf, static_cast<int>(sizeof(readBuf) - 1), 0);
+#else
+                ssize_t n = ::recv(static_cast<int>(sock), readBuf, sizeof(readBuf) - 1, 0);
+#endif
                 if (n <= 0) break;
                 readBuf[n] = '\0';
-                buf.append(readBuf, n);
+                buf.append(readBuf, static_cast<std::size_t>(n));
 
                 size_t nl;
                 while ((nl = buf.find('\n')) != std::string::npos) {
                     std::string line = buf.substr(0, nl);
                     buf.erase(0, nl + 1);
+                    if (!line.empty() && line.back() == '\r') {
+                        line.pop_back();
+                    }
                     if (line.empty()) continue;
 
                     try {
@@ -2759,30 +3336,32 @@ void OctiBotMcpServer::startAimonBridge() {
                     std::string resp = handleJsonRpc(line);
                     if (!resp.empty()) {
                         resp += "\n";
-                        ::send(sock, resp.c_str(), resp.size(), 0);
+                        sendAll(sock, resp.c_str(), resp.size());
                     }
                 }
             }
 
-            ::close(sock);
-            _aimonSocketFd = -1;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-#else
-            break;
-#endif
+            closeSock(sock);
+            _aimonSocketFd.store(-1);
+            if (_aimonRunning) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
         }
     });
 }
 
 void OctiBotMcpServer::stopAimonBridge() {
     _aimonRunning = false;
-#if !defined(_WIN32)
-    if (_aimonSocketFd >= 0) {
-        ::shutdown(_aimonSocketFd, SHUT_RDWR);
-        ::close(_aimonSocketFd);
-        _aimonSocketFd = -1;
-    }
+    std::intptr_t fd = _aimonSocketFd.exchange(-1);
+    if (fd >= 0) {
+#if defined(_WIN32)
+        ::shutdown(static_cast<SOCKET>(fd), SD_BOTH);
+        ::closesocket(static_cast<SOCKET>(fd));
+#else
+        ::shutdown(static_cast<int>(fd), SHUT_RDWR);
+        ::close(static_cast<int>(fd));
 #endif
+    }
     if (_aimonThread && _aimonThread->joinable()) {
         _aimonThread->join();
         _aimonThread.reset();
@@ -2844,6 +3423,27 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
                  "{\"mcpServers\":{\"octibot\":{\"url\":\"http://127.0.0.1:" + mcpPortStr + "/mcp\"}}}\n");
     writeFile600(sdir + "/.cursor/skills/octibot/SKILL.md", skillGuide);
 
+    const char *homeEnv = std::getenv("HOME");
+    if (homeEnv && homeEnv[0] != '\0') {
+        std::string geminiDir = std::string(homeEnv) + "/.gemini";
+        std::string botAppDir = geminiDir + "/antigravity-octibot";
+        struct stat gst;
+        if (::stat(geminiDir.c_str(), &gst) == 0) {
+            mkdir700(botAppDir);
+            auto ensureSymlink = [&](const char *fname) {
+                std::string linkPath = botAppDir + "/" + fname;
+                struct stat lst;
+                if (::lstat(linkPath.c_str(), &lst) != 0) {
+                    std::string target = std::string("../antigravity-cli/") + fname;
+                    if (::symlink(target.c_str(), linkPath.c_str()) != 0) {}
+                }
+            };
+            ensureSymlink("antigravity-oauth-token");
+            ensureSymlink("settings.json");
+            ensureSymlink("installation_id");
+        }
+    }
+
     return true;
 #else
     (void) sandboxDir;
@@ -2852,13 +3452,41 @@ bool OctiBotAgentCliLauncher::materializeSandboxWorkspace(const std::string &san
 #endif
 }
 
+static std::string normalizeAgyModelName(const std::string &model) {
+    if (model.empty()) {
+        return "";
+    }
+    std::string lower = model;
+    for (char &c : lower) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (lower == "flash" || lower == "flash_lite" || lower == "flash-lite" ||
+        lower == "gemini-3.8-flash-low" || lower == "gemini-flash") {
+        return "Gemini 3.8 Flash (Low)";
+    }
+    if (lower == "gemini-3.8-flash-medium" || lower == "flash-medium") {
+        return "Gemini 3.8 Flash (Medium)";
+    }
+    if (lower == "gemini-3.8-flash-high" || lower == "flash-high") {
+        return "Gemini 3.8 Flash (High)";
+    }
+    if (lower == "pro" || lower == "gemini-4-argon-medium" || lower == "argon-medium") {
+        return "Gemini 4 Argon (Medium)";
+    }
+    if (lower == "gemini-4-argon-high" || lower == "argon-high") {
+        return "Gemini 4 Argon (High)";
+    }
+    return model;
+}
+
 std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
     const std::string &backend,
     const std::string &executable,
     int mcpPort,
     const std::string &model,
     const std::string &prompt,
-    const std::string &sandboxDir) {
+    const std::string &sandboxDir,
+    bool allowControlTools) {
 
     std::vector<std::string> args;
     std::string exe = executable.empty() ? backend : executable;
@@ -2867,14 +3495,20 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
     std::string sdir = sandboxDir.empty() ? "/tmp/octibot-ai-sandbox" : sandboxDir;
 
     if (backend == "agy") {
-        if (!model.empty()) {
+        args.push_back("--app_data_dir=antigravity-octibot");
+        std::string agyModel = normalizeAgyModelName(model);
+        if (!agyModel.empty()) {
             args.push_back("--model");
-            args.push_back(model);
+            args.push_back(agyModel);
         }
         args.push_back("--sandbox");
         args.push_back("--disable-slash-commands");
         args.push_back("--settings");
-        args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        if (allowControlTools) {
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        } else {
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        }
         args.push_back("-p");
         args.push_back(prompt);
     } else if (backend == "claude") {
@@ -2893,7 +3527,11 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
         args.push_back("--mcp-config");
         args.push_back("{\"mcpServers\":{\"octibot\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:" + std::to_string(mcpPort) + "/mcp\"}}}");
         args.push_back("--allowedTools");
-        args.push_back("mcp__octibot__octibot_get_skill_guide,mcp__octibot__octibot_get_status,mcp__octibot__octibot_get_game_state,mcp__octibot__octibot_analyze_position");
+        if (allowControlTools) {
+            args.push_back("mcp__octibot__*");
+        } else {
+            args.push_back("mcp__octibot__octibot_get_skill_guide,mcp__octibot__octibot_get_status,mcp__octibot__octibot_get_game_state,mcp__octibot__octibot_analyze_position");
+        }
         args.push_back("-p");
         args.push_back(prompt);
     } else if (backend == "cursor-agent") {
@@ -2937,9 +3575,11 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildCommandArgs(
     std::string sdir = workspaceDir.empty() ? "/tmp/octibot-ai-sandbox" : workspaceDir;
 
     if (backend == "agy") {
-        if (!model.empty()) {
+        args.push_back("--app_data_dir=antigravity-octibot");
+        std::string agyModel = normalizeAgyModelName(model);
+        if (!agyModel.empty()) {
             args.push_back("--model");
-            args.push_back(model);
+            args.push_back(agyModel);
         }
         args.push_back("--sandbox");
         args.push_back("--disable-slash-commands");
@@ -3024,6 +3664,9 @@ bool OctiBotAgentCliLauncher::start() {
     bool interactive = _runner.config().getBool("ai_cli_interactive", false);
 
     std::string sdir = _runner.config().getString("ai_cli_sandbox_dir", "/tmp/octibot-ai-sandbox");
+    if (sdir == "/tmp/octibot-ai-sandbox" && _mcpServer.boundHttpPort() > 0) {
+        sdir += "-port-" + std::to_string(_mcpServer.boundHttpPort());
+    }
     materializeSandboxWorkspace(sdir, _mcpServer.boundHttpPort());
 
     std::vector<std::string> args = buildCommandArgs(

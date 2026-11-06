@@ -284,6 +284,7 @@ struct CreateTableRequest {
     std::string voicePolicy = "PLAYERS_ONLY";
     std::string passcode;
     bool allowRobots = true;
+    int seat = 1;
 };
 
 struct CreateTableResponse {

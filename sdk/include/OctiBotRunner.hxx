@@ -44,12 +44,22 @@ struct BotMoveHistoryEntry {
 struct BotConversationLogEntry {
     std::uint64_t seq = 0;
     std::int64_t timestampMs = 0;
-    std::string channel;      // "lobby" or "game"
+    std::string channel;      // "lobby" or "game" or "dashboard"
     std::string roomId;
     std::string senderHandle;
     std::string seenText;
     std::string replyText;
     std::string replySource;  // "ai_cli:agy", "command", "greeting", "seen"
+};
+
+struct BotMatchOverride {
+    bool active = false;
+    std::string targetPlayerHandle;
+    std::string targetRoomId;
+    bool allowRobots = false;
+    std::string hostMode;
+    int hostBases = 0;
+    int remainingGames = 1;
 };
 
 class OctiBotRunner {
@@ -144,16 +154,28 @@ public:
 
     bool submitAgentMove(const std::string &moveNotation, std::string &errorOut);
     bool executeGameAction(const std::string &action, const std::string &arg, std::string &errorOut);
+    bool joinRoomById(const std::string &roomId, int &outSeat, std::string &errorOut);
+    bool hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut);
+    bool leaveRoomById(const std::string &roomId, std::string &errorOut);
+
+    BotMatchOverride matchOverride() const;
+    bool applyMatchOverride(const BotMatchOverride &ov, std::string &outSummary, std::string &errorOut);
+    void clearMatchOverride();
+    void dispatchOwnerPrompt(const std::string &promptText,
+                             const std::string &channel = "dashboard",
+                             const std::string &roomId = "");
 
 private:
     void loopStep();
+    void pollRecentLobbyChat();
     void handleLobbySseEvent(const std::string &eventType, const std::string &data);
     void handleGameSseEvent(const std::string &eventType, const std::string &data);
     void playEngineTurn();
     void dispatchAiChatReply(const std::string &channel,
                              const std::string &roomId,
                              const std::string &senderHandle,
-                             const std::string &messageText);
+                             const std::string &messageText,
+                             bool isTrustedOwner = false);
     void dispatchAiProactiveEvent(const std::string &eventKind,
                                   const std::string &roomId,
                                   const std::string &opponentHandle,
@@ -200,6 +222,7 @@ private:
     std::deque<BotLogEntry> _logBuffer;
     std::uint64_t _nextLogSeq = 1;
 
+    mutable std::mutex _overrideMutex;
     mutable std::mutex _stateMutex;
     std::string _currentRoomId;
     std::string _currentPhase = "IDLE";
@@ -209,6 +232,9 @@ private:
     BotMoveTelemetry _lastTelemetry;
     std::string _pendingAgentMove;
     bool _hasAgentMove = false;
+    BotMatchOverride _matchOverride;
+    std::int64_t _lastProcessedLobbyChatSeq = 0;
+    std::int64_t _lastLobbyChatPollMs = 0;
 
     std::mutex _eventMutex;
     std::condition_variable _eventCv;

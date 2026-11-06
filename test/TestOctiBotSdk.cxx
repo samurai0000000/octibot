@@ -674,10 +674,10 @@ TEST(OctiBotMcpServerTest, JsonRpcProtocolAndToolsList) {
     auto jRRead = nlohmann::json::parse(rReadResp);
     CHECK_TRUE(jRRead["result"]["contents"][0]["text"].get<std::string>().find("OCTIBOT Agentic AI Skill Guide") != std::string::npos);
 
-    // tools/list: must verify all 11 tools
+    // tools/list: must verify all 12 tools (including octibot_set_match_override)
     std::string tListResp = server.handleJsonRpc("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/list\"}");
     auto jTList = nlohmann::json::parse(tListResp);
-    CHECK_EQUAL(11, jTList["result"]["tools"].size());
+    CHECK_EQUAL(12, jTList["result"]["tools"].size());
 
     // octibot_get_skill_guide tool call
     std::string sgCall = "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"octibot_get_skill_guide\",\"arguments\":{\"topic\":\"rules\"}}}";
@@ -688,6 +688,20 @@ TEST(OctiBotMcpServerTest, JsonRpcProtocolAndToolsList) {
     std::string apCall = "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"octibot_analyze_position\",\"arguments\":{\"top_k\":2}}}";
     auto jAp = nlohmann::json::parse(server.handleJsonRpc(apCall));
     CHECK_TRUE(jAp["result"]["content"][0]["text"].get<std::string>().find("top_candidates") != std::string::npos);
+
+    // octibot_set_match_override set & clear
+    std::string ovSetCall = "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"octibot_set_match_override\",\"arguments\":{\"action\":\"set\",\"target_player\":\"@octibot-sdk-cpu\",\"allow_robots\":true,\"games\":2}}}";
+    auto jOvSet = nlohmann::json::parse(server.handleJsonRpc(ovSetCall));
+    auto jOvSetInner = nlohmann::json::parse(jOvSet["result"]["content"][0]["text"].get<std::string>());
+    CHECK_TRUE(jOvSetInner["match_override"]["active"].get<bool>());
+    CHECK_EQUAL("octibot-sdk-cpu", jOvSetInner["match_override"]["target_player"].get<std::string>());
+    CHECK_EQUAL(2, jOvSetInner["match_override"]["remaining_games"].get<int>());
+
+    std::string ovClearCall = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"octibot_set_match_override\",\"arguments\":{\"action\":\"clear\"}}}";
+    auto jOvClear = nlohmann::json::parse(server.handleJsonRpc(ovClearCall));
+    auto jOvClearInner = nlohmann::json::parse(jOvClear["result"]["content"][0]["text"].get<std::string>());
+    CHECK_FALSE(jOvClearInner["active"].get<bool>());
+    CHECK_FALSE(runner.matchOverride().active);
 }
 
 TEST(OctiBotMcpServerTest, HttpTransportAndLoopbackPort) {
@@ -701,9 +715,81 @@ TEST(OctiBotMcpServerTest, HttpTransportAndLoopbackPort) {
     CHECK_TRUE(port > 0);
 
     httplib::Client client("127.0.0.1", port);
-    auto res = client.Post("/mcp", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}", "application/json");
-    CHECK_TRUE(res != nullptr);
-    CHECK_EQUAL(200, res->status);
+
+    // 1. POST /mcp initialize (negotiates 2025-03-26 and sets Mcp-Session-Id)
+    std::string initPayload = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}";
+    auto initRes = client.Post("/mcp", initPayload, "application/json");
+    CHECK_TRUE(initRes != nullptr);
+    CHECK_EQUAL(200, initRes->status);
+    CHECK_TRUE(initRes->has_header("Mcp-Session-Id"));
+    std::string sessionId = initRes->get_header_value("Mcp-Session-Id");
+    CHECK_FALSE(sessionId.empty());
+    auto jInit = nlohmann::json::parse(initRes->body);
+    CHECK_EQUAL("2025-03-26", jInit["result"]["protocolVersion"].get<std::string>());
+    CHECK_TRUE(jInit["result"]["capabilities"].contains("tools"));
+    CHECK_TRUE(jInit["result"]["capabilities"].contains("resources"));
+    CHECK_TRUE(jInit["result"]["capabilities"].contains("prompts"));
+
+    // 2. POST /mcp notifications/initialized with Mcp-Session-Id returns 202 Accepted and empty body
+    httplib::Headers sessionHeaders = {{"Mcp-Session-Id", sessionId}};
+    std::string notifPayload = "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}";
+    auto notifRes = client.Post("/mcp", sessionHeaders, notifPayload, "application/json");
+    CHECK_TRUE(notifRes != nullptr);
+    CHECK_EQUAL(202, notifRes->status);
+    CHECK_TRUE(notifRes->body.empty());
+
+    // 3. POST /mcp JSON-RPC batch array returns 2-element array (filtering notifications)
+    std::string batchPayload = "[{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"ping\"},"
+                               "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"prompts/list\"},"
+                               "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}]";
+    auto batchRes = client.Post("/mcp", sessionHeaders, batchPayload, "application/json");
+    CHECK_TRUE(batchRes != nullptr);
+    CHECK_EQUAL(200, batchRes->status);
+    auto jBatch = nlohmann::json::parse(batchRes->body);
+    CHECK_TRUE(jBatch.is_array());
+    CHECK_EQUAL(2, jBatch.size());
+    CHECK_EQUAL(10, jBatch[0]["id"].get<int>());
+    CHECK_EQUAL(11, jBatch[1]["id"].get<int>());
+
+    // 4. GET /mcp with Accept: text/event-stream (streams connected comment, never event: endpoint)
+    httplib::Headers sseHeaders = {
+        {"Accept", "text/event-stream"},
+        {"Mcp-Session-Id", sessionId}
+    };
+    int getStatus = 0;
+    std::string contentType;
+    std::string receivedChunk;
+    client.Get("/mcp", sseHeaders,
+        [&](const httplib::Response &response) {
+            getStatus = response.status;
+            contentType = response.get_header_value("Content-Type");
+            return true;
+        },
+        [&](const char *data, size_t data_length) {
+            receivedChunk.append(data, data_length);
+            return false; // Cancel stream immediately after receiving initial chunk
+        });
+    CHECK_EQUAL(200, getStatus);
+    CHECK_TRUE(contentType.find("text/event-stream") != std::string::npos);
+    CHECK_TRUE(receivedChunk.find(": connected") != std::string::npos);
+    CHECK_TRUE(receivedChunk.find("event: endpoint") == std::string::npos);
+
+    // 5. DELETE /mcp with Mcp-Session-Id returns 204 No Content
+    auto delRes = client.Delete("/mcp", sessionHeaders);
+    CHECK_TRUE(delRes != nullptr);
+    CHECK_EQUAL(204, delRes->status);
+
+    // 6. Legacy GET /sse returns event: endpoint and POST /message defaults to 2024-11-05
+    auto legacySseRes = client.Get("/sse");
+    CHECK_TRUE(legacySseRes != nullptr);
+    CHECK_EQUAL(200, legacySseRes->status);
+    CHECK_TRUE(legacySseRes->body.find("event: endpoint") != std::string::npos);
+
+    auto legacyMsgRes = client.Post("/message", initPayload, "application/json");
+    CHECK_TRUE(legacyMsgRes != nullptr);
+    CHECK_EQUAL(200, legacyMsgRes->status);
+    auto jLegacyInit = nlohmann::json::parse(legacyMsgRes->body);
+    CHECK_EQUAL("2024-11-05", jLegacyInit["result"]["protocolVersion"].get<std::string>());
 
     server.stopHttpServer();
     CHECK_EQUAL(0, server.boundHttpPort());
@@ -780,13 +866,14 @@ TEST(OctiBotAgentCliLauncherTest, BuildCommandArgs) {
     auto argsAgy = OctiBotAgentCliLauncher::buildCommandArgs(
         "agy", "", 12345, "flash", "My prompt", false, "");
     CHECK_EQUAL("agy", argsAgy[0]);
-    CHECK_EQUAL("--model", argsAgy[1]);
-    CHECK_EQUAL("flash", argsAgy[2]);
-    CHECK_EQUAL("--sandbox", argsAgy[3]);
-    CHECK_EQUAL("--disable-slash-commands", argsAgy[4]);
-    CHECK_EQUAL("--settings", argsAgy[5]);
-    CHECK_TRUE(argsAgy[6].find("mcp(octibot/*)") != std::string::npos);
-    CHECK_TRUE(argsAgy[6].find("deny") != std::string::npos);
+    CHECK_EQUAL("--app_data_dir=antigravity-octibot", argsAgy[1]);
+    CHECK_EQUAL("--model", argsAgy[2]);
+    CHECK_EQUAL("Gemini 3.8 Flash (Low)", argsAgy[3]);
+    CHECK_EQUAL("--sandbox", argsAgy[4]);
+    CHECK_EQUAL("--disable-slash-commands", argsAgy[5]);
+    CHECK_EQUAL("--settings", argsAgy[6]);
+    CHECK_TRUE(argsAgy[7].find("mcp(octibot/*)") != std::string::npos);
+    CHECK_TRUE(argsAgy[7].find("deny") != std::string::npos);
 
     auto argsClaude = OctiBotAgentCliLauncher::buildCommandArgs(
         "claude", "", 54321, "", "Prompt", true, "");
@@ -817,16 +904,22 @@ TEST(OctiBotAgentCliLauncherTest, BuildCommandArgs) {
 
 TEST(OctiBotAgentCliLauncherTest, BuildChatCommandArgsAndSecuritySanitization) {
     auto agyChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
-        "agy", "", 3888, "flash", "Hello chat", "/tmp/sdir");
+        "agy", "", 3888, "flash", "Hello chat", "/tmp/sdir", false);
     for (const auto &arg : agyChat) {
         CHECK_FALSE(arg == "--dangerously-skip-permissions");
     }
-    CHECK_TRUE(agyChat[5] == "--settings");
-    CHECK_TRUE(agyChat[6].find("mcp(octibot:octibot_get_*)") != std::string::npos);
-    CHECK_TRUE(agyChat[6].find("command(*)") != std::string::npos);
+    CHECK_EQUAL("--app_data_dir=antigravity-octibot", agyChat[1]);
+    CHECK_TRUE(agyChat[6] == "--settings");
+    CHECK_TRUE(agyChat[7].find("mcp(octibot:octibot_get_*)") != std::string::npos);
+    CHECK_TRUE(agyChat[7].find("command(*)") != std::string::npos);
+
+    auto agyOwnerChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
+        "agy", "", 3888, "flash", "Play vs @octibot-sdk-cpu", "/tmp/sdir", true);
+    CHECK_TRUE(agyOwnerChat[7].find("mcp(octibot/*)") != std::string::npos);
+    CHECK_TRUE(agyOwnerChat[7].find("command(*)") != std::string::npos);
 
     auto claudeChat = OctiBotAgentCliLauncher::buildChatCommandArgs(
-        "claude", "", 3888, "sonnet", "Hello chat", "/tmp/sdir");
+        "claude", "", 3888, "sonnet", "Hello chat", "/tmp/sdir", false);
     for (const auto &arg : claudeChat) {
         CHECK_FALSE(arg == "--dangerously-skip-permissions");
     }
@@ -845,15 +938,41 @@ TEST(OctiBotAgentCliLauncherTest, BuildChatCommandArgsAndSecuritySanitization) {
 
 TEST(OctiBotAgentCliLauncherTest, MaterializeSandboxWorkspace) {
     std::string testSandbox = "/tmp/test-octibot-sandbox-" + std::to_string(::getpid());
+    std::string testHome = "/tmp/test-octibot-home-" + std::to_string(::getpid());
     std::error_code ec;
     std::filesystem::remove_all(testSandbox, ec);
+    std::filesystem::remove_all(testHome, ec);
+
+    std::filesystem::create_directories(testHome + "/.gemini/antigravity-cli", ec);
+    {
+        std::ofstream(testHome + "/.gemini/antigravity-cli/antigravity-oauth-token") << "tok";
+        std::ofstream(testHome + "/.gemini/antigravity-cli/settings.json") << "{}";
+        std::ofstream(testHome + "/.gemini/antigravity-cli/installation_id") << "id123";
+    }
+
+    const char *origHome = std::getenv("HOME");
+    std::string savedHome = origHome ? origHome : "";
+    ::setenv("HOME", testHome.c_str(), 1);
 
     CHECK_TRUE(OctiBotAgentCliLauncher::materializeSandboxWorkspace(testSandbox, 3888));
+
+    if (!savedHome.empty()) {
+        ::setenv("HOME", savedHome.c_str(), 1);
+    }
+
     CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/plugin.json"));
     CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/mcp_config.json"));
     CHECK_TRUE(std::filesystem::exists(testSandbox + "/.agents/plugins/octibot/skills/octibot/SKILL.md"));
     CHECK_TRUE(std::filesystem::exists(testSandbox + "/.cursor/mcp.json"));
     CHECK_TRUE(std::filesystem::exists(testSandbox + "/.cursor/skills/octibot/SKILL.md"));
+
+    std::string botAppDir = testHome + "/.gemini/antigravity-octibot";
+    struct stat appSt;
+    CHECK_EQUAL(0, ::stat(botAppDir.c_str(), &appSt));
+    CHECK_EQUAL(0700, appSt.st_mode & 0777);
+    CHECK_TRUE(std::filesystem::is_symlink(botAppDir + "/antigravity-oauth-token"));
+    CHECK_TRUE(std::filesystem::is_symlink(botAppDir + "/settings.json"));
+    CHECK_TRUE(std::filesystem::is_symlink(botAppDir + "/installation_id"));
 
     struct stat st;
     CHECK_EQUAL(0, ::stat(testSandbox.c_str(), &st));
@@ -864,6 +983,7 @@ TEST(OctiBotAgentCliLauncherTest, MaterializeSandboxWorkspace) {
     CHECK_TRUE(content.find("3888") != std::string::npos);
 
     std::filesystem::remove_all(testSandbox, ec);
+    std::filesystem::remove_all(testHome, ec);
 }
 
 TEST(OctiBotAgentCliLauncherTest, SpawnAndTerminateChildProcess) {
@@ -1020,6 +1140,101 @@ TEST(OctiBotIntegrationLoopbackTest, SupersedingTokenTakeoverAndActiveResume) {
 
     runner1->stop();
     runner2->stop();
+}
+
+TEST(OctiBotIntegrationLoopbackTest, PoliteHostSeatingWaitForHumanAndRandom) {
+    // 1. Unit checks on OctiBotPolicyEngine::buildHostTableRequest() and isTableCompatible()
+    {
+        OctiBotConfigStore cfgDefault;
+        OctiBotPolicyEngine polDefault(cfgDefault);
+        CHECK_EQUAL(0, polDefault.buildHostTableRequest().seat);
+
+        OctiBotConfigStore cfgSeat1;
+        cfgSeat1.set("host_seat", "A");
+        OctiBotPolicyEngine polSeat1(cfgSeat1);
+        CHECK_EQUAL(1, polSeat1.buildHostTableRequest().seat);
+
+        OctiBotConfigStore cfgSeat2;
+        cfgSeat2.set("host_seat", "B");
+        OctiBotPolicyEngine polSeat2(cfgSeat2);
+        CHECK_EQUAL(2, polSeat2.buildHostTableRequest().seat);
+
+        OctiBotConfigStore cfgRand;
+        cfgRand.set("host_seat", "random");
+        OctiBotPolicyEngine polRand(cfgRand);
+        bool saw1 = false, saw2 = false;
+        for (int i = 0; i < 40; ++i) {
+            int s = polRand.buildHostTableRequest().seat;
+            CHECK_TRUE(s == 1 || s == 2);
+            if (s == 1) saw1 = true;
+            if (s == 2) saw2 = true;
+        }
+        CHECK_TRUE(saw1 && saw2);
+
+        TableSummaryInfo ownUnseatedTable;
+        ownUnseatedTable.roomId = "room-own";
+        ownUnseatedTable.phase = "WAITING_FOR_PLAYERS";
+        ownUnseatedTable.mode = "2P";
+        ownUnseatedTable.bases = 3;
+        ownUnseatedTable.seatsTotal = 2;
+        ownUnseatedTable.seatsFilled = 0;
+        ownUnseatedTable.allowRobots = true;
+        ownUnseatedTable.hostHandle = "polite_bot";
+        CHECK_FALSE(polDefault.isTableCompatible(ownUnseatedTable, "samurai", "polite_bot"));
+    }
+
+    // 2. Loopback test: Bot hosts with seat=0 (wait_for_human), human picks Seat 2 (B) -> bot takes Seat 1 (A)
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-polite-owner";
+    claims.name = "polite_owner";
+    claims.email = "polite@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t humanId = loginRes.profile.playerId;
+    CHECK_TRUE(humanId > 0);
+
+    auto rBot = env->store.createRobot(humanId, "polite_bot", "Polite Host Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    OctiBotConfigStore conf;
+    conf.set("server_host", "127.0.0.1");
+    conf.set("server_port", std::to_string(env->port));
+    conf.set("bot_token", rBot.rawToken);
+    conf.set("table_behavior", "host_only");
+    conf.set("host_seat", "wait_for_human");
+    conf.set("min_move_think_ms", "0");
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(conf);
+    auto runner = std::make_unique<OctiBotRunner>(std::move(agent), conf);
+
+    std::string err;
+    CHECK_TRUE(runner->connectAndAuthenticate(err));
+    runner->start();
+
+    for (int i = 0; i < 40; ++i) {
+        if (!runner->currentRoomId().empty()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    std::string roomId = runner->currentRoomId();
+    CHECK_FALSE(roomId.empty());
+    CHECK_EQUAL(0, runner->currentSeat());
+
+    // Human explicitly sits in Seat 2 (Player B); bot should automatically sit in Seat 1 (Player A)
+    RoomResult rRes = env->rooms->joinTable(roomId, humanId, 2, "");
+    CHECK_EQUAL(static_cast<int>(RoomCode::OK), static_cast<int>(rRes.code));
+    CHECK_EQUAL(2, rRes.seat);
+    CHECK_FALSE(rRes.gameStarted);
+
+    for (int i = 0; i < 50; ++i) {
+        if (runner->currentPhase() == "IN_PROGRESS" && runner->currentSeat() == 1) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    CHECK_EQUAL("IN_PROGRESS", runner->currentPhase());
+    CHECK_EQUAL(1, runner->currentSeat());
+
+    runner->stop();
 }
 
 // ============================================================================

@@ -9,8 +9,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <istream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -31,7 +33,7 @@ public:
     explicit OctiBotMcpServer(OctiBotRunner &runner);
     ~OctiBotMcpServer();
 
-    std::string handleJsonRpc(const std::string &jsonRequest);
+    std::string handleJsonRpc(const std::string &rawBody, const std::string &defaultProtocolVersion = "2025-03-26");
 
     void runStdio(std::istream &in, std::ostream &out);
     bool startHttpServer(int port = 0, const std::string &bindAddr = "127.0.0.1");
@@ -50,6 +52,7 @@ public:
     nlohmann::json buildConfigJson() const;
 
 private:
+    std::string handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion);
     std::string callTool(const std::string &name, const std::string &argumentsJson);
     void registerHttpRoutes();
 
@@ -60,11 +63,27 @@ private:
     std::unique_ptr<httplib::Server> _httpServer;
     std::unique_ptr<std::thread> _httpThread;
     std::atomic<int> _boundPort{0};
+    std::atomic<bool> _httpRunning{false};
+
+    // MCP Streamable HTTP session state
+    struct McpSessionState {
+        std::string sessionId;
+        int64_t createdAtMs = 0;
+        int64_t lastActivityMs = 0;
+        std::vector<std::string> pendingMessages;
+        bool closed = false;
+    };
+
+    std::string createMcpSession();
+
+    mutable std::mutex _mcpSessionsMutex;
+    std::condition_variable _mcpSseCv;
+    std::map<std::string, McpSessionState> _mcpSessions;
 
     // Aimon gateway bridge
     std::atomic<bool> _aimonRunning{false};
     std::unique_ptr<std::thread> _aimonThread;
-    int _aimonSocketFd = -1;
+    std::atomic<std::intptr_t> _aimonSocketFd{-1};
 
     // Health cache (3s TTL)
     mutable std::mutex _healthCacheMutex;
@@ -85,7 +104,8 @@ public:
         int mcpPort,
         const std::string &model,
         const std::string &prompt,
-        const std::string &sandboxDir);
+        const std::string &sandboxDir,
+        bool allowControlTools = false);
 
     static std::vector<std::string> buildCommandArgs(
         const std::string &backend,
