@@ -1612,9 +1612,10 @@ TEST(OctiBotHelperTest, LobbyOnlyInvariantsAndConfigUpdates) {
     std::map<std::string, std::string> badBeh = {{"table_behavior", "auto"}};
     CHECK_FALSE(runner2->applyConfigUpdates(badBeh, false, err));
 
-    // Valid operational updates
+    // Valid operational updates (including full-path agy normalization)
     std::map<std::string, std::string> goodUpdates = {
-        {"ai_cli_model", "pro"},
+        {"ai_cli_executable", "/usr/local/bin/agy"},
+        {"ai_cli_model", "Gemini 3.8 Flash (High)"},
         {"ai_personality", "Friendly concierge"},
         {"greeting_lobby", "Welcome to OCTI!"},
         {"max_chat_reply_chunks", "3"},
@@ -1623,7 +1624,8 @@ TEST(OctiBotHelperTest, LobbyOnlyInvariantsAndConfigUpdates) {
         {"verbosity", "2"}
     };
     CHECK_TRUE(runner2->applyConfigUpdates(goodUpdates, false, err));
-    CHECK_EQUAL("pro", runner2->config().getString("ai_cli_model"));
+    CHECK_EQUAL("agy", runner2->config().getString("ai_cli_executable"));
+    CHECK_EQUAL("Gemini 3.8 Flash (High)", runner2->config().getString("ai_cli_model"));
     CHECK_EQUAL(2, runner2->verbosity());
 }
 

@@ -2647,6 +2647,23 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
         effectiveDefaults[kv.first] = kv.second;
     }
 
+    auto normalizeCliExe = [](const std::string &raw) -> std::string {
+        if (raw.empty()) return "";
+        std::string base = raw;
+        size_t slash = base.find_last_of("/\\");
+        if (slash != std::string::npos) {
+            base = base.substr(slash + 1);
+        }
+        if (base == "agy" || base == "agy.exe") return "agy";
+        if (base == "claude" || base == "claude.exe") return "claude";
+        if (base == "cursor-agent" || base == "cursor-agent.exe") return "cursor-agent";
+        return raw;
+    };
+
+    if (effectiveDefaults.count("ai_cli_executable") > 0) {
+        effectiveDefaults["ai_cli_executable"] = normalizeCliExe(effectiveDefaults["ai_cli_executable"]);
+    }
+
     nlohmann::json entries = nlohmann::json::object();
     for (const auto &kv : effectiveDefaults) {
         entries[kv.first] = kv.second;
@@ -2660,7 +2677,11 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
             if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
                 continue;
             }
-            pEntries[kv.first] = kv.second;
+            if (kv.first == "ai_cli_executable") {
+                pEntries[kv.first] = normalizeCliExe(kv.second);
+            } else {
+                pEntries[kv.first] = kv.second;
+            }
         }
         profiles[profItem.first] = pEntries;
     }
@@ -4654,6 +4675,19 @@ static std::string normalizeAgyModelName(const std::string &model) {
     return model;
 }
 
+static std::string normalizeCliExecutableArg(const std::string &raw) {
+    if (raw.empty()) return "";
+    std::string base = raw;
+    size_t slash = base.find_last_of("/\\");
+    if (slash != std::string::npos) {
+        base = base.substr(slash + 1);
+    }
+    if (base == "agy" || base == "agy.exe") return "agy";
+    if (base == "claude" || base == "claude.exe") return "claude";
+    if (base == "cursor-agent" || base == "cursor-agent.exe") return "cursor-agent";
+    return raw;
+}
+
 std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
     const std::string &backend,
     const std::string &executable,
@@ -4664,7 +4698,7 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
     bool allowControlTools) {
 
     std::vector<std::string> args;
-    std::string exe = executable.empty() ? backend : executable;
+    std::string exe = executable.empty() ? backend : normalizeCliExecutableArg(executable);
 #if defined(_WIN32)
     if (backend == "agy" && (exe.empty() || exe == "agy" || exe.rfind("/home/", 0) == 0)) {
         const char *localAppData = std::getenv("LOCALAPPDATA");
@@ -4759,7 +4793,7 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildCommandArgs(
     const std::string &workspaceDir) {
 
     std::vector<std::string> args;
-    std::string exe = executable.empty() ? backend : executable;
+    std::string exe = executable.empty() ? backend : normalizeCliExecutableArg(executable);
 #if defined(_WIN32)
     if (backend == "agy" && (exe.empty() || exe == "agy" || exe.rfind("/home/", 0) == 0)) {
         const char *localAppData = std::getenv("LOCALAPPDATA");
@@ -4916,6 +4950,12 @@ bool OctiBotAgentCliLauncher::start() {
         cArgs.push_back(nullptr);
 
         ::execvp(cArgs[0], cArgs.data());
+        const char *homeEnv = std::getenv("HOME");
+        if (homeEnv && homeEnv[0] != '\0' && !args.empty() && args[0].find('/') == std::string::npos) {
+            std::string localBinExe = std::string(homeEnv) + "/.local/bin/" + args[0];
+            cArgs[0] = const_cast<char *>(localBinExe.c_str());
+            ::execv(cArgs[0], cArgs.data());
+        }
         ::_exit(127);
     }
 

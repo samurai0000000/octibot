@@ -232,6 +232,31 @@ std::int64_t OctiBotRunner::currentTtlRemainingMs() const {
     return _activeGameView.ttlRemainingMs;
 }
 
+static bool normalizeAiCliExecutable(const std::string &raw, std::string &outNormalized) {
+    if (raw.empty()) {
+        outNormalized.clear();
+        return true;
+    }
+    std::string base = raw;
+    size_t slash = base.find_last_of("/\\");
+    if (slash != std::string::npos) {
+        base = base.substr(slash + 1);
+    }
+    if (base == "agy" || base == "agy.exe") {
+        outNormalized = "agy";
+        return true;
+    }
+    if (base == "claude" || base == "claude.exe") {
+        outNormalized = "claude";
+        return true;
+    }
+    if (base == "cursor-agent" || base == "cursor-agent.exe") {
+        outNormalized = "cursor-agent";
+        return true;
+    }
+    return false;
+}
+
 bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> &updates,
                                       bool saveToDisk,
                                       std::string &errorOut) {
@@ -261,19 +286,10 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
                 return false;
             }
         } else if (kv.first == "ai_cli_executable") {
-            if (!kv.second.empty()) {
-                bool ok = (kv.second == "agy" || kv.second == "claude" || kv.second == "cursor-agent");
-#if defined(_WIN32)
-                if (!ok && (kv.second.size() >= 8 &&
-                    (kv.second.rfind("/agy.exe") == kv.second.size() - 8 ||
-                     kv.second.rfind("\\agy.exe") == kv.second.size() - 8))) {
-                    ok = true;
-                }
-#endif
-                if (!ok) {
-                    errorOut = "Invalid ai_cli_executable '" + kv.second + "'; must be agy, claude, cursor-agent, or empty.";
-                    return false;
-                }
+            std::string normExe;
+            if (!normalizeAiCliExecutable(kv.second, normExe)) {
+                errorOut = "Invalid ai_cli_executable '" + kv.second + "'; must be agy, claude, cursor-agent, or empty.";
+                return false;
             }
         }
 
@@ -293,7 +309,10 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
 
     for (const auto &kv : updates) {
         const std::string &k = kv.first;
-        const std::string &v = kv.second;
+        std::string v = kv.second;
+        if (k == "ai_cli_executable") {
+            normalizeAiCliExecutable(v, v);
+        }
 
         _config.set(k, v);
         if (!activeProf.empty()) {
@@ -326,8 +345,36 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
             savePath = _config.getString("config_path", OctiBotConfigStore::defaultConfigFilePath());
         }
         if (!savePath.empty()) {
-            if (!_config.saveFile(savePath, errorOut)) {
-                return false;
+            OctiBotConfigStore diskConfig;
+            std::string loadErr;
+            if (std::ifstream(savePath).good() && diskConfig.loadFile(savePath, loadErr)) {
+                if (!activeProf.empty() && diskConfig.hasProfile(activeProf)) {
+                    for (const auto &kv : updates) {
+                        std::string v = kv.second;
+                        if (kv.first == "ai_cli_executable") {
+                            normalizeAiCliExecutable(v, v);
+                        }
+                        diskConfig.setProfileEntry(activeProf, kv.first, v);
+                    }
+                } else {
+                    for (const auto &kv : updates) {
+                        std::string v = kv.second;
+                        if (kv.first == "ai_cli_executable") {
+                            normalizeAiCliExecutable(v, v);
+                        }
+                        diskConfig.set(kv.first, v);
+                        if (!activeProf.empty()) {
+                            diskConfig.setProfileEntry(activeProf, kv.first, v);
+                        }
+                    }
+                }
+                if (!diskConfig.saveFile(savePath, errorOut)) {
+                    return false;
+                }
+            } else {
+                if (!_config.saveFile(savePath, errorOut)) {
+                    return false;
+                }
             }
             logMsg(2, "Configuration saved to disk: " + savePath);
         }
@@ -2563,6 +2610,12 @@ static bool runCliProcessCaptureStdout(const std::vector<std::string> &args,
         }
         cArgs.push_back(nullptr);
         ::execvp(cArgs[0], cArgs.data());
+        const char *homeEnv = std::getenv("HOME");
+        if (homeEnv && homeEnv[0] != '\0' && !args.empty() && args[0].find('/') == std::string::npos) {
+            std::string localBinExe = std::string(homeEnv) + "/.local/bin/" + args[0];
+            cArgs[0] = const_cast<char *>(localBinExe.c_str());
+            ::execv(cArgs[0], cArgs.data());
+        }
         ::_exit(127);
     }
 
