@@ -265,7 +265,7 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
         "expose_mcp_tools", "web_port", "web_bind", "server_host",
         "server_port", "server_use_ssl", "default_profile", "robot_name",
         "lobby_only", "ai_cli_sandbox_dir", "config_path", "tokens_path",
-        "helper_octi_dir", "helper_octibot_dir", "helper_octibot_cc_dir",
+        "helper_octi_dir", "helper_octibot_dir",
         "helper_feedback_file"
     };
 

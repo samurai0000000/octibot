@@ -317,6 +317,23 @@ static std::string getDefaultRepoDir(const std::string &repoName) {
     return home + "/work/" + repoName;
 }
 
+// The helper's read-only repository jail is limited to the public repositories.
+static bool resolveHelperRepoRoot(const OctiBotConfigStore &config,
+                                  const std::string &repo,
+                                  std::string &rootOut,
+                                  std::string &errorOut) {
+    if (repo == "octi") {
+        rootOut = expandUserPath(config.getString("helper_octi_dir", getDefaultRepoDir("octi")));
+        return true;
+    }
+    if (repo == "octibot") {
+        rootOut = expandUserPath(config.getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
+        return true;
+    }
+    errorOut = "Unknown repository; allowed repositories are 'octi' and 'octibot'";
+    return false;
+}
+
 static std::string getDefaultFeedbackFile() {
     const char *h = std::getenv("HOME");
     std::string home = (h && *h) ? std::string(h) : "";
@@ -809,13 +826,13 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
 
     tools.push_back({
         {"name", "octibot_repo_list_files"},
-        {"description", "List files in allowed repository jail ('octi' or 'octibot' or 'octibot_cc')."},
+        {"description", "List files in allowed repository jail ('octi' or 'octibot')."},
         {"inputSchema", {
             {"type", "object"},
             {"required", {"repo"}},
             {"properties Ricardo", {}},
             {"properties", {
-                {"repo", {{"type", "string"}, {"description", "'octi', 'octibot', or 'octibot_cc'"}}},
+                {"repo", {{"type", "string"}, {"description", "'octi' or 'octibot'"}}},
                 {"subdir", {{"type", "string"}, {"description", "Optional relative directory within repository jail"}}},
                 {"max_entries", {{"type", "integer"}, {"description", "Maximum entries to list (default 100)"}}}
             }}
@@ -829,7 +846,7 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
             {"type", "object"},
             {"required", {"repo", "path"}},
             {"properties", {
-                {"repo", {{"type", "string"}, {"description", "'octi', 'octibot', or 'octibot_cc'"}}},
+                {"repo", {{"type", "string"}, {"description", "'octi' or 'octibot'"}}},
                 {"path", {{"type", "string"}, {"description", "Relative file path within repository jail"}}},
                 {"start_line", {{"type", "integer"}, {"description", "1-based starting line number (default 1)"}}},
                 {"end_line", {{"type", "integer"}, {"description", "1-based ending line number (default 200)"}}}
@@ -844,7 +861,7 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
             {"type", "object"},
             {"required", {"repo", "query"}},
             {"properties", {
-                {"repo", {{"type", "string"}, {"description", "'octi', 'octibot', or 'octibot_cc'"}}},
+                {"repo", {{"type", "string"}, {"description", "'octi' or 'octibot'"}}},
                 {"query", {{"type", "string"}, {"description", "Search query substring (min 2 characters)"}}},
                 {"subdir", {{"type", "string"}, {"description", "Optional subdirectory to narrow search"}}},
                 {"max_results", {{"type", "integer"}, {"description", "Maximum matching lines (default 25)"}}}
@@ -1636,9 +1653,12 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         int maxEntries = std::min(500, std::max(1, args.value("max_entries", 100)));
 
         std::string repoRoot;
-        if (repo == "octi") repoRoot = expandUserPath(_runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
-        else if (repo == "octibot_cc") repoRoot = expandUserPath(_runner.config().getString("helper_octibot_cc_dir", getDefaultRepoDir("octibot_cc")));
-        else repoRoot = expandUserPath(_runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
+        std::string repoErr;
+        if (!resolveHelperRepoRoot(_runner.config(), repo, repoRoot, repoErr)) {
+            res["ok"] = false;
+            res["error"] = repoErr;
+            return res.dump(2);
+        }
 
         std::string canonTarget, err;
         if (subdir.empty() || subdir == "." || subdir == "./") {
@@ -1699,9 +1719,12 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         if (endLine - startLine > 500) endLine = startLine + 500;
 
         std::string repoRoot;
-        if (repo == "octi") repoRoot = expandUserPath(_runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
-        else if (repo == "octibot_cc") repoRoot = expandUserPath(_runner.config().getString("helper_octibot_cc_dir", getDefaultRepoDir("octibot_cc")));
-        else repoRoot = expandUserPath(_runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
+        std::string repoErr;
+        if (!resolveHelperRepoRoot(_runner.config(), repo, repoRoot, repoErr)) {
+            res["ok"] = false;
+            res["error"] = repoErr;
+            return res.dump(2);
+        }
 
         std::string canonPath, err;
         if (!resolveJailedRepoFile(repoRoot, filePath, canonPath, err)) {
@@ -1760,9 +1783,12 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         }
 
         std::string repoRoot;
-        if (repo == "octi") repoRoot = expandUserPath(_runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
-        else if (repo == "octibot_cc") repoRoot = expandUserPath(_runner.config().getString("helper_octibot_cc_dir", getDefaultRepoDir("octibot_cc")));
-        else repoRoot = expandUserPath(_runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
+        std::string repoErr;
+        if (!resolveHelperRepoRoot(_runner.config(), repo, repoRoot, repoErr)) {
+            res["ok"] = false;
+            res["error"] = repoErr;
+            return res.dump(2);
+        }
 
         std::error_code ec;
         auto rootPath = std::filesystem::canonical(repoRoot, ec);
@@ -2622,7 +2648,6 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["helper_feedback_enabled"] = _runner.config().getBool("helper_feedback_enabled", _runner.isLobbyOnly()) ? "true" : "false";
     effectiveDefaults["helper_octi_dir"] = expandUserPath(_runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
     effectiveDefaults["helper_octibot_dir"] = expandUserPath(_runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
-    effectiveDefaults["helper_octibot_cc_dir"] = expandUserPath(_runner.config().getString("helper_octibot_cc_dir", getDefaultRepoDir("octibot_cc")));
     effectiveDefaults["helper_feedback_file"] = expandUserPath(_runner.config().getString("helper_feedback_file", getDefaultFeedbackFile()));
     effectiveDefaults["lobby_only"] = _runner.isLobbyOnly() ? "true" : "false";
 
@@ -2694,7 +2719,7 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
         "server_port", "server_use_ssl", "default_profile", "robot_name",
         "bot_token", "lobby_only", "ai_cli_sandbox_dir", "config_path",
         "tokens_path", "helper_octi_dir", "helper_octibot_dir",
-        "helper_octibot_cc_dir", "helper_feedback_file"
+        "helper_feedback_file"
     };
 
     return root;

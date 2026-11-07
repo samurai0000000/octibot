@@ -153,7 +153,6 @@ max_chat_reply_chunks = 3
 helper_repo_access = true
 helper_octi_dir = ~/work/octi
 helper_octibot_dir = ~/work/octibot
-helper_octibot_cc_dir = ~/work/octibot_cc
 helper_feedback_enabled = true
 helper_feedback_file = ~/work/octi/plan/player_feedback.md
 

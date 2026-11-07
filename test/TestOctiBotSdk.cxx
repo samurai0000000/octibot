@@ -1592,7 +1592,7 @@ TEST(OctiBotHelperTest, LobbyOnlyInvariantsAndConfigUpdates) {
 
     std::vector<std::string> lockedKeys = {
         "lobby_only", "ai_cli_sandbox_dir", "config_path", "tokens_path",
-        "helper_octi_dir", "helper_octibot_dir", "helper_octibot_cc_dir", "helper_feedback_file"
+        "helper_octi_dir", "helper_octibot_dir", "helper_feedback_file"
     };
     for (const auto &k : lockedKeys) {
         std::map<std::string, std::string> upd = {{k, "some_val"}};
@@ -2085,6 +2085,61 @@ TEST(OctiBotHelperTest, JailedRepoMcpTools) {
     auto disReadJson = nlohmann::json::parse(disReadStr);
     CHECK_FALSE(disReadJson.value("ok", false));
     CHECK_TRUE(disReadJson.value("error", "").find("disabled") != std::string::npos);
+}
+
+TEST(OctiBotHelperTest, JailedRepoToolsRejectNonPublicRepos) {
+    OctiBotConfigStore config;
+    std::string curDir = std::filesystem::current_path().string();
+    config.set("helper_repo_access", "true");
+    config.set("helper_octibot_dir", curDir);
+    config.set("helper_octi_dir", curDir);
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+    OctiBotMcpServer server(runner);
+
+    for (const std::string repo : {"private_repo", "unknown_repo", "", "../octi"}) {
+        nlohmann::json listArgs;
+        listArgs["repo"] = repo;
+        auto listJson = nlohmann::json::parse(server.callTool("octibot_repo_list_files", listArgs.dump()));
+        CHECK_FALSE(listJson.value("ok", false));
+        CHECK_TRUE(listJson.value("error", "").find("allowed repositories are 'octi' and 'octibot'") != std::string::npos);
+
+        nlohmann::json readArgs;
+        readArgs["repo"] = repo;
+        readArgs["path"] = "README.md";
+        auto readJson = nlohmann::json::parse(server.callTool("octibot_repo_read_file", readArgs.dump()));
+        CHECK_FALSE(readJson.value("ok", false));
+        CHECK_FALSE(readJson.contains("content"));
+
+        nlohmann::json searchArgs;
+        searchArgs["repo"] = repo;
+        searchArgs["query"] = "OctiBotAgent";
+        auto searchJson = nlohmann::json::parse(server.callTool("octibot_repo_search", searchArgs.dump()));
+        CHECK_FALSE(searchJson.value("ok", false));
+        CHECK_FALSE(searchJson.contains("matches"));
+    }
+
+    // Public repositories remain reachable.
+    nlohmann::json okArgs;
+    okArgs["repo"] = "octi";
+    okArgs["path"] = "README.md";
+    auto okJson = nlohmann::json::parse(server.callTool("octibot_repo_read_file", okArgs.dump()));
+    CHECK_TRUE(okJson.value("ok", false));
+
+    // Only the two public repository roots are reported in the effective configuration.
+    const std::string cfgDump = server.buildConfigJson().dump();
+    std::size_t repoDirKeys = 0;
+    for (std::size_t pos = cfgDump.find("\"helper_"); pos != std::string::npos;
+         pos = cfgDump.find("\"helper_", pos + 1)) {
+        std::size_t end = cfgDump.find('"', pos + 1);
+        const std::string key = cfgDump.substr(pos + 1, end - pos - 1);
+        if (key.size() > 4 && key.compare(key.size() - 4, 4, "_dir") == 0) {
+            CHECK_TRUE(key == "helper_octi_dir" || key == "helper_octibot_dir");
+            ++repoDirKeys;
+        }
+    }
+    CHECK_TRUE(repoDirKeys > 0);
 }
 
 TEST(OctiBotHelperTest, AppendPlayerFeedbackEntryAndMcpTool) {

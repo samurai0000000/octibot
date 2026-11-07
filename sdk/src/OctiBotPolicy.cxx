@@ -784,7 +784,7 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
         std::string lowerKey = toLower(key);
         static const std::set<std::string> blockedSetKeys = {
             "lobby_only", "helper_octi_dir", "helper_octibot_dir",
-            "helper_octibot_cc_dir", "helper_feedback_file",
+            "helper_feedback_file",
             "ai_cli_sandbox_dir", "config_path", "tokens_path", "bot_token"
         };
         if (blockedSetKeys.count(lowerKey) > 0 || lowerKey.rfind("bot_token_", 0) == 0) {

@@ -30,7 +30,7 @@ Copyright (C) 2026, Charles Chiou
   - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup, isolated `agy` app-data directory (`~/.gemini/antigravity-octibot`), and hardened security sandboxing.
 - **Lobby Concierge & Matchmaking Assistant (`octibot-helper`)**:
   - Non-playing concierge (`algorithm = helper`, `lobby_only = true`, `table_behavior = lobby_only`) designed to welcome players in the `octi.selfso.com` lobby.
-  - Jailed technical Q&A assistant: safely inspects project repositories (`octi`, `octibot`, `octibot_cc`) via read-only tools (`octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`), path-jailed with dot-segment traversal protection and binary file omission.
+  - Jailed technical Q&A assistant: safely inspects the public project repositories (`octi`, `octibot`) via read-only tools (`octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`), path-jailed with dot-segment traversal protection and binary file omission.
   - Bot matchmaking assistant: arranges matches between human players and running fleet bots via `octibot_assist_match` (and sibling `[MATCH ...]` chat commands).
   - Player feedback ledger: records structured bug reports and feature ideas via `octibot_record_player_feedback` into `plan/player_feedback.md` with injection defenses and strict sanitization.
 - **Embedded Web Dashboard & `aimon` Fleet Integration**:
