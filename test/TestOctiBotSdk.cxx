@@ -1845,7 +1845,7 @@ TEST(OctiBotHelperTest, RepoRelativePathValidationAndJailResolution) {
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".agents/Projects.md", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".claude/settings.local.json", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".cursor/mcp.json", reason));
-    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".selfplay/data.txt", reason));
+    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".hidden/data.txt", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".book/book.bin", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".env", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath(".gitignore", reason));
@@ -1866,11 +1866,9 @@ TEST(OctiBotHelperTest, RepoRelativePathValidationAndJailResolution) {
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("local.properties", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("android/local.properties", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("oidc.json", reason));
-    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("OctiEmbeddedWeights.hxx", reason));
-    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("core/include/OctiEmbeddedWeights.hxx", reason));
 
     // 5. Rejecting non-allowlisted extensions
-    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("models/octi.onnx", reason));
+    CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("models/weights.bin", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("weights.bin", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("certs/server.pem", reason));
     CHECK_FALSE(OctiBotMcpServer::isAllowedRepoRelativePath("keys/priv.key", reason));
@@ -1935,7 +1933,7 @@ TEST(OctiBotHelperTest, RepoRelativePathValidationAndJailResolution) {
         RC_ASSERT(!OctiBotMcpServer::isAllowedRepoRelativePath(nulStr, dummy));
 
         // Forbidden filenames anywhere must be rejected
-        std::vector<std::string> forbidden = {"tokens.conf", "octibot.conf", "local.properties", "oidc.json", "OctiEmbeddedWeights.hxx"};
+        std::vector<std::string> forbidden = {"tokens.conf", "octibot.conf", "local.properties", "oidc.json"};
         for (const auto &f : forbidden) {
             std::string fPath = "dir/" + f;
             RC_ASSERT(!OctiBotMcpServer::isAllowedRepoRelativePath(fPath, dummy));

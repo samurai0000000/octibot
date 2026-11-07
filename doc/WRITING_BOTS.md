@@ -489,7 +489,6 @@ Keep `octibot` as your connection, rules validation, and legal move generator wr
 ### Option B — Native C++/ONNX Runtime / LibTorch Integration
 
 Link your C++ `OctiBotAgent` against **ONNX Runtime** or **LibTorch** in `CMakeLists.txt` and evaluate board feature tensors directly inside your search loop.
-- Use `build/tools/octibot_selfplay` to generate binary self-play training datasets (`.octisp`) for supervised or reinforcement learning.
 
 ### Option C — Centaur / MCP External Agent Mode (`move_control = agent`)
 
