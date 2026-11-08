@@ -4650,6 +4650,433 @@ TEST(Octi4PlayerSeatSymmetry, FourPlayerSearchSymmetry)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Envelope 1 (all-variants plan): Superprong Bonus-Move Generation
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool moveHasPrelude(const octi::OctiMove &m)
+{
+    for (const auto &op : m.getOps()) {
+        if (op.isSuperProngBonusMove) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int countPreludeOps(const octi::OctiMove &m)
+{
+    int count = 0;
+    for (const auto &op : m.getOps()) {
+        if (op.isSuperProngBonusMove) {
+            count++;
+        }
+    }
+    return count;
+}
+
+bool containsMoveWithPrefix(const std::vector<octi::OctiMove> &moves,
+                            const std::string &prefix)
+{
+    for (const auto &m : moves) {
+        const std::string s = m.asString();
+        if (s.compare(0, prefix.size(), prefix) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool containsExactMove(const std::vector<octi::OctiMove> &moves,
+                       const std::string &target)
+{
+    for (const auto &m : moves) {
+        if (m.asString() == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string canonicalBoardStateForTest(const octi::OctiBoard &board)
+{
+    const octi::OctiGame *game = board.getGame();
+    std::ostringstream ss;
+    ss << static_cast<int>(board.getGameMode()) << ":"
+       << game->getBasesToWin() << ":"
+       << (game->useSuperProngs() ? 1 : 0) << ":"
+       << (game->useEdgelessBoard() ? 1 : 0) << ":"
+       << static_cast<int>(game->getTurn()) << ":"
+       << (game->isGameOver() ? 1 : 0) << ":"
+       << static_cast<int>(game->getWinner()) << ":";
+    int numPlayers = board.getNumPlayers();
+    for (int p = 1; p <= numPlayers; p++) {
+        octi::OctiPlayer pl = static_cast<octi::OctiPlayer>(p);
+        ss << game->getFreePods(pl) << ","
+           << game->getCapturedPods(pl) << ","
+           << game->getFreeProngs(pl) << ","
+           << game->getFreeSuperProngs(pl) << ","
+           << (game->isPlayerEliminated(pl) ? 1 : 0) << ":";
+    }
+    for (int y = 0; y < board.getBoardHeight(); y++) {
+        for (int x = 0; x < board.getBoardWidth(); x++) {
+            const octi::OctiSquare &sq = board.squareAt(x, y);
+            if (sq.isEmpty()) {
+                continue;
+            }
+            std::vector<std::string> podDescs;
+            podDescs.reserve(sq.getNumPods());
+            for (int i = 0; i < sq.getNumPods(); i++) {
+                const octi::OctiPod &pod = sq.getPodAt(i);
+                podDescs.push_back(std::to_string(static_cast<int>(pod.getType())) +
+                                   ":" + pod.getConfigString());
+            }
+            std::sort(podDescs.begin(), podDescs.end());
+            ss << "(" << x << "," << y << ";";
+            for (const auto &d : podDescs) {
+                ss << d << ",";
+            }
+            ss << ")";
+        }
+    }
+    return ss.str();
+}
+
+} // namespace
+
+TEST_GROUP(OctiSuperProngBonusGeneration)
+{
+};
+
+TEST(OctiSuperProngBonusGeneration, StepRulesAndSuperProngsOffGuard)
+{
+    // A33 has superprongs N(a!), E(c!), S(e!) and normal prong W(g).
+    // 34 (N) is empty -> bonus step allowed.
+    // 43 (E) has friendly pod A43 -> bonus step onto own pod allowed.
+    // 32 (S) has enemy pod B32 -> bonus step onto enemy pod refused.
+    // 23 (W) is empty, but g is a normal prong -> bonus step along normal prong refused.
+    octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    board.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:B32,A33a!c!e!g,A43");
+
+    std::vector<octi::OctiMove> moves;
+    board.getGame()->generateLegalMoves(moves);
+
+    // Step onto empty square 34 allowed:
+    CHECK_TRUE(containsMoveWithPrefix(moves, "33a!c!e!g-34;"));
+    // Step onto friendly square 43 allowed:
+    CHECK_TRUE(containsMoveWithPrefix(moves, "33a!c!e!g-43;"));
+    // Step onto enemy square 32 refused:
+    CHECK_FALSE(containsMoveWithPrefix(moves, "33a!c!e!g-32;"));
+    // Step along normal prong g to 23 refused as bonus prelude:
+    CHECK_FALSE(containsMoveWithPrefix(moves, "33a!c!e!g-23;"));
+
+    // Superprongs off guard: when useSuperProngs is false, zero prelude moves are generated.
+    octi::OctiBoard boardOff(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    boardOff.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,0,1,0:0,0,0,0:B32,A33aceg,A43");
+    std::vector<octi::OctiMove> movesOff;
+    boardOff.getGame()->generateLegalMoves(movesOff);
+    CHECK_FALSE(movesOff.empty());
+    for (const auto &m : movesOff) {
+        CHECK_FALSE(moveHasPrelude(m));
+        CHECK_EQUAL(std::string::npos, m.asString().find(';'));
+    }
+}
+
+TEST(OctiSuperProngBonusGeneration, StraightJumpChainAndRefusalRules)
+{
+    // A31 has superprongs N(a!), NE(b!), E(c!).
+    // North (a!): B32 at (2,1), 33 empty, B34 at (2,3), 35 empty, 36 empty.
+    //   -> 1-hop prefix 31a!b!c!-33; and 2-hop prefix 31a!b!c!-33-35; allowed;
+    //   -> 3-hop to 37 over empty 36 refused.
+    // NE (b!): B42 at (3,1), B53 at (4,2) (landing occupied)
+    //   -> jump onto occupied 53 refused.
+    // East (c!): 41 at (3,0) is empty
+    //   -> jump over empty 41 to 51 refused.
+    octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    board.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A31a!b!c!,B32,B42,B53,B34");
+
+    std::vector<octi::OctiMove> moves;
+    board.getGame()->generateLegalMoves(moves);
+
+    CHECK_TRUE(containsMoveWithPrefix(moves, "31a!b!c!-33;"));
+    CHECK_TRUE(containsMoveWithPrefix(moves, "31a!b!c!-33-35;"));
+    CHECK_FALSE(containsMoveWithPrefix(moves, "31a!b!c!-33-35-37"));
+    CHECK_FALSE(containsMoveWithPrefix(moves, "31a!b!c!-53;"));
+    CHECK_FALSE(containsMoveWithPrefix(moves, "31a!b!c!-51;"));
+
+    // Also verify on edgeless board that jumping the same square twice in a
+    // straight jump chain is refused.
+    octi::OctiBoard edBoard(octi::GAME_MODE_2, true, true, octi::GAME_BASES_3);
+    edBoard.fromPositionString(
+        "2:3:1:1:P:A:-:0:0,0,1,0:0,0,0,0:A11a!,B12,B14,B16,B18,B19,B13,B15,B17");
+    std::vector<octi::OctiMove> edMoves;
+    edBoard.getGame()->generateLegalMoves(edMoves);
+    for (const auto &m : edMoves) {
+        octi::OctiBoard copy(octi::GAME_MODE_2, true, true, octi::GAME_BASES_3);
+        copy.fromPositionString(edBoard.toPositionString());
+        copy.getGame()->move(m);
+    }
+}
+
+TEST(OctiSuperProngBonusGeneration, OptionalCaptureAndPostPreludeRegularActions)
+{
+    // Player A has 0 freePods, 0 capturedPods, 0 freeProngs, 0 freeSuperProngs.
+    // A33a! can jump over B34e to 35.
+    // Without capture (33a!-35), A still has 0 freeProngs -> cannot add a prong at 35.
+    // With capture (33a!-35x), B34e is captured before the regular action, giving A
+    // 1 freeProng -> regular action 35a!+b becomes legal in the same turn!
+    octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    board.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,0,0:0,0,0,0:A33a!,B34e");
+
+    std::vector<octi::OctiMove> moves;
+    board.getGame()->generateLegalMoves(moves);
+
+    // Non-capturing jump prelude + regular step 35a!-36:
+    CHECK_TRUE(containsExactMove(moves, "33a!-35;35a!-36"));
+    // Capturing jump prelude + regular step 35a!-36:
+    CHECK_TRUE(containsExactMove(moves, "33a!-35x;35a!-36"));
+    // Non-capturing jump prelude CANNOT add a prong (0 freeProngs):
+    CHECK_FALSE(containsExactMove(moves, "33a!-35;35a!+b"));
+    // Capturing jump prelude unlocks prong addition 35a!+b from the captured e prong:
+    CHECK_TRUE(containsExactMove(moves, "33a!-35x;35a!+b"));
+
+    // Verify notation round-trip and execution of "33a!-35x;35a!+b":
+    octi::OctiMove parsed("33a!-35x;35a!+b");
+    STRCMP_EQUAL("33a!-35x;35a!+b", parsed.asString().c_str());
+    board.getGame()->move(parsed);
+    CHECK_TRUE(board.squareAt(2, 3).isEmpty());
+    CHECK_EQUAL(1, board.squareAt(2, 4).getNumPods());
+}
+
+TEST(OctiSuperProngBonusGeneration, EdgelessWrapAndTwoPreludesCanonicalDeduplication)
+{
+    // Part A: Edgeless wrap step and jump preludes.
+    // A15g! at (0, 4) has West superprong g!.
+    // Stepping West wraps to 95 (8, 4).
+    // If B95 is at (8, 4) and 85 (7, 4) is empty, jumping West wraps to 85.
+    octi::OctiBoard edStepBoard(octi::GAME_MODE_2, true, true, octi::GAME_BASES_3);
+    edStepBoard.fromPositionString(
+        "2:3:1:1:P:A:-:0:0,0,1,0:0,0,0,0:A15g!,B57");
+    std::vector<octi::OctiMove> edStepMoves;
+    edStepBoard.getGame()->generateLegalMoves(edStepMoves);
+    CHECK_TRUE(containsExactMove(edStepMoves, "15g!-95;95g!+a"));
+
+    octi::OctiBoard edJumpBoard(octi::GAME_MODE_2, true, true, octi::GAME_BASES_3);
+    edJumpBoard.fromPositionString(
+        "2:3:1:1:P:A:-:0:0,0,1,0:0,0,0,0:A15g!,B95,B57");
+    std::vector<octi::OctiMove> edJumpMoves;
+    edJumpBoard.getGame()->generateLegalMoves(edJumpMoves);
+    CHECK_TRUE(containsExactMove(edJumpMoves, "15g!-85;85g!+a"));
+    CHECK_TRUE(containsExactMove(edJumpMoves, "15g!-85x;85g!+a"));
+
+    // Part B: Two preludes (sequential by same pod, and commuting by different pods).
+    octi::OctiBoard twoPrelBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    twoPrelBoard.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A53a!,B57");
+    std::vector<octi::OctiMove> twoPrelMoves;
+    twoPrelBoard.getGame()->generateLegalMoves(twoPrelMoves);
+
+    // Same pod takes two sequential step preludes 33 -> 34 -> 35, then +b at 35:
+    CHECK_TRUE(containsExactMove(twoPrelMoves, "33a!-34;34a!-35;35a!+b"));
+
+    // Two different pods (A33a! and A53a!) commute: emitted in canonical order
+    // (lower source square 33 before 53) and NOT in reversed order (53 before 33):
+    CHECK_TRUE(containsExactMove(twoPrelMoves, "33a!-34;53a!-54;34a!+b"));
+    CHECK_FALSE(containsExactMove(twoPrelMoves, "53a!-54;33a!-34;34a!+b"));
+}
+
+TEST(OctiSuperProngBonusGeneration, Random1000SuperProngPositionsRoundTripAndUniqueResultingPositions)
+{
+    std::mt19937 rng(0x50504247u);
+    int totalPositions = 0;
+    std::size_t totalMoves = 0;
+    std::size_t totalPreludeMoves = 0;
+    std::size_t totalTwoPreludeMoves = 0;
+
+    for (int iter = 0; iter < 1000; iter++) {
+        bool is4P = (iter % 4 == 3);
+        bool edgeless = (iter % 2 == 1);
+        octi::OctiGameMode mode = is4P ? octi::GAME_MODE_4 : octi::GAME_MODE_2;
+        octi::OctiGameBases bases = (iter % 3 == 0) ? octi::GAME_BASES_1 : octi::GAME_BASES_3;
+
+        int freePodsA = static_cast<int>(rng() % 2);
+        int capPodsA = static_cast<int>(rng() % 2);
+        int freeProngsA = 1 + static_cast<int>(rng() % 2);
+        int freeSuperA = static_cast<int>(rng() % 2);
+
+        std::ostringstream pos;
+        pos << (is4P ? "4" : "2") << ":"
+            << (bases == octi::GAME_BASES_1 ? "1" : "3") << ":1:"
+            << (edgeless ? "1" : "0") << ":P:A:-:0:"
+            << freePodsA << "," << capPodsA << "," << freeProngsA << "," << freeSuperA << ":"
+            << "0,0,1,0:";
+        if (is4P) {
+            pos << "0,0,1,0:0,0,1,0:";
+        }
+
+        // Generate 2 to 4 pods on safe non-base coordinates so the game is not already over
+        static const int kSafeCoords[][2] = {
+            {0, 0}, {1, 0}, {3, 0}, {4, 0}, {7, 0}, {8, 0},
+            {0, 1}, {1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {7, 1},
+            {1, 2}, {3, 2}, {5, 2}, {7, 2},
+            {0, 3}, {1, 3}, {2, 3}, {3, 3}, {4, 3}, {5, 3}, {6, 3}, {7, 3},
+            {0, 4}, {1, 4}, {2, 4}, {3, 4}, {4, 4}, {5, 4}, {6, 4}, {7, 4}, {8, 4},
+            {1, 5}, {2, 5}, {3, 5}, {4, 5}, {5, 5}, {6, 5}, {7, 5}
+        };
+        constexpr int kNumSafe = static_cast<int>(sizeof(kSafeCoords) / sizeof(kSafeCoords[0]));
+
+        int numFriendly = 1 + static_cast<int>(rng() % 2);
+        int numEnemy = 1 + static_cast<int>(rng() % 2);
+        std::vector<int> chosenIndices;
+        while (static_cast<int>(chosenIndices.size()) < numFriendly + numEnemy) {
+            int idx = static_cast<int>(rng() % kNumSafe);
+            if (std::find(chosenIndices.begin(), chosenIndices.end(), idx) == chosenIndices.end()) {
+                chosenIndices.push_back(idx);
+            }
+        }
+
+        struct PodPlacement {
+            int x;
+            int y;
+            char owner;
+            std::string cfg;
+        };
+        std::vector<PodPlacement> placements;
+
+        for (int f = 0; f < numFriendly; f++) {
+            int cx = kSafeCoords[chosenIndices[f]][0];
+            int cy = kSafeCoords[chosenIndices[f]][1];
+            int spDir1 = static_cast<int>(rng() % 8);
+            int spDir2 = static_cast<int>(rng() % 8);
+            int normDir = static_cast<int>(rng() % 8);
+            std::string cfg;
+            for (int d = 0; d < 8; d++) {
+                char c = static_cast<char>('a' + d);
+                if (d == spDir1 || (f == 0 && d == spDir2)) {
+                    cfg.push_back(c);
+                    cfg.push_back('!');
+                } else if (d == normDir) {
+                    cfg.push_back(c);
+                }
+            }
+            placements.push_back({cx, cy, 'A', cfg});
+        }
+
+        for (int e = 0; e < numEnemy; e++) {
+            // Place at least the first enemy pod adjacent to the first friendly pod
+            // half the time so jump/step interactions are heavily exercised.
+            int cx = kSafeCoords[chosenIndices[numFriendly + e]][0];
+            int cy = kSafeCoords[chosenIndices[numFriendly + e]][1];
+            if (e == 0 && (iter % 2 == 0)) {
+                int fx = placements[0].x;
+                int fy = placements[0].y;
+                int d = static_cast<int>(rng() % 8);
+                static const int kDx[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+                static const int kDy[8] = {1, 1, 0, -1, -1, -1, 0, 1};
+                int nx = edgeless ? ((fx + kDx[d] + 9) % 9) : (fx + kDx[d]);
+                int ny = edgeless ? ((fy + kDy[d] + 9) % 9) : (fy + kDy[d]);
+                if (nx >= 0 && nx < 9 && ny >= 0 && ny < 9 && ny != 2 && ny != 6) {
+                    bool clash = false;
+                    for (const auto &pl : placements) {
+                        if (pl.x == nx && pl.y == ny) {
+                            clash = true;
+                            break;
+                        }
+                    }
+                    if (!clash) {
+                        cx = nx;
+                        cy = ny;
+                    }
+                }
+            }
+            int eDir = static_cast<int>(rng() % 8);
+            std::string cfg(1, static_cast<char>('a' + eDir));
+            if (e == 0 && (iter % 50 == 0)) {
+                cfg.push_back('!');
+            }
+            placements.push_back({cx, cy, 'B', cfg});
+        }
+
+        std::sort(placements.begin(), placements.end(),
+                  [](const PodPlacement &a, const PodPlacement &b) {
+                      if (a.y != b.y) return a.y < b.y;
+                      return a.x < b.x;
+                  });
+
+        for (std::size_t i = 0; i < placements.size(); i++) {
+            if (i > 0) pos << ",";
+            pos << placements[i].owner
+                << (placements[i].x + 1)
+                << (placements[i].y + 1)
+                << placements[i].cfg;
+        }
+
+        const std::string posStr = pos.str();
+        octi::OctiBoard board(mode, true, edgeless, bases);
+        board.fromPositionString(posStr);
+
+        std::vector<octi::OctiMove> moves;
+        board.getGame()->generateLegalMoves(moves);
+        CHECK_FALSE(moves.empty());
+
+        std::set<std::string> seenResultPositions;
+        std::set<std::string> seenCanonicalStates;
+
+        octi::OctiBoard simBoard(mode, true, edgeless, bases);
+        simBoard.fromPositionString(posStr);
+        simBoard.getGame()->setSearchMode(true);
+        octi::OctiGameSnapshot snap = simBoard.getGame()->captureSnapshot();
+        for (const auto &m : moves) {
+            int pCount = countPreludeOps(m);
+            if (pCount > 0) totalPreludeMoves++;
+            if (pCount == 2) totalTwoPreludeMoves++;
+
+            // Notation round-trip check
+            std::string moveStr = m.asString();
+            octi::OctiMove roundTripped(moveStr);
+            STRCMP_EQUAL(moveStr.c_str(), roundTripped.asString().c_str());
+            CHECK_EQUAL(m.getOps().size(), roundTripped.getOps().size());
+            for (std::size_t k = 0; k < m.getOps().size(); k++) {
+                const auto &opA = m.getOps()[k];
+                const auto &opB = roundTripped.getOps()[k];
+                CHECK_EQUAL(opA.x0, opB.x0);
+                CHECK_EQUAL(opA.y0, opB.y0);
+                CHECK_EQUAL(opA.pod.rawConfig() & 0xFFFFu,
+                            opB.pod.rawConfig() & 0xFFFFu);
+                CHECK_EQUAL(opA.addPod, opB.addPod);
+                CHECK_EQUAL(opA.liberate, opB.liberate);
+                CHECK_EQUAL(opA.addProngDir, opB.addProngDir);
+                CHECK_EQUAL(opA.rmProngDir, opB.rmProngDir);
+                CHECK_EQUAL(opA.superProng, opB.superProng);
+                CHECK_EQUAL(opA.isSuperProngBonusMove, opB.isSuperProngBonusMove);
+                CHECK_TRUE(opA.hops == opB.hops);
+            }
+
+            // Execution check via applyMoveOps
+            simBoard.getGame()->restoreSnapshot(snap);
+            simBoard.getGame()->move(roundTripped);
+
+            std::string afterPos = simBoard.toPositionString();
+            std::string afterCanon = canonicalBoardStateForTest(simBoard);
+            CHECK_TRUE(seenResultPositions.insert(afterPos).second);
+            CHECK_TRUE(seenCanonicalStates.insert(afterCanon).second);
+        }
+
+        totalPositions++;
+        totalMoves += moves.size();
+    }
+
+    CHECK_EQUAL(1000, totalPositions);
+    CHECK_TRUE(totalPreludeMoves > 0);
+    CHECK_TRUE(totalTwoPreludeMoves > 0);
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();

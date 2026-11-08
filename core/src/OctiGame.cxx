@@ -1543,12 +1543,15 @@ static void dfsJumpChains(const OctiBoard *board,
     }
 }
 
-void OctiGame::generateLegalMoves(std::vector<OctiMove> &outMoves) const
+static void generateZeroPreludeMoves(const OctiBoard *_board,
+                                     const OctiPlayerState _players[5],
+                                     OctiGameMode _mode,
+                                     OctiPlayer _turn,
+                                     bool _useSuperProngs,
+                                     bool _useEdgelessBoard,
+                                     std::vector<OctiMove> &outMoves)
 {
     outMoves.clear();
-    if (!_gameStarted || _gameOver || _turn == PLAYER_UNDEF || !_board) {
-        return;
-    }
 
     int w = _board->getBoardWidth();
     int h = _board->getBoardHeight();
@@ -1770,6 +1773,675 @@ void OctiGame::generateLegalMoves(std::vector<OctiMove> &outMoves) const
                 dfsJumpChains(_board, _useEdgelessBoard, _turn, x, y, pod, ghostPods,
                               jumpedSquares, currentHops, x, y, outMoves);
             }
+        }
+    }
+}
+
+struct PreludeCandidate {
+    OctiMoveOp op;
+    int endX = -1;
+    int endY = -1;
+    std::vector<std::pair<int, int>> captures;
+};
+
+static void copyBoardSquares(const OctiBoard *src, OctiBoard &dst)
+{
+    int w = src->getBoardWidth();
+    int h = src->getBoardHeight();
+    for (int x = 0; x < w; x++) {
+        for (int y = 0; y < h; y++) {
+            OctiSquare &dSq = dst.squareAt(x, y);
+            dSq.clear();
+            const OctiSquare &sSq = src->squareAt(x, y);
+            for (int i = 0; i < sSq.getNumPods(); i++) {
+                dSq.addPod(sSq.getPodAt(i));
+            }
+        }
+    }
+}
+
+struct FastSq {
+    OctiPod pods[16];
+    int count = 0;
+};
+
+struct FastGrid {
+    FastSq sq[9][9];
+};
+
+struct SeenStateTable {
+    struct Entry {
+        std::uint64_t hash = 0;
+        std::string key;
+        bool occupied = false;
+    };
+    std::vector<Entry> slots;
+    std::size_t count = 0;
+
+    SeenStateTable() : slots(1024) {}
+
+    static std::uint64_t hashKey(const std::string &s)
+    {
+        std::uint64_t h = 14695981039346656037ULL;
+        for (unsigned char c : s) {
+            h ^= static_cast<std::uint64_t>(c);
+            h *= 1099511628211ULL;
+        }
+        return h;
+    }
+
+    void rehash(std::size_t newCap)
+    {
+        std::vector<Entry> oldSlots = std::move(slots);
+        slots.assign(newCap, Entry{});
+        std::size_t mask = newCap - 1;
+        for (auto &e : oldSlots) {
+            if (!e.occupied) continue;
+            std::size_t idx = static_cast<std::size_t>(e.hash) & mask;
+            while (slots[idx].occupied) {
+                idx = (idx + 1) & mask;
+            }
+            slots[idx] = std::move(e);
+        }
+    }
+
+    bool insert(std::string &&key)
+    {
+        if ((count + 1) * 2 >= slots.size()) {
+            rehash(slots.size() * 2);
+        }
+        std::uint64_t h = hashKey(key);
+        std::size_t mask = slots.size() - 1;
+        std::size_t idx = static_cast<std::size_t>(h) & mask;
+        while (slots[idx].occupied) {
+            if (slots[idx].hash == h && slots[idx].key == key) {
+                return false;
+            }
+            idx = (idx + 1) & mask;
+        }
+        slots[idx].hash = h;
+        slots[idx].key = std::move(key);
+        slots[idx].occupied = true;
+        count++;
+        return true;
+    }
+};
+
+static void initFastGrid(const OctiBoard *board, FastGrid &grid)
+{
+    int w = board->getBoardWidth();
+    int h = board->getBoardHeight();
+    for (int x = 0; x < w; x++) {
+        for (int y = 0; y < h; y++) {
+            const OctiSquare &sSq = board->squareAt(x, y);
+            int n = sSq.getNumPods();
+            grid.sq[x][y].count = n;
+            for (int i = 0; i < n; i++) {
+                grid.sq[x][y].pods[i] = sSq.getPodAt(i);
+            }
+        }
+    }
+}
+
+static std::string computePostMoveCanonicalKey(const OctiBoard *board,
+                                               const FastGrid &baseGrid,
+                                               const OctiPlayerState playersIn[5],
+                                               OctiGameMode mode,
+                                               OctiPlayer turn,
+                                               bool edgeless,
+                                               const OctiMoveOp &regOp)
+{
+    int w = board->getBoardWidth();
+    int h = board->getBoardHeight();
+    FastGrid grid = baseGrid;
+    OctiPlayerState players[5];
+    for (int p = 0; p < 5; p++) {
+        players[p] = playersIn[p];
+    }
+
+    if (regOp.addPod) {
+        OctiSquareType st = board->squareAt(regOp.x0, regOp.y0).getType();
+        if (mode == GAME_MODE_2) {
+            if (regOp.liberate) {
+                players[turn].capturedPods--;
+            } else if (players[turn].freePods > 0) {
+                players[turn].freePods--;
+            } else {
+                players[turn].capturedPods--;
+            }
+            FastSq &fSq = grid.sq[regOp.x0][regOp.y0];
+            fSq.pods[fSq.count++] = OctiPod(playerToPodType(turn));
+        } else if (mode == GAME_MODE_4) {
+            OctiSquareType homeType = (turn == PLAYER_A ? A_HOME_SQUARE :
+                                       turn == PLAYER_B ? B_HOME_SQUARE :
+                                       turn == PLAYER_C ? C_HOME_SQUARE : D_HOME_SQUARE);
+            OctiPlayer partner = (turn == PLAYER_A ? PLAYER_C :
+                                  turn == PLAYER_C ? PLAYER_A :
+                                  turn == PLAYER_B ? PLAYER_D : PLAYER_B);
+            OctiSquareType partnerHome = (partner == PLAYER_A ? A_HOME_SQUARE :
+                                          partner == PLAYER_B ? B_HOME_SQUARE :
+                                          partner == PLAYER_C ? C_HOME_SQUARE : D_HOME_SQUARE);
+            FastSq &fSq = grid.sq[regOp.x0][regOp.y0];
+            if (st == homeType) {
+                if (regOp.liberate) {
+                    players[turn].capturedPods--;
+                } else if (players[turn].freePods > 0) {
+                    players[turn].freePods--;
+                } else {
+                    players[turn].capturedPods--;
+                }
+                fSq.pods[fSq.count++] = OctiPod(playerToPodType(turn));
+            } else if (st == partnerHome) {
+                if (players[partner].eliminated) {
+                    players[partner].eliminated = false;
+                    players[partner].capturedPods--;
+                    fSq.pods[fSq.count++] = OctiPod(playerToPodType(partner));
+                } else {
+                    players[turn].capturedPods--;
+                    fSq.pods[fSq.count++] = OctiPod(playerToPodType(turn));
+                }
+            } else if (st == NEUTRAL_OCTI_SQUARE) {
+                players[turn].capturedPods--;
+                fSq.pods[fSq.count++] = OctiPod(playerToPodType(turn));
+            } else {
+                if (regOp.liberate) {
+                    players[turn].capturedPods--;
+                } else if (players[turn].freePods > 0) {
+                    players[turn].freePods--;
+                } else {
+                    players[turn].capturedPods--;
+                }
+                fSq.pods[fSq.count++] = OctiPod(playerToPodType(turn));
+            }
+        }
+    } else if (regOp.addProngDir != DIR_UNDEF && regOp.rmProngDir == DIR_UNDEF) {
+        FastSq &fSq = grid.sq[regOp.x0][regOp.y0];
+        for (int i = 0; i < fSq.count; i++) {
+            if (fSq.pods[i].getType() == playerToPodType(turn) &&
+                (fSq.pods[i].rawConfig() & 0xFFFFu) == (regOp.pod.rawConfig() & 0xFFFFu)) {
+                fSq.pods[i].addProng(regOp.addProngDir, regOp.superProng);
+                break;
+            }
+        }
+        if (regOp.superProng) {
+            players[turn].freeSuperProngs--;
+        } else {
+            players[turn].freeProngs--;
+        }
+    } else if (regOp.addProngDir != DIR_UNDEF && regOp.rmProngDir != DIR_UNDEF) {
+        FastSq &fSq = grid.sq[regOp.x0][regOp.y0];
+        for (int i = 0; i < fSq.count; i++) {
+            if (fSq.pods[i].getType() == playerToPodType(turn) &&
+                (fSq.pods[i].rawConfig() & 0xFFFFu) == (regOp.pod.rawConfig() & 0xFFFFu)) {
+                fSq.pods[i].removeProng(regOp.rmProngDir);
+                fSq.pods[i].addProng(regOp.addProngDir, false);
+                break;
+            }
+        }
+    } else if (!regOp.hops.empty()) {
+        FastSq &startSq = grid.sq[regOp.x0][regOp.y0];
+        OctiPod movingPod = regOp.pod;
+        for (int i = 0; i < startSq.count; i++) {
+            if (startSq.pods[i].getType() == playerToPodType(turn) &&
+                (startSq.pods[i].rawConfig() & 0xFFFFu) == (regOp.pod.rawConfig() & 0xFFFFu)) {
+                movingPod = startSq.pods[i];
+                for (int j = i + 1; j < startSq.count; j++) {
+                    startSq.pods[j - 1] = startSq.pods[j];
+                }
+                startSq.count--;
+                break;
+            }
+        }
+        int cx = regOp.x0;
+        int cy = regOp.y0;
+        std::pair<int, int> capturedCoords[16];
+        int numCaptured = 0;
+        for (const auto &hop : regOp.hops) {
+            if (hop.capture) {
+                int jdx = 0, jdy = 0;
+                findStepDelta(cx, cy, hop.x, hop.y, edgeless, w, h, jdx, jdy);
+                int jx = edgeless ? (((cx + jdx / 2) % w + w) % w) : (cx + jdx / 2);
+                int jy = edgeless ? (((cy + jdy / 2) % h + h) % h) : (cy + jdy / 2);
+                std::pair<int, int> jc = {jx, jy};
+                bool dup = false;
+                for (int k = 0; k < numCaptured; k++) {
+                    if (capturedCoords[k] == jc) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (!dup) {
+                    capturedCoords[numCaptured++] = jc;
+                }
+            }
+            cx = hop.x;
+            cy = hop.y;
+        }
+        FastSq &destSq = grid.sq[cx][cy];
+        destSq.pods[destSq.count++] = movingPod;
+        for (int k = 0; k < numCaptured; k++) {
+            FastSq &cSq = grid.sq[capturedCoords[k].first][capturedCoords[k].second];
+            for (int i = 0; i < cSq.count; i++) {
+                const OctiPod &sqPod = cSq.pods[i];
+                OctiPlayer owner = podTypeToPlayer(sqPod.getType());
+                players[turn].freeProngs += sqPod.getNumNormalProngs();
+                players[turn].freeSuperProngs += sqPod.getNumSuperProngs();
+                players[owner].capturedPods++;
+            }
+            cSq.count = 0;
+        }
+    }
+
+    if (mode == GAME_MODE_4) {
+        const std::pair<int, int> homeCoords[5] = {
+            {-1, -1}, {2, 2}, {2, 6}, {6, 6}, {6, 2}
+        };
+        for (int p = 1; p <= 4; p++) {
+            OctiPlayer player = static_cast<OctiPlayer>(p);
+            if (!players[p].eliminated) {
+                const FastSq &hSq = grid.sq[homeCoords[p].first][homeCoords[p].second];
+                bool captured = false;
+                for (int i = 0; i < hSq.count; i++) {
+                    OctiPlayer podPlayer = podTypeToPlayer(hSq.pods[i].getType());
+                    if (podPlayer != PLAYER_UNDEF &&
+                        !areAlliedPlayers(GAME_MODE_4, player, podPlayer)) {
+                        captured = true;
+                        break;
+                    }
+                }
+                if (captured) {
+                    players[p].eliminated = true;
+                    for (int x = 0; x < w; x++) {
+                        for (int y = 0; y < h; y++) {
+                            FastSq &fSq = grid.sq[x][y];
+                            int writeIdx = 0;
+                            for (int i = 0; i < fSq.count; i++) {
+                                const OctiPod &pod = fSq.pods[i];
+                                if (podTypeToPlayer(pod.getType()) == player) {
+                                    players[turn].freeProngs += pod.getNumNormalProngs();
+                                    players[turn].freeSuperProngs += pod.getNumSuperProngs();
+                                    players[p].capturedPods++;
+                                } else {
+                                    fSq.pods[writeIdx++] = pod;
+                                }
+                            }
+                            fSq.count = writeIdx;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    std::string key;
+    key.reserve(96);
+    int numPlayers = (mode == GAME_MODE_4) ? 4 : 2;
+    for (int p = 1; p <= numPlayers; p++) {
+        key.push_back(static_cast<char>(players[p].freePods));
+        key.push_back(static_cast<char>(players[p].capturedPods));
+        key.push_back(static_cast<char>(players[p].freeProngs));
+        key.push_back(static_cast<char>(players[p].freeSuperProngs));
+        key.push_back(static_cast<char>(players[p].eliminated ? 1 : 0));
+    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            FastSq &fSq = grid.sq[x][y];
+            if (fSq.count == 0) {
+                continue;
+            }
+            if (fSq.count > 1) {
+                std::sort(fSq.pods, fSq.pods + fSq.count,
+                          [](const OctiPod &a, const OctiPod &b) {
+                              return a.rawConfig() < b.rawConfig();
+                          });
+            }
+            key.push_back(static_cast<char>(x));
+            key.push_back(static_cast<char>(y));
+            key.push_back(static_cast<char>(fSq.count));
+            for (int i = 0; i < fSq.count; i++) {
+                std::uint32_t rc = fSq.pods[i].rawConfig();
+                key.append(reinterpret_cast<const char *>(&rc), sizeof(rc));
+            }
+        }
+    }
+    return key;
+}
+
+static void appendDeduplicatedRegularMoves(const OctiBoard *board,
+                                           const OctiPlayerState players[5],
+                                           OctiGameMode mode,
+                                           OctiPlayer turn,
+                                           bool useSuperProngs,
+                                           bool useEdgelessBoard,
+                                           const std::vector<OctiMoveOp> &preludeOps,
+                                           SeenStateTable &seenCanonicalStates,
+                                           std::vector<OctiMove> &regScratch,
+                                           std::vector<OctiMove> &outMoves)
+{
+    generateZeroPreludeMoves(board, players, mode, turn,
+                             useSuperProngs, useEdgelessBoard, regScratch);
+    if (regScratch.empty()) {
+        return;
+    }
+    FastGrid baseGrid;
+    initFastGrid(board, baseGrid);
+    for (const auto &regMove : regScratch) {
+        const OctiMoveOp &regOp = regMove.getOps()[0];
+        std::string key = computePostMoveCanonicalKey(
+            board, baseGrid, players, mode, turn, useEdgelessBoard, regOp);
+        if (!seenCanonicalStates.insert(std::move(key))) {
+            continue;
+        }
+        if (preludeOps.empty()) {
+            outMoves.push_back(regMove);
+        } else {
+            std::vector<OctiMoveOp> ops;
+            ops.reserve(preludeOps.size() + 1);
+            ops.insert(ops.end(), preludeOps.begin(), preludeOps.end());
+            ops.push_back(regOp);
+            outMoves.emplace_back(std::move(ops));
+        }
+    }
+}
+
+static void dfsStraightSuperProngJumps(const OctiBoard *board,
+                                       bool edgeless,
+                                       int sx, int sy,
+                                       int origStartPodCount,
+                                       int cx, int cy,
+                                       const OctiPod &pod,
+                                       OctiDir dir,
+                                       std::vector<std::pair<int, int>> &jumpedSquares,
+                                       std::vector<OctiHop> &currentHops,
+                                       std::vector<std::pair<int, int>> &currentCaptures,
+                                       std::vector<PreludeCandidate> &outPreludes)
+{
+    int w = board->getBoardWidth();
+    int h = board->getBoardHeight();
+
+    int jdx = dirDeltaX(dir);
+    int jdy = dirDeltaY(dir);
+    int dx = jdx * 2;
+    int dy = jdy * 2;
+
+    int jx = edgeless ? (((cx + jdx) % w + w) % w) : (cx + jdx);
+    int jy = edgeless ? (((cy + jdy) % h + h) % h) : (cy + jdy);
+    int lx = edgeless ? (((cx + dx) % w + w) % w) : (cx + dx);
+    int ly = edgeless ? (((cy + dy) % h + h) % h) : (cy + dy);
+
+    if (!edgeless) {
+        if (jx < 0 || jx >= w || jy < 0 || jy >= h) return;
+        if (lx < 0 || lx >= w || ly < 0 || ly >= h) return;
+    }
+
+    std::pair<int, int> jCoord = {jx, jy};
+    if (std::find(jumpedSquares.begin(), jumpedSquares.end(), jCoord) !=
+        jumpedSquares.end()) {
+        return;
+    }
+
+    bool jumpedEmpty = (jx == sx && jy == sy)
+                           ? (origStartPodCount <= 1)
+                           : board->squareAt(jx, jy).isEmpty();
+    if (jumpedEmpty) {
+        return;
+    }
+
+    bool landingEmpty = (lx == sx && ly == sy)
+                            ? (origStartPodCount <= 1)
+                            : board->squareAt(lx, ly).isEmpty();
+    if (!landingEmpty) {
+        return;
+    }
+
+    // Branch 1: Without capture
+    {
+        OctiHop hop;
+        hop.x = lx;
+        hop.y = ly;
+        hop.capture = false;
+
+        currentHops.push_back(hop);
+        jumpedSquares.push_back(jCoord);
+
+        PreludeCandidate cand;
+        cand.op.x0 = sx;
+        cand.op.y0 = sy;
+        cand.op.pod = pod;
+        cand.op.isSuperProngBonusMove = true;
+        cand.op.hops = currentHops;
+        cand.endX = lx;
+        cand.endY = ly;
+        cand.captures = currentCaptures;
+        outPreludes.push_back(std::move(cand));
+
+        dfsStraightSuperProngJumps(board, edgeless, sx, sy, origStartPodCount,
+                                   lx, ly, pod, dir, jumpedSquares,
+                                   currentHops, currentCaptures, outPreludes);
+
+        jumpedSquares.pop_back();
+        currentHops.pop_back();
+    }
+
+    // Branch 2: With capture
+    {
+        OctiHop hop;
+        hop.x = lx;
+        hop.y = ly;
+        hop.capture = true;
+
+        currentHops.push_back(hop);
+        jumpedSquares.push_back(jCoord);
+        currentCaptures.push_back(jCoord);
+
+        PreludeCandidate cand;
+        cand.op.x0 = sx;
+        cand.op.y0 = sy;
+        cand.op.pod = pod;
+        cand.op.isSuperProngBonusMove = true;
+        cand.op.hops = currentHops;
+        cand.endX = lx;
+        cand.endY = ly;
+        cand.captures = currentCaptures;
+        outPreludes.push_back(std::move(cand));
+
+        dfsStraightSuperProngJumps(board, edgeless, sx, sy, origStartPodCount,
+                                   lx, ly, pod, dir, jumpedSquares,
+                                   currentHops, currentCaptures, outPreludes);
+
+        currentCaptures.pop_back();
+        jumpedSquares.pop_back();
+        currentHops.pop_back();
+    }
+}
+
+static void enumerateSuperProngPreludes(const OctiBoard *board,
+                                        bool edgeless,
+                                        OctiPlayer turn,
+                                        std::vector<PreludeCandidate> &outPreludes)
+{
+    outPreludes.clear();
+    int w = board->getBoardWidth();
+    int h = board->getBoardHeight();
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const OctiSquare &sq = board->squareAt(x, y);
+            int numPods = sq.getNumPods();
+            if (numPods == 0) {
+                continue;
+            }
+            std::uint32_t seenConfigs[16];
+            int numSeen = 0;
+
+            for (int i = 0; i < numPods; i++) {
+                const OctiPod &pod = sq.getPodAt(i);
+                if (pod.getType() != playerToPodType(turn) || !pod.hasSuperProng()) {
+                    continue;
+                }
+                std::uint32_t cfg = pod.rawConfig() & 0xFFFFu;
+                bool dupCfg = false;
+                for (int s = 0; s < numSeen; s++) {
+                    if (seenConfigs[s] == cfg) {
+                        dupCfg = true;
+                        break;
+                    }
+                }
+                if (dupCfg) {
+                    continue;
+                }
+                seenConfigs[numSeen++] = cfg;
+
+                for (int d = 0; d < DIR_MAX; d++) {
+                    OctiDir dir = static_cast<OctiDir>(d);
+                    if (pod.prongAt(dir) != SUPER_PRONG) {
+                        continue;
+                    }
+
+                    // 1. Single step along superprong direction
+                    {
+                        int dx = dirDeltaX(dir);
+                        int dy = dirDeltaY(dir);
+                        int nx = edgeless ? (((x + dx) % w + w) % w) : (x + dx);
+                        int ny = edgeless ? (((y + dy) % h + h) % h) : (y + dy);
+
+                        bool inBounds = edgeless || (nx >= 0 && nx < w && ny >= 0 && ny < h);
+                        if (inBounds && !board->squareAt(nx, ny).hasEnemyOf(turn)) {
+                            PreludeCandidate cand;
+                            cand.op.x0 = x;
+                            cand.op.y0 = y;
+                            cand.op.pod = pod;
+                            cand.op.isSuperProngBonusMove = true;
+                            OctiHop hop;
+                            hop.x = nx;
+                            hop.y = ny;
+                            hop.capture = false;
+                            cand.op.hops.push_back(hop);
+                            cand.endX = nx;
+                            cand.endY = ny;
+                            outPreludes.push_back(std::move(cand));
+                        }
+                    }
+
+                    // 2. Straight jump chain prefixes along superprong direction
+                    {
+                        std::vector<std::pair<int, int>> jumpedSquares;
+                        std::vector<OctiHop> currentHops;
+                        std::vector<std::pair<int, int>> currentCaptures;
+                        dfsStraightSuperProngJumps(board, edgeless, x, y, numPods,
+                                                   x, y, pod, dir, jumpedSquares,
+                                                   currentHops, currentCaptures,
+                                                   outPreludes);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void applyBonusCapturesToState(OctiBoard &board,
+                                      OctiPlayerState players[5],
+                                      OctiPlayer turn,
+                                      const std::set<std::pair<int, int>> &bonusCaptures)
+{
+    for (const auto &coord : bonusCaptures) {
+        OctiSquare &sq = board.squareAt(coord.first, coord.second);
+        for (int i = 0; i < sq.getNumPods(); i++) {
+            const OctiPod &sqPod = sq.getPodAt(i);
+            OctiPlayer owner = podTypeToPlayer(sqPod.getType());
+            players[turn].freeProngs += sqPod.getNumNormalProngs();
+            players[turn].freeSuperProngs += sqPod.getNumSuperProngs();
+            players[owner].capturedPods++;
+        }
+        sq.clear();
+    }
+}
+
+void OctiGame::generateLegalMoves(std::vector<OctiMove> &outMoves) const
+{
+    outMoves.clear();
+    if (!_gameStarted || _gameOver || _turn == PLAYER_UNDEF || !_board) {
+        return;
+    }
+
+    if (!_useSuperProngs) {
+        generateZeroPreludeMoves(_board, _players, _mode, _turn,
+                                 _useSuperProngs, _useEdgelessBoard, outMoves);
+        return;
+    }
+
+    SeenStateTable seenCanonicalStates;
+    std::vector<OctiMove> regScratch;
+    std::vector<OctiMoveOp> emptyPreludes;
+
+    // 0-prelude regular moves
+    appendDeduplicatedRegularMoves(_board, _players, _mode, _turn,
+                                   _useSuperProngs, _useEdgelessBoard,
+                                   emptyPreludes, seenCanonicalStates,
+                                   regScratch, outMoves);
+
+    // Enumerate 1st superprong bonus prelude candidates
+    std::vector<PreludeCandidate> preludes1;
+    enumerateSuperProngPreludes(_board, _useEdgelessBoard, _turn, preludes1);
+    if (preludes1.empty()) {
+        return;
+    }
+
+    OctiBoard boardAfterP1Move(_mode, _useSuperProngs, _useEdgelessBoard, _bases);
+    OctiBoard boardAfterP1Captures(_mode, _useSuperProngs, _useEdgelessBoard, _bases);
+
+    // 1-prelude moves
+    for (const auto &p1 : preludes1) {
+        copyBoardSquares(_board, boardAfterP1Captures);
+        boardAfterP1Captures.squareAt(p1.op.x0, p1.op.y0).removePod(p1.op.pod);
+        boardAfterP1Captures.squareAt(p1.endX, p1.endY).addPod(p1.op.pod);
+
+        OctiPlayerState players1[5];
+        for (int p = 0; p < 5; p++) {
+            players1[p] = _players[p];
+        }
+        if (!p1.captures.empty()) {
+            std::set<std::pair<int, int>> capSet1(p1.captures.begin(), p1.captures.end());
+            applyBonusCapturesToState(boardAfterP1Captures, players1, _turn, capSet1);
+        }
+
+        std::vector<OctiMoveOp> preludeOps1 = {p1.op};
+        appendDeduplicatedRegularMoves(&boardAfterP1Captures, players1, _mode, _turn,
+                                       _useSuperProngs, _useEdgelessBoard,
+                                       preludeOps1, seenCanonicalStates,
+                                       regScratch, outMoves);
+    }
+
+    // 2-prelude moves
+    OctiBoard boardAfterP2Captures(_mode, _useSuperProngs, _useEdgelessBoard, _bases);
+    std::vector<PreludeCandidate> preludes2;
+
+    for (const auto &p1 : preludes1) {
+        copyBoardSquares(_board, boardAfterP1Move);
+        boardAfterP1Move.squareAt(p1.op.x0, p1.op.y0).removePod(p1.op.pod);
+        boardAfterP1Move.squareAt(p1.endX, p1.endY).addPod(p1.op.pod);
+
+        enumerateSuperProngPreludes(&boardAfterP1Move, _useEdgelessBoard, _turn, preludes2);
+        for (const auto &p2 : preludes2) {
+            copyBoardSquares(&boardAfterP1Move, boardAfterP2Captures);
+            boardAfterP2Captures.squareAt(p2.op.x0, p2.op.y0).removePod(p2.op.pod);
+            boardAfterP2Captures.squareAt(p2.endX, p2.endY).addPod(p2.op.pod);
+
+            OctiPlayerState players2[5];
+            for (int p = 0; p < 5; p++) {
+                players2[p] = _players[p];
+            }
+            if (!p1.captures.empty() || !p2.captures.empty()) {
+                std::set<std::pair<int, int>> capSet2(p1.captures.begin(), p1.captures.end());
+                capSet2.insert(p2.captures.begin(), p2.captures.end());
+                applyBonusCapturesToState(boardAfterP2Captures, players2, _turn, capSet2);
+            }
+
+            std::vector<OctiMoveOp> preludeOps2 = {p1.op, p2.op};
+            appendDeduplicatedRegularMoves(&boardAfterP2Captures, players2, _mode, _turn,
+                                           _useSuperProngs, _useEdgelessBoard,
+                                           preludeOps2, seenCanonicalStates,
+                                           regScratch, outMoves);
         }
     }
 }
