@@ -54,8 +54,70 @@ OctiBotPolicyEngine::OctiBotPolicyEngine(const OctiBotConfigStore &config) {
     configure(config);
 }
 
+bool OctiBotPolicyEngine::parseHostVariants(const std::string &raw,
+                                            std::vector<HostVariantSpec> &outSpecs,
+                                            std::string &errorOut) {
+    outSpecs.clear();
+    errorOut.clear();
+    std::string trimmed = trim(raw);
+    if (trimmed.empty()) {
+        return true;
+    }
+    static const HostVariantSpec kKnownVariants[13] = {
+        {"2P_3B",      "2P",  3, false, false},
+        {"2P_3B_SP",   "2P",  3, true,  false},
+        {"2P_3B_ED",   "2P",  3, false, true},
+        {"2P_3B_SPED", "2P",  3, true,  true},
+        {"2P_1B",      "2P",  1, false, false},
+        {"2P_1B_SP",   "2P",  1, true,  false},
+        {"2P_1B_ED",   "2P",  1, false, true},
+        {"2P_1B_SPED", "2P",  1, true,  true},
+        {"4P",         "4P",  1, false, false},
+        {"4P_SP",      "4P",  1, true,  false},
+        {"4P_ED",      "4P",  1, false, true},
+        {"4P_SPED",    "4P",  1, true,  true},
+        {"OFK",        "OFK", 1, false, false}
+    };
+    std::size_t start = 0;
+    while (start <= trimmed.size()) {
+        std::size_t comma = trimmed.find(',', start);
+        std::string item = (comma == std::string::npos)
+            ? trim(trimmed.substr(start))
+            : trim(trimmed.substr(start, comma - start));
+        if (item.empty()) {
+            outSpecs.clear();
+            errorOut = "Empty variant name in host_variants";
+            return false;
+        }
+        const HostVariantSpec *matched = nullptr;
+        for (std::size_t i = 0; i < 13; ++i) {
+            if (item == kKnownVariants[i].name) {
+                matched = &kKnownVariants[i];
+                break;
+            }
+        }
+        if (!matched) {
+            outSpecs.clear();
+            errorOut = "Invalid variant name '" + item + "' in host_variants";
+            return false;
+        }
+        outSpecs.push_back(*matched);
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return true;
+}
+
 void OctiBotPolicyEngine::configure(const OctiBotConfigStore &config) {
+    std::string dummyErr;
+    configure(config, dummyErr);
+}
+
+bool OctiBotPolicyEngine::configure(const OctiBotConfigStore &config, std::string &errorOut) {
     std::lock_guard<std::mutex> lock(_mutex);
+    errorOut.clear();
 
     _tableBehavior = config.getString("table_behavior", "auto");
     _acceptModes = splitSet(config.getString("accept_modes", "2P, 4P, OFK"));
@@ -90,6 +152,16 @@ void OctiBotPolicyEngine::configure(const OctiBotConfigStore &config) {
     _hostIncrementMs = config.getInt64("host_increment_ms", 5000);
     _hostAllowRobots = config.getBool("host_allow_robots", _opponentFilter != "humans_only");
     _hostSeat = trim(config.getString("host_seat", "wait_for_human"));
+
+    std::vector<HostVariantSpec> parsedVariants;
+    if (!parseHostVariants(config.getString("host_variants", ""), parsedVariants, errorOut)) {
+        _hostVariants.clear();
+        _nextHostVariantIndex = 0;
+        return false;
+    }
+    _hostVariants = std::move(parsedVariants);
+    _nextHostVariantIndex = 0;
+    return true;
 }
 
 bool OctiBotPolicyEngine::isFriend(const std::string &handle) const {
@@ -342,12 +414,20 @@ CreateTableRequest OctiBotPolicyEngine::buildHostTableRequest() const {
     req.bases = _hostBases;
     req.superProngs = _hostSuperProngs;
     req.edgeless = _hostEdgeless;
+    if (!_hostVariants.empty()) {
+        const HostVariantSpec &v = _hostVariants[_nextHostVariantIndex % _hostVariants.size()];
+        _nextHostVariantIndex = (_nextHostVariantIndex + 1) % _hostVariants.size();
+        req.mode = v.mode;
+        req.bases = v.bases;
+        req.superProngs = v.superProngs;
+        req.edgeless = v.edgeless;
+    }
     req.timeControlEnabled = _hostTimeControlEnabled;
     req.initialMs = _hostInitialMs;
     req.incrementMs = _hostIncrementMs;
     req.allowRobots = _hostAllowRobots && (_opponentFilter != "humans_only");
 
-    int seatCount = (_hostMode == "4P") ? 4 : 2;
+    int seatCount = (req.mode == "4P") ? 4 : 2;
     std::string hs = toLower(trim(_hostSeat));
     if (hs == "wait_for_human" || hs == "0" || hs == "unseated") {
         req.seat = 0;
@@ -791,6 +871,16 @@ ChatCommandResult OctiBotConversationEngine::executeCommand(
             result.action = ChatCommandActionType::REPLY_ONLY;
             result.replyText = "Configuration key '" + key + "' is locked and cannot be modified via chat.";
             return result;
+        }
+
+        if (lowerKey == "host_variants") {
+            std::vector<HostVariantSpec> specs;
+            std::string hvErr;
+            if (!OctiBotPolicyEngine::parseHostVariants(val, specs, hvErr)) {
+                result.action = ChatCommandActionType::REPLY_ONLY;
+                result.replyText = hvErr;
+                return result;
+            }
         }
 
         config.set(key, val);

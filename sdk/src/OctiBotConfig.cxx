@@ -240,6 +240,14 @@ bool OctiBotConfigStore::parseString(const std::string &content, std::string &er
             parsedVal = trim(rawVal);
         }
 
+        if (rawKey == "host_variants") {
+            std::string hvErr;
+            if (!validateHostVariants(parsedVal, hvErr)) {
+                errorOut = hvErr + " on line " + std::to_string(lineNum);
+                return false;
+            }
+        }
+
         if (currentProfile.empty()) {
             _entries[rawKey] = parsedVal;
         } else {
@@ -493,6 +501,47 @@ int OctiBotConfigStore::getVerbosityLevel(int defaultLevel) const {
         return defaultLevel;
     }
     return parseVerbosityLevel(it->second, defaultLevel);
+}
+
+bool OctiBotConfigStore::validateHostVariants(const std::string &val, std::string &errorOut) {
+    errorOut.clear();
+    std::string trimmed = trim(val);
+    if (trimmed.empty()) {
+        return true;
+    }
+    static const char *kValidVariants[13] = {
+        "2P_3B", "2P_3B_SP", "2P_3B_ED", "2P_3B_SPED",
+        "2P_1B", "2P_1B_SP", "2P_1B_ED", "2P_1B_SPED",
+        "4P", "4P_SP", "4P_ED", "4P_SPED",
+        "OFK"
+    };
+    std::size_t start = 0;
+    while (start <= trimmed.size()) {
+        std::size_t comma = trimmed.find(',', start);
+        std::string item = (comma == std::string::npos)
+            ? trim(trimmed.substr(start))
+            : trim(trimmed.substr(start, comma - start));
+        if (item.empty()) {
+            errorOut = "Empty variant name in host_variants";
+            return false;
+        }
+        bool found = false;
+        for (std::size_t i = 0; i < 13; ++i) {
+            if (item == kValidVariants[i]) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            errorOut = "Invalid variant name '" + item + "' in host_variants";
+            return false;
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    return true;
 }
 
 void applyConfigToTuningProfile(const OctiBotConfigStore &config,

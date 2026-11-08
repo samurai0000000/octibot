@@ -51,6 +51,7 @@ public:
 
     static int parseVerbosityLevel(const std::string &val, int defaultLevel = 3);
     int getVerbosityLevel(int defaultLevel = 3) const;
+    static bool validateHostVariants(const std::string &val, std::string &errorOut);
 
     const std::map<std::string, std::string> &entries() const { return _entries; }
     const std::map<std::string, std::map<std::string, std::string>> &profiles() const { return _profiles; }

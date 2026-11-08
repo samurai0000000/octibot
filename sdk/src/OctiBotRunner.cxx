@@ -291,6 +291,11 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
                 errorOut = "Invalid ai_cli_executable '" + kv.second + "'; must be agy, claude, cursor-agent, or empty.";
                 return false;
             }
+        } else if (kv.first == "host_variants") {
+            std::vector<HostVariantSpec> specs;
+            if (!OctiBotPolicyEngine::parseHostVariants(kv.second, specs, errorOut)) {
+                return false;
+            }
         }
 
         if (_lobbyOnly) {
@@ -4247,7 +4252,10 @@ int runFleetCli(int argc, char **argv) {
     OctiBotConfigStore config;
     std::string err;
     if (std::ifstream(configPath).good()) {
-        config.loadFile(configPath, err);
+        if (!config.loadFile(configPath, err)) {
+            std::cerr << "[OCTIBOT] Config load error (" << configPath << "): " << err << std::endl;
+            return 1;
+        }
     }
     if (std::ifstream(tokensPath).good()) {
         config.loadTokensFile(tokensPath, err);

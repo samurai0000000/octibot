@@ -19,6 +19,7 @@ accept_takeback = any
 min_initial_time_sec = 0
 max_initial_time_sec = 14400
 min_increment_sec = 0
+# host_variants = 2P_3B, 2P_3B_SP, 2P_3B_ED, 2P_3B_SPED, 2P_1B, 2P_1B_SP, 2P_1B_ED, 2P_1B_SPED, 4P, 4P_SP, 4P_ED, 4P_SPED, OFK
 
 # Social & Opponent Policies
 # friend_list = alice, bob

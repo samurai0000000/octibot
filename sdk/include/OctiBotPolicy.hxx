@@ -46,12 +46,26 @@ struct ChatInboxEntry {
     bool read = false;
 };
 
+struct HostVariantSpec {
+    std::string name;
+    std::string mode = "2P";
+    int bases = 3;
+    bool superProngs = false;
+    bool edgeless = false;
+};
+
 class OctiBotPolicyEngine {
 public:
     OctiBotPolicyEngine() = default;
     explicit OctiBotPolicyEngine(const OctiBotConfigStore &config);
 
+    static bool parseHostVariants(const std::string &raw,
+                                  std::vector<HostVariantSpec> &outSpecs,
+                                  std::string &errorOut);
+
     void configure(const OctiBotConfigStore &config);
+    bool configure(const OctiBotConfigStore &config, std::string &errorOut);
+    const std::vector<HostVariantSpec> &hostVariants() const { return _hostVariants; }
 
     bool isFriend(const std::string &handle) const;
     bool isBanned(const std::string &handle) const;
@@ -132,6 +146,8 @@ private:
     std::int64_t _hostIncrementMs = 5000;
     bool _hostAllowRobots = true;
     std::string _hostSeat = "wait_for_human";
+    std::vector<HostVariantSpec> _hostVariants;
+    mutable std::size_t _nextHostVariantIndex = 0;
 };
 
 class OctiBotConversationEngine {

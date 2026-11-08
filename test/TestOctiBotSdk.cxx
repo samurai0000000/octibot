@@ -3296,6 +3296,211 @@ TEST(OctiBotSdkExtensionHooks, H3StockAlphaBetaMutableProfileOverride) {
 }
 
 // ============================================================================
+// Envelope 4: OctiBotHostVariants Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotHostVariants) {
+};
+
+TEST(OctiBotHostVariants, RoundRobinAll13VariantsAndWrapAround) {
+    struct ExpectedVariant {
+        const char *name;
+        const char *mode;
+        int bases;
+        bool superProngs;
+        bool edgeless;
+    };
+    static const ExpectedVariant kAll13[13] = {
+        {"2P_3B",      "2P",  3, false, false},
+        {"2P_3B_SP",   "2P",  3, true,  false},
+        {"2P_3B_ED",   "2P",  3, false, true},
+        {"2P_3B_SPED", "2P",  3, true,  true},
+        {"2P_1B",      "2P",  1, false, false},
+        {"2P_1B_SP",   "2P",  1, true,  false},
+        {"2P_1B_ED",   "2P",  1, false, true},
+        {"2P_1B_SPED", "2P",  1, true,  true},
+        {"4P",         "4P",  1, false, false},
+        {"4P_SP",      "4P",  1, true,  false},
+        {"4P_ED",      "4P",  1, false, true},
+        {"4P_SPED",    "4P",  1, true,  true},
+        {"OFK",        "OFK", 1, false, false}
+    };
+
+    const std::string confText =
+        "host_variants = 2P_3B, 2P_3B_SP, 2P_3B_ED, 2P_3B_SPED, "
+        "2P_1B, 2P_1B_SP, 2P_1B_ED, 2P_1B_SPED, "
+        "4P, 4P_SP, 4P_ED, 4P_SPED, OFK\n";
+
+    OctiBotConfigStore cfg;
+    std::string err;
+    CHECK_TRUE_TEXT(cfg.parseString(confText, err), err.c_str());
+
+    OctiBotPolicyEngine policy;
+    CHECK_TRUE_TEXT(policy.configure(cfg, err), err.c_str());
+    CHECK_EQUAL(13u, policy.hostVariants().size());
+
+    // Two complete cycles (26 hosted tables) verify round-robin order and wrap-around
+    for (int step = 0; step < 26; ++step) {
+        const ExpectedVariant &exp = kAll13[step % 13];
+        CreateTableRequest req = policy.buildHostTableRequest();
+        CHECK_EQUAL(std::string(exp.mode), req.mode);
+        CHECK_EQUAL(exp.bases, req.bases);
+        CHECK_EQUAL(exp.superProngs, req.superProngs);
+        CHECK_EQUAL(exp.edgeless, req.edgeless);
+    }
+
+    // Subset round-robin with 4P seat count check
+    OctiBotConfigStore subCfg;
+    CHECK_TRUE(subCfg.parseString("host_variants = 2P_1B_SPED, 4P_SP, OFK\nhost_seat = 3\n", err));
+    OctiBotPolicyEngine subPolicy(subCfg);
+    CHECK_EQUAL(3u, subPolicy.hostVariants().size());
+
+    CreateTableRequest r0 = subPolicy.buildHostTableRequest();
+    CHECK_EQUAL("2P", r0.mode);
+    CHECK_EQUAL(1, r0.bases);
+    CHECK_TRUE(r0.superProngs);
+    CHECK_TRUE(r0.edgeless);
+
+    CreateTableRequest r1 = subPolicy.buildHostTableRequest();
+    CHECK_EQUAL("4P", r1.mode);
+    CHECK_EQUAL(1, r1.bases);
+    CHECK_TRUE(r1.superProngs);
+    CHECK_FALSE(r1.edgeless);
+    CHECK_EQUAL(3, r1.seat);
+
+    CreateTableRequest r2 = subPolicy.buildHostTableRequest();
+    CHECK_EQUAL("OFK", r2.mode);
+    CHECK_EQUAL(1, r2.bases);
+    CHECK_FALSE(r2.superProngs);
+    CHECK_FALSE(r2.edgeless);
+
+    CreateTableRequest r3 = subPolicy.buildHostTableRequest();
+    CHECK_EQUAL("2P", r3.mode);
+    CHECK_EQUAL(1, r3.bases);
+    CHECK_TRUE(r3.superProngs);
+    CHECK_TRUE(r3.edgeless);
+}
+
+TEST(OctiBotHostVariants, InvalidVariantNameRejectedAtLoad) {
+    // 1. Rejected by OctiBotConfigStore::parseString (global key)
+    {
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_FALSE(store.parseString("host_variants = 2P_3B, INVALID_VARIANT\n", err));
+        CHECK_TRUE(err.find("INVALID_VARIANT") != std::string::npos);
+    }
+
+    // 2. Rejected by OctiBotConfigStore::parseString (profile section)
+    {
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_FALSE(store.parseString("[stock]\nhost_variants = 4P_BOGUS\n", err));
+        CHECK_TRUE(err.find("4P_BOGUS") != std::string::npos);
+    }
+
+    // 3. Rejected on OFK with flags (OFK has superprongs and edgeless forced off)
+    {
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_FALSE(store.parseString("host_variants = OFK_SP\n", err));
+        CHECK_FALSE(err.empty());
+    }
+
+    // 4. Rejected on empty token in comma-separated list
+    {
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_FALSE(store.parseString("host_variants = 2P_3B, , OFK\n", err));
+        CHECK_FALSE(err.empty());
+    }
+
+    // 5. Rejected by OctiBotConfigStore::loadFile
+    {
+        char tmpl[] = "/tmp/octibot_hv_bad_XXXXXX";
+        char *dir = ::mkdtemp(tmpl);
+        CHECK_TRUE(dir != nullptr);
+        std::string path = std::string(dir) + "/bad.conf";
+        {
+            std::ofstream out(path);
+            out << "host_variants = 2P_3B, 3P_INVALID\n";
+        }
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_FALSE(store.loadFile(path, err));
+        CHECK_TRUE(err.find("3P_INVALID") != std::string::npos);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    // 6. Rejected by OctiBotPolicyEngine::configure(config, err) and OctiBotRunner::applyConfigUpdates
+    {
+        OctiBotConfigStore cfg;
+        cfg.set("host_variants", "UNKNOWN_MODE");
+        OctiBotPolicyEngine policy;
+        std::string err;
+        CHECK_FALSE(policy.configure(cfg, err));
+        CHECK_FALSE(err.empty());
+
+        OctiBotConfigStore validCfg;
+        auto agent = std::make_unique<StockAlphaBetaAgent>(validCfg);
+        OctiBotRunner runner(std::move(agent), validCfg);
+        std::map<std::string, std::string> badUpdates = {{"host_variants", "2P_3B, BAD_ONE"}};
+        CHECK_FALSE(runner.applyConfigUpdates(badUpdates, false, err));
+        CHECK_TRUE(err.find("BAD_ONE") != std::string::npos);
+    }
+}
+
+TEST(OctiBotHostVariants, EmptyHostVariantsKeepsCurrentBehaviour) {
+    OctiBotConfigStore cfg;
+    std::string err;
+    CHECK_TRUE(cfg.parseString(
+        "host_variants = \n"
+        "host_mode = 2P\n"
+        "host_bases = 1\n"
+        "host_super_prongs = true\n"
+        "host_edgeless = true\n",
+        err));
+
+    OctiBotPolicyEngine policy;
+    CHECK_TRUE(policy.configure(cfg, err));
+    CHECK_TRUE(policy.hostVariants().empty());
+
+    for (int i = 0; i < 5; ++i) {
+        CreateTableRequest req = policy.buildHostTableRequest();
+        CHECK_EQUAL("2P", req.mode);
+        CHECK_EQUAL(1, req.bases);
+        CHECK_TRUE(req.superProngs);
+        CHECK_TRUE(req.edgeless);
+    }
+
+    // Default joining policy remains 'any' across all 13 variants
+    static const struct {
+        const char *mode;
+        int bases;
+        bool sp;
+        bool ed;
+    } kJoinVariants[13] = {
+        {"2P", 3, false, false}, {"2P", 3, true, false}, {"2P", 3, false, true}, {"2P", 3, true, true},
+        {"2P", 1, false, false}, {"2P", 1, true, false}, {"2P", 1, false, true}, {"2P", 1, true, true},
+        {"4P", 1, false, false}, {"4P", 1, true, false}, {"4P", 1, false, true}, {"4P", 1, true, true},
+        {"OFK", 1, false, false}
+    };
+    for (int i = 0; i < 13; ++i) {
+        TableSummaryInfo t;
+        t.roomId = "room_" + std::to_string(i);
+        t.mode = kJoinVariants[i].mode;
+        t.bases = kJoinVariants[i].bases;
+        t.superProngs = kJoinVariants[i].sp;
+        t.edgeless = kJoinVariants[i].ed;
+        t.allowRobots = true;
+        t.phase = "WAITING_FOR_PLAYERS";
+        t.seatsTotal = (t.mode == "4P") ? 4 : 2;
+        t.seatsFilled = 1;
+        CHECK_TRUE(policy.isTableCompatible(t, "samurai", "stock"));
+    }
+}
+
+// ============================================================================
 
 int main(int argc, char **argv) {
 #if !defined(_WIN32)
