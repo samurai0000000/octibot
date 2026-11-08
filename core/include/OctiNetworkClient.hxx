@@ -59,6 +59,8 @@ struct ArchivedGamePlayer {
     int seat = 0;
     std::string handle;
     std::string playerUuid;
+    bool isRobot = false;
+    std::string robotUuid;
 };
 
 struct ArchivedGameSummary {
@@ -650,6 +652,12 @@ public:
     ApiResult<ArchivedGamesPage> listArchivedGames(
         const std::string &mode = "",
         const std::string &playerUuid = "",
+        int limit = 20,
+        int offset = 0);
+    ApiResult<ArchivedGamesPage> listArchivedGames(
+        const std::string &mode,
+        const std::string &playerUuid,
+        const std::string &robotUuid,
         int limit = 20,
         int offset = 0);
     ApiResult<ArchivedGameSummary> fetchArchivedGame(

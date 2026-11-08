@@ -4034,6 +4034,116 @@ TEST(OctiCore_NetworkClient, SseWorkerSelfStopAndDestroyInCallbackN4)
     STRCMP_EQUAL("move", seenEvent.c_str());
 }
 
+TEST(OctiCore_NetworkClient, ArchiveRobotPlayerFieldsAndFilterOverload)
+{
+    std::mutex reqMutex;
+    std::string lastMode;
+    std::string lastPlayer;
+    std::string lastRobot;
+    bool hadRobotParam = false;
+
+    httplib::Server svr;
+    svr.Get("/api/v1/archive/games",
+            [&](const httplib::Request &req, httplib::Response &res) {
+                std::string modeVal = req.has_param("mode") ? req.get_param_value("mode") : "";
+                std::string playerVal = req.has_param("player") ? req.get_param_value("player") : "";
+                bool hasRobot = req.has_param("robot");
+                std::string robotVal = hasRobot ? req.get_param_value("robot") : "";
+                {
+                    std::lock_guard<std::mutex> lock(reqMutex);
+                    lastMode = modeVal;
+                    lastPlayer = playerVal;
+                    lastRobot = robotVal;
+                    hadRobotParam = hasRobot;
+                }
+
+                if (robotVal == "bot-uuid-123" &&
+                    (playerVal.empty() || playerVal == "human-uuid-456")) {
+                    res.status = 200;
+                    res.set_content(
+                        "{"
+                        "\"total\":1,"
+                        "\"limit\":20,"
+                        "\"offset\":0,"
+                        "\"games\":[{"
+                        "\"game_id\":\"g-robot-1\","
+                        "\"mode\":\"2P\","
+                        "\"bases\":3,"
+                        "\"super_prongs\":false,"
+                        "\"edgeless\":false,"
+                        "\"time_control\":\"untimed\","
+                        "\"players\":["
+                        "{\"seat\":1,\"handle\":\"samurai\",\"player_uuid\":\"human-uuid-456\"},"
+                        "{\"seat\":2,\"handle\":\"octibot-sdk-cpu\",\"is_robot\":true,\"robot_uuid\":\"bot-uuid-123\"}"
+                        "],"
+                        "\"result\":\"P2_WIN\","
+                        "\"winner_seat\":2,"
+                        "\"termination\":\"RESIGN\","
+                        "\"ply_count\":12,"
+                        "\"started_at\":1700000000,"
+                        "\"ended_at\":1700000100"
+                        "}]"
+                        "}",
+                        "application/json");
+                    return;
+                }
+
+                res.status = 200;
+                res.set_content(
+                    "{\"total\":0,\"limit\":20,\"offset\":0,\"games\":[]}",
+                    "application/json");
+            });
+
+    int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread serverThread([&svr]() { svr.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    CHECK_TRUE(client != nullptr);
+
+    /* 1. Robot filter overload sends robot=<robot_uuid> and parses isRobot + robotUuid */
+    octi::ApiResult<octi::ArchivedGamesPage> pageRes =
+        client->listArchivedGames("2P", "human-uuid-456", "bot-uuid-123", 20, 0);
+
+    /* 2. Existing 4-arg overload leaves robot parameter absent */
+    octi::ApiResult<octi::ArchivedGamesPage> legacyRes =
+        client->listArchivedGames("2P", "human-uuid-456", 10, 5);
+    bool legacyHadRobot = true;
+    {
+        std::lock_guard<std::mutex> lock(reqMutex);
+        legacyHadRobot = hadRobotParam;
+    }
+
+    svr.stop();
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
+
+    CHECK_TRUE(pageRes.ok);
+    CHECK_EQUAL(1, static_cast<int>(pageRes.data.total));
+    CHECK_EQUAL(1, static_cast<int>(pageRes.data.games.size()));
+    STRCMP_EQUAL("g-robot-1", pageRes.data.games[0].gameId.c_str());
+    CHECK_EQUAL(2, static_cast<int>(pageRes.data.games[0].players.size()));
+
+    const octi::ArchivedGamePlayer &p1 = pageRes.data.games[0].players[0];
+    CHECK_EQUAL(1, p1.seat);
+    STRCMP_EQUAL("samurai", p1.handle.c_str());
+    STRCMP_EQUAL("human-uuid-456", p1.playerUuid.c_str());
+    CHECK_FALSE(p1.isRobot);
+    STRCMP_EQUAL("", p1.robotUuid.c_str());
+
+    const octi::ArchivedGamePlayer &p2 = pageRes.data.games[0].players[1];
+    CHECK_EQUAL(2, p2.seat);
+    STRCMP_EQUAL("octibot-sdk-cpu", p2.handle.c_str());
+    STRCMP_EQUAL("", p2.playerUuid.c_str());
+    CHECK_TRUE(p2.isRobot);
+    STRCMP_EQUAL("bot-uuid-123", p2.robotUuid.c_str());
+
+    CHECK_TRUE(legacyRes.ok);
+    CHECK_FALSE(legacyHadRobot);
+}
+
 // ---------------------------------------------------------------------------
 // Self-Capture Rules: OFK Double Jump, 2P Superprong & AI Leapfrog Preservation
 // ---------------------------------------------------------------------------
