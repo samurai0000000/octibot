@@ -1001,6 +1001,80 @@ static bool canEnemyCaptureSquareNextTurn(const OctiBoard &board,
     return false;
 }
 
+int prongDirectionBonus(const OctiBoard &board,
+                        OctiGameMode mode,
+                        OctiPlayer seat,
+                        OctiDir dir,
+                        int primaryBonus,
+                        int diagBonus,
+                        int sideBonus)
+{
+    if (mode != GAME_MODE_4) {
+        if (seat == PLAYER_A || seat == PLAYER_C) {
+            if (dir == DIR_N) {
+                return primaryBonus;
+            } else if (dir == DIR_NE || dir == DIR_NW) {
+                return diagBonus;
+            } else if (dir == DIR_E || dir == DIR_W) {
+                return sideBonus;
+            }
+        } else if (seat == PLAYER_B || seat == PLAYER_D) {
+            if (dir == DIR_S) {
+                return primaryBonus;
+            } else if (dir == DIR_SE || dir == DIR_SW) {
+                return diagBonus;
+            } else if (dir == DIR_E || dir == DIR_W) {
+                return sideBonus;
+            }
+        }
+        return 0;
+    }
+
+    OctiSquareType homeType = NEUTRAL_SQUARE;
+    switch (seat) {
+    case PLAYER_A: homeType = A_HOME_SQUARE; break;
+    case PLAYER_B: homeType = B_HOME_SQUARE; break;
+    case PLAYER_C: homeType = C_HOME_SQUARE; break;
+    case PLAYER_D: homeType = D_HOME_SQUARE; break;
+    default:       return 0;
+    }
+
+    int w = board.getBoardWidth();
+    int h = board.getBoardHeight();
+    int hx = -1;
+    int hy = -1;
+    for (int y = 0; y < h && hx < 0; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (board.squareAt(x, y).getType() == homeType) {
+                hx = x;
+                hy = y;
+                break;
+            }
+        }
+    }
+    if (hx < 0 || hy < 0) {
+        return 0;
+    }
+
+    int cx = w / 2;
+    int cy = h / 2;
+    int fx = (hx < cx) ? 1 : ((hx > cx) ? -1 : 0);
+    int fy = (hy < cy) ? 1 : ((hy > cy) ? -1 : 0);
+    int dx = dirDeltaX(dir);
+    int dy = dirDeltaY(dir);
+
+    if ((dx == 0 && dy == fy) || (dx == fx && dy == 0)) {
+        return primaryBonus;
+    }
+    if (dx == fx && dy == fy) {
+        return diagBonus;
+    }
+    if (dx != 0 && dy != 0 && (dx == fx || dy == fy)) {
+        return sideBonus;
+    }
+    return 0;
+}
+
 int scoreMoveHeuristic(const OctiBoard &board,
                        const OctiMove &move,
                        OctiPlayer turn,
@@ -1212,23 +1286,7 @@ int scoreMoveHeuristic(const OctiBoard &board,
                 score += 650;
             }
 
-            if (turn == PLAYER_A || turn == PLAYER_C) {
-                if (op.addProngDir == DIR_N) {
-                    score += 1100;
-                } else if (op.addProngDir == DIR_NE || op.addProngDir == DIR_NW) {
-                    score += 750;
-                } else if (op.addProngDir == DIR_E || op.addProngDir == DIR_W) {
-                    score += 400;
-                }
-            } else if (turn == PLAYER_B || turn == PLAYER_D) {
-                if (op.addProngDir == DIR_S) {
-                    score += 1100;
-                } else if (op.addProngDir == DIR_SE || op.addProngDir == DIR_SW) {
-                    score += 750;
-                } else if (op.addProngDir == DIR_E || op.addProngDir == DIR_W) {
-                    score += 400;
-                }
-            }
+            score += prongDirectionBonus(board, mode, turn, op.addProngDir, 1100, 750, 400);
         } else if (op.addPod) {
             if (op.liberate) {
                 const OctiSquare &sq = board.squareAt(op.x0, op.y0);
@@ -2222,23 +2280,7 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
                     if (isOrthogonalDir(dir)) hasOrth = true;
                     if (isDiagonalDir(dir)) hasDiag = true;
 
-                    if (owner == PLAYER_A || owner == PLAYER_C) {
-                        if (dir == DIR_N) {
-                            podVal += 380;
-                        } else if (dir == DIR_NE || dir == DIR_NW) {
-                            podVal += 260;
-                        } else if (dir == DIR_E || dir == DIR_W) {
-                            podVal += 120;
-                        }
-                    } else if (owner == PLAYER_B || owner == PLAYER_D) {
-                        if (dir == DIR_S) {
-                            podVal += 380;
-                        } else if (dir == DIR_SE || dir == DIR_SW) {
-                            podVal += 260;
-                        } else if (dir == DIR_E || dir == DIR_W) {
-                            podVal += 120;
-                        }
-                    }
+                    podVal += prongDirectionBonus(board, mode, owner, dir, 380, 260, 120);
 
                     int nx = edgeless ? (((x + dirDeltaX(dir)) % w + w) % w) : (x + dirDeltaX(dir));
                     int ny = edgeless ? (((y + dirDeltaY(dir)) % h + h) % h) : (y + dirDeltaY(dir));

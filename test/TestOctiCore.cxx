@@ -4199,6 +4199,347 @@ TEST(OctiSelfCaptureRules, BotPreservesFriendlyLeapfrog)
     CHECK_TRUE_TEXT(chosen.find('x') == std::string::npos, "Bot should not choose self-capture when leapfrog is available");
 }
 
+// ============================================================================
+// Group 32: 4-Player Per-Seat Prong-Direction Symmetry & 2P/OFK Invariance
+// ============================================================================
+
+namespace {
+
+using namespace octi;
+
+OctiDir rotateDir180ForTest(OctiDir d)
+{
+    return static_cast<OctiDir>((static_cast<int>(d) + 4) % 8);
+}
+
+OctiDir reflectDirDiagForTest(OctiDir d)
+{
+    switch (d) {
+    case DIR_N:  return DIR_E;
+    case DIR_NE: return DIR_NE;
+    case DIR_E:  return DIR_N;
+    case DIR_SE: return DIR_NW;
+    case DIR_S:  return DIR_W;
+    case DIR_SW: return DIR_SW;
+    case DIR_W:  return DIR_S;
+    case DIR_NW: return DIR_SE;
+    default:     return DIR_UNDEF;
+    }
+}
+
+OctiPlayer rotatePlayer180ForTest(OctiPlayer p)
+{
+    switch (p) {
+    case PLAYER_A: return PLAYER_C;
+    case PLAYER_B: return PLAYER_D;
+    case PLAYER_C: return PLAYER_A;
+    case PLAYER_D: return PLAYER_B;
+    default:       return PLAYER_UNDEF;
+    }
+}
+
+OctiPlayer reflectPlayerDiagForTest(OctiPlayer p)
+{
+    switch (p) {
+    case PLAYER_A: return PLAYER_A;
+    case PLAYER_B: return PLAYER_D;
+    case PLAYER_C: return PLAYER_C;
+    case PLAYER_D: return PLAYER_B;
+    default:       return PLAYER_UNDEF;
+    }
+}
+
+OctiPodType playerToPodForTest(OctiPlayer p)
+{
+    switch (p) {
+    case PLAYER_A: return A_POD;
+    case PLAYER_B: return B_POD;
+    case PLAYER_C: return C_POD;
+    case PLAYER_D: return D_POD;
+    default:       return POD_UNDEF;
+    }
+}
+
+OctiPlayer podToPlayerForTest(OctiPodType t)
+{
+    switch (t) {
+    case A_POD: return PLAYER_A;
+    case B_POD: return PLAYER_B;
+    case C_POD: return PLAYER_C;
+    case D_POD: return PLAYER_D;
+    default:    return PLAYER_UNDEF;
+    }
+}
+
+void cloneTransformed4PForTest(const OctiBoard &src,
+                               OctiBoard &dstBoard,
+                               bool diagReflect)
+{
+    dstBoard.setGameMode(GAME_MODE_4, src.getGame()->useSuperProngs(),
+                         src.getGame()->useEdgelessBoard(), src.getGame()->getBases());
+    OctiGame *dstGame = dstBoard.getGame();
+    dstGame->reset();
+    dstGame->start(PLAYER_A);
+
+    OctiGameSnapshot snap = dstGame->captureSnapshot();
+    const int w = src.getBoardWidth();
+    const int h = src.getBoardHeight();
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            snap.squares[x][y].clear();
+        }
+    }
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const OctiSquare &sq = src.squareAt(x, y);
+            const int tx = diagReflect ? y : (w - 1 - x);
+            const int ty = diagReflect ? x : (h - 1 - y);
+            for (int i = 0; i < sq.getNumPods(); i++) {
+                const OctiPod &pod = sq.getPodAt(i);
+                OctiPlayer origOwner = podToPlayerForTest(pod.getType());
+                OctiPlayer newOwner = diagReflect ? reflectPlayerDiagForTest(origOwner)
+                                                  : rotatePlayer180ForTest(origOwner);
+                OctiPod newPod(playerToPodForTest(newOwner));
+                for (int d = 0; d < DIR_MAX; d++) {
+                    OctiDir origDir = static_cast<OctiDir>(d);
+                    OctiProngType pt = pod.prongAt(origDir);
+                    if (pt != NO_PRONG) {
+                        OctiDir newDir = diagReflect ? reflectDirDiagForTest(origDir)
+                                                     : rotateDir180ForTest(origDir);
+                        newPod.addProng(newDir, pt == SUPER_PRONG);
+                    }
+                }
+                snap.squares[tx][ty].push_back(newPod);
+            }
+        }
+    }
+
+    const OctiGame *srcGame = src.getGame();
+    const OctiPlayer seats[4] = { PLAYER_A, PLAYER_B, PLAYER_C, PLAYER_D };
+    for (int i = 0; i < 4; i++) {
+        OctiPlayer s = seats[i];
+        OctiPlayer ts = diagReflect ? reflectPlayerDiagForTest(s) : rotatePlayer180ForTest(s);
+        snap.players[ts].freePods = srcGame->getFreePods(s);
+        snap.players[ts].capturedPods = srcGame->getCapturedPods(s);
+        snap.players[ts].freeProngs = srcGame->getFreeProngs(s);
+        snap.players[ts].freeSuperProngs = srcGame->getFreeSuperProngs(s);
+        snap.players[ts].eliminated = srcGame->isPlayerEliminated(s);
+    }
+
+    snap.turn = diagReflect ? reflectPlayerDiagForTest(srcGame->getTurn())
+                            : rotatePlayer180ForTest(srcGame->getTurn());
+    snap.gameStarted = true;
+    snap.gameOver = false;
+    snap.gameResigned = false;
+    dstGame->restoreSnapshot(snap);
+}
+
+BotTuningProfile deterministicDepth2ProfileForTest()
+{
+    BotTuningProfile p = OctiBotEngine::defaultProfileForDifficulty(BotDifficulty::TACTICAL);
+    p.useOpeningBook = false;
+    p.lazySmpThreads = 1;
+    p.rootScoreJitter = 0;
+    p.maxSearchDepth = 2;
+    p.timeBudgetMs = 60000;
+    return p;
+}
+
+void makeSinglePod4PForTest(OctiBoard &b, int x, int y, OctiPlayer owner, OctiDir dir)
+{
+    b.setGameMode(GAME_MODE_4, false, false, GAME_BASES_3);
+    OctiGame *g = b.getGame();
+    g->reset();
+    g->start(PLAYER_A);
+    OctiGameSnapshot snap = g->captureSnapshot();
+    for (int yy = 0; yy < b.getBoardHeight(); yy++) {
+        for (int xx = 0; xx < b.getBoardWidth(); xx++) {
+            snap.squares[xx][yy].clear();
+        }
+    }
+    OctiPod pod(playerToPodForTest(owner));
+    pod.addProng(dir, false);
+    snap.squares[x][y].push_back(pod);
+    snap.turn = owner;
+    snap.gameStarted = true;
+    snap.gameOver = false;
+    g->restoreSnapshot(snap);
+}
+
+} // namespace
+
+TEST_GROUP(Octi4PlayerSeatSymmetry)
+{
+};
+
+TEST(Octi4PlayerSeatSymmetry, TwoPlayerAndOfkInvarianceGuard)
+{
+    using namespace octi;
+
+    struct PinnedFixture {
+        const char *pos;
+        int evalA;
+        int evalB;
+        const char *bestMove;
+    };
+
+    const PinnedFixture fixtures[] = {
+        {
+            "2:3:0:0:P:A:-:0:4,0,18,0:4,0,18,0:A33abh,A53ab,A64ah,B46def,B37de,B77ef",
+            -3414, 3414, "73"
+        },
+        {
+            "2:3:0:0:P:B:-:0:3,0,23,0:3,2,13,0:A44abh,A64ah,A55ah,B66efgh,B57,A38abg",
+            29509, -29509, "57+d"
+        },
+        {
+            "2:3:0:0:P:A:-:0:4,0,17,0:4,0,16,0:A53abh,A73af,B55defg,A56abh,B66def,B37de",
+            -3701, 3701, "56abh+e"
+        },
+        {
+            "OFK:1:0:0:P:A:-:0:0,0,9,0:0,0,7,0:A22,A32,A42,A65abh,B26d,B46cf,B56,B47be",
+            -9532, 9532, "22+a"
+        },
+        {
+            "OFK:1:0:0:P:B:-:0:0,0,8,0:0,0,6,0:A22,A32,A42,A64abeh,B26d,B46cef,B56,B47be",
+            -14827, 14827, "47be+d"
+        }
+    };
+
+    BotTuningProfile prof = deterministicDepth2ProfileForTest();
+    for (std::size_t i = 0; i < sizeof(fixtures) / sizeof(fixtures[0]); i++) {
+        OctiBoard board;
+        board.fromPositionString(fixtures[i].pos);
+        LONGS_EQUAL(fixtures[i].evalA, OctiBotEngine::evaluatePosition(board, PLAYER_A, prof));
+        LONGS_EQUAL(fixtures[i].evalB, OctiBotEngine::evaluatePosition(board, PLAYER_B, prof));
+
+        OctiBotEngine bot(BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        bot.setTuningProfile(prof);
+        STRCMP_EQUAL(fixtures[i].bestMove, bot.chooseMove(board).c_str());
+    }
+}
+
+TEST(Octi4PlayerSeatSymmetry, FourPlayerDirectionBonusBySeat)
+{
+    using namespace octi;
+
+    BotTuningProfile prof = deterministicDepth2ProfileForTest();
+
+    OctiBoard bCS, bCN, bCW, bCE, bCSW, bCNE;
+    makeSinglePod4PForTest(bCS, 6, 6, PLAYER_C, DIR_S);
+    makeSinglePod4PForTest(bCN, 6, 6, PLAYER_C, DIR_N);
+    makeSinglePod4PForTest(bCW, 6, 6, PLAYER_C, DIR_W);
+    makeSinglePod4PForTest(bCE, 6, 6, PLAYER_C, DIR_E);
+    makeSinglePod4PForTest(bCSW, 6, 6, PLAYER_C, DIR_SW);
+    makeSinglePod4PForTest(bCNE, 6, 6, PLAYER_C, DIR_NE);
+
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bCS, PLAYER_C, prof) >
+               OctiBotEngine::evaluatePosition(bCN, PLAYER_C, prof));
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bCW, PLAYER_C, prof) >
+               OctiBotEngine::evaluatePosition(bCE, PLAYER_C, prof));
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bCSW, PLAYER_C, prof) >
+               OctiBotEngine::evaluatePosition(bCNE, PLAYER_C, prof));
+
+    OctiBoard bDN, bDS, bDW, bDE, bDNW, bDSE;
+    makeSinglePod4PForTest(bDN, 6, 2, PLAYER_D, DIR_N);
+    makeSinglePod4PForTest(bDS, 6, 2, PLAYER_D, DIR_S);
+    makeSinglePod4PForTest(bDW, 6, 2, PLAYER_D, DIR_W);
+    makeSinglePod4PForTest(bDE, 6, 2, PLAYER_D, DIR_E);
+    makeSinglePod4PForTest(bDNW, 6, 2, PLAYER_D, DIR_NW);
+    makeSinglePod4PForTest(bDSE, 6, 2, PLAYER_D, DIR_SE);
+
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bDN, PLAYER_D, prof) >
+               OctiBotEngine::evaluatePosition(bDS, PLAYER_D, prof));
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bDW, PLAYER_D, prof) >
+               OctiBotEngine::evaluatePosition(bDE, PLAYER_D, prof));
+    CHECK_TRUE(OctiBotEngine::evaluatePosition(bDNW, PLAYER_D, prof) >
+               OctiBotEngine::evaluatePosition(bDSE, PLAYER_D, prof));
+}
+
+TEST(Octi4PlayerSeatSymmetry, FourPlayerSeatEvaluationSymmetry)
+{
+    using namespace octi;
+
+    BotTuningProfile prof = deterministicDepth2ProfileForTest();
+
+    const char *seq0[] = { "33+a", "37+e", "77+e", "73+c", "33a+b" };
+    const char *seq1[] = { "33+c", "37+d", "77+f", "73+a", "33c-43", "37d+e", "77f+g" };
+    const char *seq2[] = { "33+a", "37+c", "77+e", "73+g", "33a-34", "37c-47", "77e-76", "73g+a", "34a+b" };
+    const std::vector<std::vector<const char *>> seqs = {
+        std::vector<const char *>(seq0, seq0 + 5),
+        std::vector<const char *>(seq1, seq1 + 7),
+        std::vector<const char *>(seq2, seq2 + 9)
+    };
+
+    const OctiPlayer seats[4] = { PLAYER_A, PLAYER_B, PLAYER_C, PLAYER_D };
+    for (std::size_t idx = 0; idx < seqs.size(); idx++) {
+        OctiBoard bOrig(GAME_MODE_4, false, false, GAME_BASES_3);
+        OctiBoard bRot(GAME_MODE_4, false, false, GAME_BASES_3);
+        OctiBoard bRef(GAME_MODE_4, false, false, GAME_BASES_3);
+        bOrig.getGame()->start(PLAYER_A);
+        for (const char *m : seqs[idx]) {
+            bOrig.getGame()->move(m);
+        }
+        cloneTransformed4PForTest(bOrig, bRot, false);
+        cloneTransformed4PForTest(bOrig, bRef, true);
+
+        for (int i = 0; i < 4; i++) {
+            OctiPlayer p = seats[i];
+            OctiPlayer pRot = rotatePlayer180ForTest(p);
+            OctiPlayer pRef = reflectPlayerDiagForTest(p);
+            int evalOrig = OctiBotEngine::evaluatePosition(bOrig, p, prof);
+            int evalRot = OctiBotEngine::evaluatePosition(bRot, pRot, prof);
+            int evalRef = OctiBotEngine::evaluatePosition(bRef, pRef, prof);
+            LONGS_EQUAL(evalOrig, evalRot);
+            LONGS_EQUAL(evalOrig, evalRef);
+        }
+    }
+}
+
+TEST(Octi4PlayerSeatSymmetry, FourPlayerSearchSymmetry)
+{
+    using namespace octi;
+
+    BotTuningProfile prof = deterministicDepth2ProfileForTest();
+
+    const char *seq0[] = { "33+a", "37+e", "77+e", "73+c", "33a+b" };
+    const char *seq1[] = { "33+c", "37+d", "77+f", "73+a", "33c-43", "37d+e", "77f+g" };
+    const char *seq2[] = { "33+a", "37+c", "77+e", "73+g", "33a-34", "37c-47", "77e-76", "73g+a", "34a+b" };
+    const std::vector<std::vector<const char *>> seqs = {
+        std::vector<const char *>(seq0, seq0 + 5),
+        std::vector<const char *>(seq1, seq1 + 7),
+        std::vector<const char *>(seq2, seq2 + 9)
+    };
+
+    for (std::size_t idx = 0; idx < seqs.size(); idx++) {
+        OctiBoard bOrig(GAME_MODE_4, false, false, GAME_BASES_3);
+        OctiBoard bRot(GAME_MODE_4, false, false, GAME_BASES_3);
+        OctiBoard bOrigAfterRot(GAME_MODE_4, false, false, GAME_BASES_3);
+        bOrig.getGame()->start(PLAYER_A);
+        for (const char *m : seqs[idx]) {
+            bOrig.getGame()->move(m);
+        }
+        cloneTransformed4PForTest(bOrig, bRot, false);
+
+        OctiBotEngine botOrig(BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        OctiBotEngine botRot(BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        botOrig.setTuningProfile(prof);
+        botRot.setTuningProfile(prof);
+
+        std::string mvOrig = botOrig.chooseMove(bOrig);
+        std::string mvRot = botRot.chooseMove(bRot);
+        CHECK_FALSE(mvOrig.empty());
+        CHECK_FALSE(mvRot.empty());
+
+        bOrig.getGame()->move(mvOrig);
+        bRot.getGame()->move(mvRot);
+        cloneTransformed4PForTest(bOrig, bOrigAfterRot, false);
+        STRCMP_EQUAL(bOrigAfterRot.toPositionString().c_str(),
+                     bRot.toPositionString().c_str());
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
