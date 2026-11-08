@@ -1901,7 +1901,10 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             playerHandle.pop_back();
         }
 
-        if (playerHandle.empty()) {
+        if (playerHandle == "any" || playerHandle == "robots" || playerHandle == "*") {
+            playerHandle.clear();
+        }
+        if (playerHandle.empty() && args.value("room_id", "").empty() && args.value("mode", "2P") != "4P") {
             res["ok"] = false;
             res["error"] = "player_handle is required";
             return res.dump(2);
@@ -1949,6 +1952,12 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             botHandle = "octibot-cc-resnet";
         } else if (lowerBot == "sdk" || lowerBot == "cpu" || lowerBot == "sdk-cpu") {
             botHandle = "octibot-sdk-cpu";
+        } else if (lowerBot == "cc2" || lowerBot == "sdk-cc2") {
+            botHandle = "octibot-sdk-cc2";
+        } else if (lowerBot == "cc3" || lowerBot == "sdk-cc3") {
+            botHandle = "octibot-sdk-cc3";
+        } else if (lowerBot == "cc4" || lowerBot == "sdk-cc4") {
+            botHandle = "octibot-sdk-cc4";
         }
 
         if (botHandle == "octibot-yale-2001") {

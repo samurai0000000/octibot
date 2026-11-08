@@ -1065,6 +1065,21 @@ int countTargetHandles(const std::string &raw) {
     }
     return count;
 }
+
+bool matchesAnyTargetHandle(const std::string &raw, const std::string &candidate) {
+    if (raw.empty() || candidate.empty()) return false;
+    std::string normCand = normalizeHandleOrId(candidate, '@');
+    if (normCand.empty()) return false;
+    std::stringstream ss(raw);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        std::string t = normalizeHandleOrId(item, '@');
+        if (!t.empty() && iequalsStr(t, normCand)) {
+            return true;
+        }
+    }
+    return false;
+}
 } // namespace
 
 bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int &outSeat, std::string &errorOut) {
@@ -1074,17 +1089,34 @@ bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int &outSeat, std
     }
     std::string roomId = normalizeHandleOrId(rawRoomId, '#');
     auto joinRes = _client.joinTable(roomId);
-    if (!joinRes.ok) {
-        errorOut = joinRes.errorMessage;
-        return false;
+    std::string assignedRoomId = roomId;
+    int assignedSeat = 0;
+    if (joinRes.ok) {
+        assignedRoomId = joinRes.data.roomId;
+        assignedSeat = joinRes.data.seat;
+    } else {
+        auto gvRes = _client.fetchGameView(roomId);
+        if (gvRes.ok && !_identity.handle.empty()) {
+            for (const auto &s : gvRes.data.seats) {
+                if (iequalsStr(s.handle, _identity.handle) && s.seat > 0) {
+                    assignedSeat = s.seat;
+                    assignedRoomId = gvRes.data.roomId.empty() ? roomId : gvRes.data.roomId;
+                    break;
+                }
+            }
+        }
+        if (assignedSeat <= 0) {
+            errorOut = joinRes.errorMessage;
+            return false;
+        }
     }
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
-        _currentRoomId = joinRes.data.roomId;
-        _currentSeat = joinRes.data.seat;
+        _currentRoomId = assignedRoomId;
+        _currentSeat = assignedSeat;
         _lastLoggedPlyCount = -1;
     }
-    outSeat = joinRes.data.seat;
+    outSeat = assignedSeat;
     _client.stopGameEventStream();
     if (!_client.isLobbyEventStreamActive()) {
         _client.startLobbyEventStream(0,
@@ -1092,11 +1124,11 @@ bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int &outSeat, std
                 handleLobbySseEvent(ev.event, ev.dataJson);
             });
     }
-    _client.startGameEventStream(joinRes.data.roomId, 0,
+    _client.startGameEventStream(assignedRoomId, 0,
         [this](const SseEvent &ev) {
             handleGameSseEvent(ev.event, ev.dataJson);
         });
-    logMsg(2, "Joined table #" + joinRes.data.roomId + " (seat " + std::to_string(joinRes.data.seat) + ")");
+    logMsg(2, "Joined table #" + assignedRoomId + " (seat " + std::to_string(assignedSeat) + ")");
     notifyEvent("ROOM_JOINED");
     return true;
 }
@@ -1398,7 +1430,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
     if (ov.remainingGames <= 0) {
         ov.remainingGames = 1;
     }
-    if (ov.remainingGames < numTargets) {
+    if (ov.hostMode != "4P" && ov.targetRoomId.empty() && ov.remainingGames < numTargets) {
         ov.remainingGames = numTargets;
     }
     std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
@@ -1540,6 +1572,10 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
         if (!hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, errorOut)) {
             return false;
         }
+        {
+            std::lock_guard<std::mutex> lock(_stateMutex);
+            _matchOverride.targetRoomId = hostedRoomId;
+        }
         std::string inviteMsg = "@" + curTarget +
                                 " Let's play a match! Join my table #" + hostedRoomId;
         _client.postGameChat(hostedRoomId, "ALL", inviteMsg);
@@ -1564,10 +1600,17 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
     hostReq.allowRobots = ov.allowRobots;
     if (!ov.hostMode.empty()) hostReq.mode = ov.hostMode;
     if (ov.hostBases > 0) hostReq.bases = ov.hostBases;
+    if (ov.allowRobots && hostReq.seat == 0) {
+        hostReq.seat = 1;
+    }
     std::string hostedRoomId;
     int hostedSeat = 0;
     if (!hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, errorOut)) {
         return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        _matchOverride.targetRoomId = hostedRoomId;
     }
     outSummary = "Hosted override table #" + hostedRoomId + " (mode=" + hostReq.mode +
                  ", bases=" + std::to_string(hostReq.bases) +
@@ -1854,9 +1897,14 @@ void OctiBotRunner::loopStep() {
         auto gvRes = _client.fetchGameView(roomId);
         if (!gvRes.ok) {
             if (gvRes.httpStatus == 404 || gvRes.httpStatus == 410) {
-                std::lock_guard<std::mutex> lock(_stateMutex);
-                _currentRoomId = "";
-                _currentPhase = "IDLE";
+                {
+                    std::lock_guard<std::mutex> lock(_stateMutex);
+                    if (_currentRoomId != roomId) {
+                        return;
+                    }
+                    _currentRoomId = "";
+                    _currentPhase = "IDLE";
+                }
                 _client.stopGameEventStream();
                 if (!_client.isLobbyEventStreamActive()) {
                     _client.startLobbyEventStream(0,
@@ -1942,11 +1990,13 @@ void OctiBotRunner::loopStep() {
                     bool shouldKick = false;
                     std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
                     if (ov.active) {
-                        if (!curTarget.empty() &&
-                            !iequalsStr(seat.handle, curTarget)) {
+                        bool isAllowedTarget = curTarget.empty() ||
+                                               matchesAnyTargetHandle(ov.targetPlayerHandle, seat.handle) ||
+                                               (ov.allowRobots && seat.isRobot);
+                        if (!isAllowedTarget) {
                             shouldKick = true;
                         } else if (!ov.allowRobots && seat.isRobot &&
-                                   (curTarget.empty() || !iequalsStr(seat.handle, curTarget))) {
+                                   (curTarget.empty() || !matchesAnyTargetHandle(ov.targetPlayerHandle, seat.handle))) {
                             shouldKick = true;
                         }
                     } else {

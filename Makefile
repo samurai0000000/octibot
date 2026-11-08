@@ -20,7 +20,7 @@ BUILD_DIR := build/asan
 CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=Debug -DOCTIBOT_SANITIZE=ON
 endif
 
-.PHONY: all clean distclean test sync-core-from-octi sync-core-to-octi play-agy
+.PHONY: all clean distclean test play-agy
 
 all:
 	@mkdir -p $(BUILD_DIR)
@@ -50,19 +50,3 @@ clean:
 
 distclean:
 	@rm -rf build
-
-sync-core-from-octi:
-	@if [ ! -d "$(OCTI_DIR)/core" ]; then \
-		echo "$(OCTI_DIR)/core does not exist"; exit 1; \
-	fi
-	@mkdir -p core
-	rsync -a --delete --exclude='build' "$(OCTI_DIR)/core/" core/
-	@echo "Synced core/ from $(OCTI_DIR)/core/"
-
-sync-core-to-octi:
-	@if [ ! -d "$(OCTI_DIR)" ]; then \
-		echo "OCTI_DIR $(OCTI_DIR) does not exist"; exit 1; \
-	fi
-	@mkdir -p "$(OCTI_DIR)/core"
-	rsync -a --delete --exclude='build' core/ "$(OCTI_DIR)/core/"
-	@echo "Synced core/ to $(OCTI_DIR)/core/"
