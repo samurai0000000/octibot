@@ -11,6 +11,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <istream>
 #include <map>
 #include <memory>
@@ -44,6 +45,11 @@ public:
     void stopAimonBridge();
 
     nlohmann::json buildToolsListJson() const;
+
+    bool registerExtensionTool(
+        const nlohmann::json &descriptor,
+        std::function<std::string(const nlohmann::json &args)> handler,
+        std::string &errorOut);
 
     static std::string getSkillGuideContent(const std::string &topic = "all");
     static std::string sanitizePublicOutput(const std::string &raw);
@@ -108,6 +114,14 @@ private:
     std::chrono::steady_clock::time_point _lastHealthCheckTime{};
     nlohmann::json _cachedHealthJson;
     std::atomic<std::uint64_t> _recordedFeedbackCount{0};
+
+    struct ExtensionToolEntry {
+        std::string name;
+        nlohmann::json descriptor;
+        std::function<std::string(const nlohmann::json &args)> handler;
+    };
+    mutable std::mutex _extensionToolsMutex;
+    std::vector<ExtensionToolEntry> _extensionTools;
 };
 
 class OctiBotAgentCliLauncher {

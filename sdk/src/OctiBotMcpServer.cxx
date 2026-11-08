@@ -920,7 +920,72 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
         }}
     });
 
+    {
+        std::lock_guard<std::mutex> lock(_extensionToolsMutex);
+        for (const auto &ext : _extensionTools) {
+            tools.push_back(ext.descriptor);
+        }
+    }
+
     return tools;
+}
+
+bool OctiBotMcpServer::registerExtensionTool(
+    const nlohmann::json &descriptor,
+    std::function<std::string(const nlohmann::json &args)> handler,
+    std::string &errorOut) {
+    if (!descriptor.is_object()) {
+        errorOut = "Extension tool descriptor must be a JSON object";
+        return false;
+    }
+    if (!descriptor.contains("name") || !descriptor["name"].is_string()) {
+        errorOut = "Extension tool descriptor is missing string 'name'";
+        return false;
+    }
+    std::string name = descriptor["name"].get<std::string>();
+    if (name.empty()) {
+        errorOut = "Extension tool 'name' must not be empty";
+        return false;
+    }
+    if (!descriptor.contains("description") || !descriptor["description"].is_string() ||
+        descriptor["description"].get<std::string>().empty()) {
+        errorOut = "Extension tool 'description' must be a non-empty string";
+        return false;
+    }
+    if (!descriptor.contains("inputSchema") || !descriptor["inputSchema"].is_object()) {
+        errorOut = "Extension tool 'inputSchema' must be a JSON object";
+        return false;
+    }
+    if (!handler) {
+        errorOut = "Extension tool handler must not be empty";
+        return false;
+    }
+
+    auto existingTools = buildToolsListJson();
+    for (const auto &t : existingTools) {
+        if (t.is_object() && t.value("name", "") == name) {
+            errorOut = "Tool name already registered or collides with built-in tool: " + name;
+            return false;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_extensionToolsMutex);
+        for (const auto &ext : _extensionTools) {
+            if (ext.name == name) {
+                errorOut = "Duplicate extension tool registration: " + name;
+                return false;
+            }
+        }
+        ExtensionToolEntry entry;
+        entry.name = name;
+        entry.descriptor = descriptor;
+        entry.handler = std::move(handler);
+        _extensionTools.push_back(std::move(entry));
+    }
+
+    errorOut.clear();
+    return true;
 }
 
 std::string OctiBotMcpServer::createMcpSession() {
@@ -2096,6 +2161,20 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             if (!postRes.ok) res["error"] = postRes.errorMessage;
         }
         return res.dump(2);
+    }
+
+    std::function<std::string(const nlohmann::json &)> extHandler;
+    {
+        std::lock_guard<std::mutex> lock(_extensionToolsMutex);
+        for (const auto &ext : _extensionTools) {
+            if (ext.name == name) {
+                extHandler = ext.handler;
+                break;
+            }
+        }
+    }
+    if (extHandler) {
+        return extHandler(args);
     }
 
     return "Unknown tool: " + name;

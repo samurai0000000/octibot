@@ -42,6 +42,21 @@ struct BotMoveTelemetry {
     bool present = false;
 };
 
+struct AgentPromptRequest {
+    std::string kind;            // "chat_lobby", "chat_game", "game_start", "game_over", "goodbye", "eval_swing"
+    std::string roomId;
+    std::string senderHandle;    // chat sender or opponent for events
+    bool senderIsOwner = false;
+    std::vector<GameSeatInfo> seats;
+    int mySeat = 0;
+};
+
+struct AgentPromptAddition {
+    std::string guidance;        // trusted text from agent code, placed before <UNTRUSTED_NETWORK_DATA>
+    std::string contextLines;    // placed inside <UNTRUSTED_NETWORK_DATA>, after "Live Context"
+    bool suppress = false;       // proactive events only: skip this dispatch
+};
+
 class OctiBotAgent {
 public:
     virtual ~OctiBotAgent() = default;
@@ -82,6 +97,10 @@ public:
         (void) game;
         (void) mySeat;
     }
+    virtual AgentPromptAddition onBuildPrompt(const AgentPromptRequest &req) {
+        (void) req;
+        return {};
+    }
 };
 
 class StockAlphaBetaAgent : public OctiBotAgent {
@@ -101,6 +120,9 @@ public:
     OctiBotEngine &engine() { return _engine; }
     const BotTuningProfile &profile() const { return _profile; }
     void setProgressCallback(ProgressCallback cb) { _progressCallback = std::move(cb); }
+
+protected:
+    BotTuningProfile &mutableProfile() { return _profile; }
 
 private:
     OctiBotEngine _engine;

@@ -179,13 +179,6 @@ public:
     void dispatchOwnerPrompt(const std::string &promptText,
                              const std::string &channel = "dashboard",
                              const std::string &roomId = "");
-
-private:
-    void loopStep();
-    void pollRecentLobbyChat();
-    void handleLobbySseEvent(const std::string &eventType, const std::string &data);
-    void handleGameSseEvent(const std::string &eventType, const std::string &data);
-    void playEngineTurn();
     void dispatchAiChatReply(const std::string &channel,
                              const std::string &roomId,
                              const std::string &senderHandle,
@@ -196,6 +189,14 @@ private:
                                   const std::string &opponentHandle,
                                   const std::string &eventSummary,
                                   bool waitForCompletion = false);
+    bool isAiChatBusy() const { return _aiChatBusy.load(); }
+
+private:
+    void loopStep();
+    void pollRecentLobbyChat();
+    void handleLobbySseEvent(const std::string &eventType, const std::string &data);
+    void handleGameSseEvent(const std::string &eventType, const std::string &data);
+    void playEngineTurn();
 
     std::unique_ptr<OctiBotAgent> _agent;
     OctiBotConfigStore _config;

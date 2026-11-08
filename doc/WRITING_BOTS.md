@@ -69,6 +69,21 @@ struct BotMoveTelemetry {
     bool present = false;
 };
 
+struct AgentPromptRequest {
+    std::string kind;            // "chat_lobby", "chat_game", "game_start", "game_over", "goodbye", "eval_swing"
+    std::string roomId;
+    std::string senderHandle;    // chat sender or opponent for events
+    bool senderIsOwner = false;
+    std::vector<GameSeatInfo> seats;
+    int mySeat = 0;
+};
+
+struct AgentPromptAddition {
+    std::string guidance;        // trusted text from agent code, placed before <UNTRUSTED_NETWORK_DATA>
+    std::string contextLines;    // placed inside <UNTRUSTED_NETWORK_DATA>, after "Live Context"
+    bool suppress = false;       // proactive events only: skip this dispatch
+};
+
 class OctiBotAgent {
 public:
     virtual ~OctiBotAgent() = default;
@@ -106,10 +121,19 @@ public:
 
     // Called when a match concludes (FINISHED / GAME_OVER / ABANDONED)
     virtual void onGameOver(const GameViewData &game, int mySeat) {}
+
+    // Optional hook (H1): contribute trusted guidance or live context lines to AI CLI prompts,
+    // or set suppress=true to skip a proactive commentary event.
+    virtual AgentPromptAddition onBuildPrompt(const AgentPromptRequest &req) {
+        (void) req;
+        return {};
+    }
 };
 
 } // namespace octi
 ```
+
+Subclasses of `octi::StockAlphaBetaAgent` can also adjust per-move or per-match search parameters (such as `timeBudgetMs`, `maxSearchDepth`, or `useOpeningBook`) before delegating to `StockAlphaBetaAgent::computeMove(...)` via the protected `BotTuningProfile &mutableProfile()` accessor (hook H3).
 
 ---
 
@@ -499,6 +523,8 @@ Your external AI agent or script can then drive the robot over HTTP JSON-RPC 2.0
 - `octibot_analyze_position` (runs `OctiBotEngine` search to assist your agent)
 - `octibot_game_action` (submits the chosen move or accepts/declines proposals)
 - `octibot_send_chat` (posts messages or commentary to lobby/table chat)
+
+Custom bots can also register additional MCP tools on `OctiBotMcpServer` at runtime using `OctiBotMcpServer::registerExtensionTool(descriptor, handler, errorOut)` (hook H2). Each descriptor must be a JSON object with non-empty `name`, `description`, and object `inputSchema` that does not collide with built-in or previously registered tools; registered tools are automatically appended to `buildToolsListJson()` (`tools/list`) and dispatched by `callTool(...)` (`tools/call`).
 
 ### Option D — Pure Wire-Protocol Client in Any Language
 
