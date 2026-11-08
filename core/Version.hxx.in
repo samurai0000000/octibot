@@ -1,0 +1,37 @@
+/*
+ * Version.hxx
+ *
+ * Copyright (C) 2026, Charles Chiou
+ */
+
+#ifndef OCTI_CORE_VERSION_HXX
+#define OCTI_CORE_VERSION_HXX
+
+#define OCTI_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define OCTI_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define OCTI_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define OCTI_VERSION_STRING "@PROJECT_VERSION@"
+#define OCTI_WHOAMI "@WHOAMI_OUTPUT@"
+#define OCTI_HOSTNAME "@HOSTNAME_OUTPUT@"
+#define OCTI_DATE "@DATE_OUTPUT@"
+
+/* Generic project aliases */
+#define MYPROJECT_VERSION_MAJOR OCTI_VERSION_MAJOR
+#define MYPROJECT_VERSION_MINOR OCTI_VERSION_MINOR
+#define MYPROJECT_VERSION_PATCH OCTI_VERSION_PATCH
+#define MYPROJECT_VERSION_STRING OCTI_VERSION_STRING
+#define MYPROJECT_WHOAMI OCTI_WHOAMI
+#define MYPROJECT_HOSTNAME OCTI_HOSTNAME
+#define MYPROJECT_DATE OCTI_DATE
+
+#endif // OCTI_CORE_VERSION_HXX
+
+/*
+ * Local variables:
+ * mode: C++
+ * c-file-style: "BSD"
+ * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
+ * End:
+ */
