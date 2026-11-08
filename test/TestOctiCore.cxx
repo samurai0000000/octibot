@@ -5077,6 +5077,298 @@ TEST(OctiSuperProngBonusGeneration, Random1000SuperProngPositionsRoundTripAndUni
     CHECK_TRUE(totalTwoPreludeMoves > 0);
 }
 
+TEST_GROUP(OctiEngineSuperProngVariants)
+{
+};
+
+TEST(OctiEngineSuperProngVariants, ChooseMoveFindsWinningLineRequiringSuperProngBonusCapture)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+
+    // Constructed 2P_1B_SP position:
+    // Player A's bases are 33 (2,2), 53 (4,2), 73 (6,2);
+    // Player B's bases are 37 (2,6), 57 (4,6), 77 (6,6); basesToWin = 1.
+    // - A35ac! at 35 (2,4) has N normal prong 'a' and E superprong 'c!'.
+    // - B45b at 45 (3,4) has NE normal prong 'b' guarding 56 (4,5) via 45b-67x.
+    // - B15d at 15 (0,4) has SE normal prong 'd' racing to A's base 33 (15d-24, 24d-33),
+    //   and is West of A35ac! so it cannot be captured.
+    // - A81g! and A91g! on row y=0 generate >60 2-prelude combinations
+    //   (35ac!-55x; 81/91g!-...; +prong) and >20 1-prelude +prong combinations.
+    // The unique winning move for Player A is "35ac!-55x;55ac!-56":
+    //   1) Superprong bonus jump 35ac!-55x captures B45b and lands on 55 (4,4).
+    //   2) Regular action 55ac!-56 steps North with normal prong 'a' to 56 (4,5),
+    //      threatening 56ac!-57 on ply 3.
+    // Every other move loses to B45b->67x (capturing A56) or B15d->24->33 (on ply 4).
+    octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_1);
+    board.fromPositionString(
+        "2:1:1:0:P:A:-:0:0,0,2,0:0,0,0,0:A81g!,A91g!,B15d,A35ac!,B45b");
+    octi::OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+
+    std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+    std::vector<octi::OctiMove> filtered = octi::filterDominatedMoves(board, octi::PLAYER_A, legalMoves);
+
+    bool foundCapturingWin = false;
+    bool foundDominatedNonCapture = false;
+    for (const auto &m : filtered) {
+        std::string s = m.asString();
+        if (s == "35ac!-55x;55ac!-56") {
+            foundCapturingWin = true;
+        } else if (s == "35ac!-55;55ac!-56") {
+            foundDominatedNonCapture = true;
+        }
+    }
+    CHECK_TRUE(foundCapturingWin);
+    CHECK_FALSE(foundDominatedNonCapture);
+
+    // 1. Depth-3 search finds the unique winning bonus-capture line
+    {
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0xE2B0701ULL);
+        octi::BotTuningProfile prof = bot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.maxSearchDepth = 3;
+        prof.maxQuiesceDepth = 2;
+        prof.quiesceBranchCap = 6;
+        prof.rootBranchCap = 40;
+        prof.treeBranchCap = 24;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        bot.setTuningProfile(prof);
+        bot.setTimeBudgetMs(2000);
+
+        octi::BotSearchStats stats;
+        std::string chosen = bot.chooseMove(board, &stats);
+        STRCMP_EQUAL("35ac!-55x;55ac!-56", chosen.c_str());
+        CHECK_TRUE(stats.bestScore > 900000);
+    }
+
+    // 2. Shallow 6-cap / quiescence regime ranks the capturing prelude + base-threat
+    //    continuation inside top 6 and solves the win
+    {
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0xE2B0702ULL);
+        octi::BotTuningProfile prof = bot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.maxSearchDepth = 3;
+        prof.maxQuiesceDepth = 2;
+        prof.quiesceBranchCap = 6;
+        prof.rootBranchCap = 6;
+        prof.treeBranchCap = 6;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        bot.setTuningProfile(prof);
+        bot.setTimeBudgetMs(2000);
+
+        octi::BotSearchStats stats;
+        std::string chosen = bot.chooseMove(board, &stats);
+        STRCMP_EQUAL("35ac!-55x;55ac!-56", chosen.c_str());
+    }
+}
+
+TEST(OctiEngineSuperProngVariants, AllThirteenVariantsTenGamesEachCompleteAndPlayLegalMoves)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+
+    // Verify superprong bonus-capture selection before running the 130-game suite
+    {
+        octi::OctiBoard spBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_1);
+        spBoard.fromPositionString(
+            "2:1:1:0:P:A:-:0:0,0,2,0:0,0,0,0:A81g!,A91g!,B15d,A35ac!,B45b");
+        octi::OctiBotEngine spBot(octi::BotDifficulty::CASUAL, 0xE20000ULL);
+        octi::BotTuningProfile spProf = spBot.tuningProfile();
+        spProf.useOpeningBook = false;
+        spProf.maxSearchDepth = 3;
+        spProf.rootScoreJitter = 0;
+        spBot.setTuningProfile(spProf);
+        spBot.setTimeBudgetMs(2000);
+        STRCMP_EQUAL("35ac!-55x;55ac!-56", spBot.chooseMove(spBoard).c_str());
+    }
+
+    struct VariantSpec {
+        const char *id;
+        octi::OctiGameMode mode;
+        bool superProngs;
+        bool edgeless;
+        octi::OctiGameBases bases;
+    };
+
+    const VariantSpec kVariants[13] = {
+        { "2P_3B",      octi::GAME_MODE_2,   false, false, octi::GAME_BASES_3 },
+        { "2P_3B_SP",   octi::GAME_MODE_2,   true,  false, octi::GAME_BASES_3 },
+        { "2P_3B_ED",   octi::GAME_MODE_2,   false, true,  octi::GAME_BASES_3 },
+        { "2P_3B_SPED", octi::GAME_MODE_2,   true,  true,  octi::GAME_BASES_3 },
+        { "2P_1B",      octi::GAME_MODE_2,   false, false, octi::GAME_BASES_1 },
+        { "2P_1B_SP",   octi::GAME_MODE_2,   true,  false, octi::GAME_BASES_1 },
+        { "2P_1B_ED",   octi::GAME_MODE_2,   false, true,  octi::GAME_BASES_1 },
+        { "2P_1B_SPED", octi::GAME_MODE_2,   true,  true,  octi::GAME_BASES_1 },
+        { "4P",         octi::GAME_MODE_4,   false, false, octi::GAME_BASES_3 },
+        { "4P_SP",      octi::GAME_MODE_4,   true,  false, octi::GAME_BASES_3 },
+        { "4P_ED",      octi::GAME_MODE_4,   false, true,  octi::GAME_BASES_3 },
+        { "4P_SPED",    octi::GAME_MODE_4,   true,  true,  octi::GAME_BASES_3 },
+        { "OFK",        octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_3 }
+    };
+
+    struct VariantSummary {
+        std::string id;
+        int games = 0;
+        int finished = 0;
+        int totalPlies = 0;
+        int preludeMoves = 0;
+        int capturingPreludeMoves = 0;
+    };
+
+    std::vector<std::string> jsonlLines;
+    jsonlLines.reserve(130);
+    std::vector<VariantSummary> summaries(13);
+
+    int totalGamesCompleted = 0;
+    int totalSuperProngPreludeMovesPlayed = 0;
+
+#if defined(__SANITIZE_ADDRESS__)
+    const bool isAsanBuild = true;
+#else
+    const bool isAsanBuild = false;
+#endif
+    const bool forceFull130 = (std::getenv("OCTI_E2_GAMES_JSONL_OUT") != nullptr);
+    const int gamesPerVariant = (isAsanBuild && !forceFull130) ? 1 : 10;
+    const int maxPliesPerGame = (isAsanBuild && !forceFull130) ? 40 : 300;
+
+    for (std::size_t vIdx = 0; vIdx < 13; ++vIdx) {
+        const VariantSpec &vs = kVariants[vIdx];
+        summaries[vIdx].id = vs.id;
+
+        for (int g = 0; g < gamesPerVariant; ++g) {
+            octi::OctiBoard board(vs.mode, vs.superProngs, vs.edgeless, vs.bases);
+            octi::OctiGame *game = board.getGame();
+            CHECK_TRUE(game != nullptr);
+            game->start(octi::PLAYER_A);
+
+            std::uint64_t seed = 0xE2202600ULL + static_cast<std::uint64_t>(vIdx * 31 + g * 3 + 1);
+            octi::OctiBotEngine bot(octi::BotDifficulty::CASUAL, seed);
+            octi::BotTuningProfile prof = bot.tuningProfile();
+            prof.useOpeningBook = false;
+            prof.maxSearchDepth = 3;
+            prof.maxQuiesceDepth = 0;
+            prof.quiesceBranchCap = 0;
+            prof.rootBranchCap = 8;
+            prof.treeBranchCap = 6;
+            prof.lazySmpThreads = 1;
+            prof.compositeMoveMaxPly = -1;
+            prof.rootScoreJitter = 60;
+            bot.setTuningProfile(prof);
+
+            int pliesPlayed = 0;
+            int gamePreludeMoves = 0;
+            int gameCapturingPreludeMoves = 0;
+            int minDepthReached = 3;
+
+            while (pliesPlayed < maxPliesPerGame && !game->isGameOver()) {
+                std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+                if (legalMoves.empty()) {
+                    break;
+                }
+
+                octi::BotSearchStats stats;
+                std::string chosenStr = bot.chooseMove(board, &stats);
+                CHECK_FALSE(chosenStr.empty());
+                if (stats.depthReached > 0 && stats.depthReached < minDepthReached) {
+                    minDepthReached = stats.depthReached;
+                }
+
+                octi::OctiMove chosenMove(chosenStr);
+                std::string canonicalChosen = chosenMove.asString();
+                bool inLegalMoves = false;
+                for (const auto &lm : legalMoves) {
+                    if (lm == chosenMove || lm.asString() == canonicalChosen) {
+                        inLegalMoves = true;
+                        break;
+                    }
+                }
+                CHECK_TEXT(inLegalMoves,
+                           (std::string("Played move not in generateLegalMoves for ") +
+                            vs.id + ": " + canonicalChosen).c_str());
+
+                bool hasPrelude = false;
+                bool hasCapturingPrelude = false;
+                for (const auto &op : chosenMove.getOps()) {
+                    if (op.isSuperProngBonusMove) {
+                        hasPrelude = true;
+                        for (const auto &h : op.hops) {
+                            if (h.capture) {
+                                hasCapturingPrelude = true;
+                            }
+                        }
+                    }
+                }
+                if (hasPrelude) {
+                    ++gamePreludeMoves;
+                    ++totalSuperProngPreludeMovesPlayed;
+                }
+                if (hasCapturingPrelude) {
+                    ++gameCapturingPreludeMoves;
+                }
+
+                game->move(chosenMove);
+                ++pliesPlayed;
+            }
+
+            CHECK_TRUE(pliesPlayed > 0);
+            CHECK_TRUE(pliesPlayed <= maxPliesPerGame);
+
+            ++totalGamesCompleted;
+            summaries[vIdx].games++;
+            if (game->isGameOver()) {
+                summaries[vIdx].finished++;
+            }
+            summaries[vIdx].totalPlies += pliesPlayed;
+            summaries[vIdx].preludeMoves += gamePreludeMoves;
+            summaries[vIdx].capturingPreludeMoves += gameCapturingPreludeMoves;
+
+            nlohmann::json rec;
+            rec["variant"] = vs.id;
+            rec["game_index"] = g;
+            rec["seed"] = seed;
+            rec["search_depth"] = 3;
+            rec["max_plies"] = maxPliesPerGame;
+            rec["plies_played"] = pliesPlayed;
+            rec["game_over"] = game->isGameOver();
+            rec["winner"] = static_cast<int>(game->getWinner());
+            rec["prelude_moves"] = gamePreludeMoves;
+            rec["capturing_prelude_moves"] = gameCapturingPreludeMoves;
+            jsonlLines.push_back(rec.dump());
+        }
+    }
+
+    CHECK_EQUAL(13 * gamesPerVariant, totalGamesCompleted);
+    CHECK_TRUE(totalSuperProngPreludeMovesPlayed > 0);
+
+    const char *envJsonl = std::getenv("OCTI_E2_GAMES_JSONL_OUT");
+    const char *envSummary = std::getenv("OCTI_E2_GAMES_SUMMARY_OUT");
+    std::string jsonlPath = envJsonl ? envJsonl : "";
+    std::string summaryPath = envSummary ? envSummary : "";
+    if (!isAsanBuild && jsonlPath.empty() &&
+        std::filesystem::exists("plan/plan_sdk_bot_all_variants.artifacts/e2/anchors.md")) {
+        jsonlPath = "plan/plan_sdk_bot_all_variants.artifacts/e2/games_130.jsonl";
+        summaryPath = "plan/plan_sdk_bot_all_variants.artifacts/e2/games_130_summary.md";
+    }
+    if (!jsonlPath.empty()) {
+        std::ofstream jf(jsonlPath, std::ios::out | std::ios::trunc);
+        for (const auto &line : jsonlLines) {
+            jf << line << "\n";
+        }
+    }
+    if (!summaryPath.empty()) {
+        std::ofstream sf(summaryPath, std::ios::out | std::ios::trunc);
+        sf << "# Envelope 2 — 130 Engine-vs-Engine Games Summary (13 Variants x 10 Games, Depth 3, Max 300 Plies)\n\n";
+        sf << "| Variant | Games | Terminated <= 300 Plies | Total Plies | Prelude Moves | Capturing Prelude Moves |\n";
+        sf << "|---|---:|---:|---:|---:|---:|\n";
+        for (const auto &s : summaries) {
+            sf << "| `" << s.id << "` | " << s.games << " | " << s.finished
+               << " | " << s.totalPlies << " | " << s.preludeMoves
+               << " | " << s.capturingPreludeMoves << " |\n";
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
