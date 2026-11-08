@@ -140,6 +140,13 @@ ArchivedGameSummary parseArchivedGameSummary(const Json &j)
                 pl[i]["player_uuid"].is_string()) {
                 p.playerUuid = pl[i]["player_uuid"].get<std::string>();
             }
+            if (pl[i].contains("is_robot") && pl[i]["is_robot"].is_boolean()) {
+                p.isRobot = pl[i]["is_robot"].get<bool>();
+            }
+            if (pl[i].contains("robot_uuid") &&
+                pl[i]["robot_uuid"].is_string()) {
+                p.robotUuid = pl[i]["robot_uuid"].get<std::string>();
+            }
             g.players.push_back(p);
         }
     }
@@ -2867,6 +2874,16 @@ ApiResult<ArchivedGamesPage> OctiNetworkClient::listArchivedGames(
     int limit,
     int offset)
 {
+    return listArchivedGames(mode, playerUuid, "", limit, offset);
+}
+
+ApiResult<ArchivedGamesPage> OctiNetworkClient::listArchivedGames(
+    const std::string &mode,
+    const std::string &playerUuid,
+    const std::string &robotUuid,
+    int limit,
+    int offset)
+{
     ApiResult<ArchivedGamesPage> res;
     std::string path = "/api/v1/archive/games?limit=" +
                        std::to_string(limit) +
@@ -2876,6 +2893,9 @@ ApiResult<ArchivedGamesPage> OctiNetworkClient::listArchivedGames(
     }
     if (!playerUuid.empty()) {
         path += "&player=" + urlEncode(playerUuid);
+    }
+    if (!robotUuid.empty()) {
+        path += "&robot=" + urlEncode(robotUuid);
     }
     Impl::RawResponse raw = _impl->doGet(path);
     if (!raw.transportOk || raw.status != 200 || !raw.json.is_object()) {
