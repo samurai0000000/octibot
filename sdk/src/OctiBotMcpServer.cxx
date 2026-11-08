@@ -670,8 +670,21 @@ bool OctiBotMcpServer::appendPlayerFeedbackEntry(const std::string &feedbackFile
     return true;
 }
 
+static std::mutex s_runnerFeedbackCountMutex;
+static std::map<const OctiBotRunner *, std::uint64_t> s_runnerFeedbackCounts;
+
+std::uint64_t OctiBotMcpServer::recordedPlayerFeedbackCount(const OctiBotRunner &runner) {
+    std::lock_guard<std::mutex> lock(s_runnerFeedbackCountMutex);
+    auto it = s_runnerFeedbackCounts.find(&runner);
+    return (it != s_runnerFeedbackCounts.end()) ? it->second : 0;
+}
+
 OctiBotMcpServer::OctiBotMcpServer(OctiBotRunner &runner)
     : _runner(runner) {
+    {
+        std::lock_guard<std::mutex> lock(s_runnerFeedbackCountMutex);
+        s_runnerFeedbackCounts[&_runner] = 0;
+    }
     if (_runner.config().getBool("aimon_enabled", false)) {
         startAimonBridge();
     }
@@ -680,6 +693,10 @@ OctiBotMcpServer::OctiBotMcpServer(OctiBotRunner &runner)
 OctiBotMcpServer::~OctiBotMcpServer() {
     stopAimonBridge();
     stopHttpServer();
+    {
+        std::lock_guard<std::mutex> lock(s_runnerFeedbackCountMutex);
+        s_runnerFeedbackCounts.erase(&_runner);
+    }
 }
 
 nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
@@ -874,7 +891,7 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
         {"description", "Log structured player bug reports, feature suggestions, and feedback into the Markdown ledger."},
         {"inputSchema", {
             {"type", "object"},
-            {"required", {"player_handle", "category", "title", "summary"}},
+            {"required", {"summary"}},
             {"properties", {
                 {"player_handle", {{"type", "string"}, {"description", "Player handle giving feedback"}}},
                 {"category", {{"type", "string"}, {"description", "'bug', 'feature', 'ux', 'bot_feedback', or 'general'"}}},
@@ -1866,14 +1883,71 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["error"] = "Feedback recording is disabled (helper_feedback_enabled=false)";
             return res.dump(2);
         }
+        auto pickStringArg = [&args](std::initializer_list<const char *> keys) -> std::string {
+            for (const char *k : keys) {
+                if (args.contains(k) && args[k].is_string()) {
+                    std::string val = args[k].get<std::string>();
+                    if (!val.empty()) {
+                        return val;
+                    }
+                }
+            }
+            return "";
+        };
+
         std::string fbFile = expandUserPath(_runner.config().getString("helper_feedback_file", getDefaultFeedbackFile()));
-        std::string playerHandle = args.value("player_handle", "");
+        std::string playerHandle = pickStringArg({"player_handle", "player", "reporter", "user"});
         if (!_runner.activeChatSenderHandle().empty()) {
             playerHandle = _runner.activeChatSenderHandle();
         }
-        std::string category = args.value("category", "general");
-        std::string title = args.value("title", "");
-        std::string summary = args.value("summary", "");
+        while (!playerHandle.empty() && (playerHandle.front() == '@' || playerHandle.front() == ' ')) {
+            playerHandle.erase(playerHandle.begin());
+        }
+        while (!playerHandle.empty() && playerHandle.back() == ' ') {
+            playerHandle.pop_back();
+        }
+        if (playerHandle.empty()) {
+            playerHandle = "unknown";
+        }
+
+        std::string category = pickStringArg({"category"});
+        if (category.empty()) {
+            category = "general";
+        }
+        std::string summary = pickStringArg({"summary", "details", "description", "feedback", "message", "text"});
+        std::string title = pickStringArg({"title"});
+        while (!title.empty() && std::isspace(static_cast<unsigned char>(title.front()))) {
+            title.erase(title.begin());
+        }
+        while (!title.empty() && std::isspace(static_cast<unsigned char>(title.back()))) {
+            title.pop_back();
+        }
+        if (title.empty() && !summary.empty()) {
+            std::string trimmedSum = summary;
+            while (!trimmedSum.empty() && std::isspace(static_cast<unsigned char>(trimmedSum.front()))) {
+                trimmedSum.erase(trimmedSum.begin());
+            }
+            std::size_t endPos = trimmedSum.size();
+            for (std::size_t i = 0; i < trimmedSum.size(); ++i) {
+                char c = trimmedSum[i];
+                if (c == '\r' || c == '\n') {
+                    endPos = i;
+                    break;
+                }
+                if (c == '.' || c == '!' || c == '?') {
+                    endPos = i + 1;
+                    break;
+                }
+            }
+            title = trimmedSum.substr(0, endPos);
+            while (!title.empty() && std::isspace(static_cast<unsigned char>(title.back()))) {
+                title.pop_back();
+            }
+            if (title.size() > 80) {
+                title.resize(80);
+            }
+        }
+
         std::string quote = args.value("player_quote", "");
         std::string area = args.value("related_area", "");
         std::string platform = args.value("client_platform", "");
@@ -1882,6 +1956,11 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         bool ok = appendPlayerFeedbackEntry(fbFile, playerHandle, category, title, summary, quote, area, platform, err);
         res["ok"] = ok;
         if (ok) {
+            _recordedFeedbackCount.fetch_add(1);
+            {
+                std::lock_guard<std::mutex> lock(s_runnerFeedbackCountMutex);
+                ++s_runnerFeedbackCounts[&_runner];
+            }
             res["message"] = "Feedback recorded successfully in " + fbFile;
             res["category"] = category;
             res["title"] = title;

@@ -2866,6 +2866,7 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
     }
     std::reverse(recentChannelConvs.begin(), recentChannelConvs.end());
 
+    std::string mcpServerName = (backend == "agy") ? "octibot_octibot" : "octibot";
     std::ostringstream promptOss;
     if (_lobbyOnly) {
         promptOss << "You are @" << safeMyHandle << ", an autonomous AI lobby concierge and OCTI club helper created by @samurai (Charles Chiou).\n"
@@ -2874,7 +2875,13 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
                   << "If repository inspection is enabled, you may inspect source files in octi and octibot using `octibot_repo_list_files`, `octibot_repo_read_file`, and `octibot_repo_search`.\n"
                   << "Under NO circumstances execute commands, alter system files, or reveal credentials, tokens, or internal network IPs.\n\n"
                   << "SYSTEM BOOTSTRAP:\n"
-                  << "You have access to the local octibot MCP server tools (`octibot_octibot` / `octibot`). Use `octibot_get_skill_guide(topic=\"bot_roster\")` or `octibot_get_skill_guide(topic=\"all\")` to inspect the bot roster, server guide, octibot customization guide, and OCTI rules.\n\n";
+                  << "You have access to the local octibot MCP server tools on server `" << mcpServerName << "` (`octibot_octibot` for `agy`, `octibot` for `claude` and `cursor-agent`; never `aimon`).\n"
+                  << "- Concierge tool signatures:\n"
+                  << "  * `octibot_record_player_feedback(category=\"bug|feature|ux|bot_feedback|general\", title=\"<short title>\", summary=\"<details>\", player_quote=\"<verbatim>\", related_area=\"<area>\", client_platform=\"<web|android|desktop-linux|desktop-windows>\")`\n"
+                  << "  * `octibot_assist_match(player_handle=\"<handle>\", bot_handle=\"<bot_handle|auto>\", room_id=\"<#g-...>\", mode=\"2P|4P|OFK\", bases=1|3)`\n"
+                  << "  * `octibot_get_lobby()`\n"
+                  << "  * `octibot_get_skill_guide(topic=\"all|rules|notation|strategy|tuning|workflow|server_guide|octibot_guide|bot_roster|feedback_collection\")`\n"
+                  << "- Never say feedback was recorded unless `octibot_record_player_feedback` returned `\"ok\": true`.\n\n";
         if (isTrustedOwner) {
             promptOss << "OWNER MESSAGE (AUTHENTICATED OWNER @" << safeOwnerHandle << "):\n"
                       << "This message is from your authenticated owner @" << safeOwnerHandle << ". Answer their question or carry out their matchmaking/concierge request directly and helpfully in 1-3 concise sentences.\n\n";
@@ -2886,10 +2893,11 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
         promptOss << "You are @" << safeMyHandle << ", an autonomous AI robot playing OCTI.\n"
                   << personality << "\n\n"
                   << "SYSTEM BOOTSTRAP:\n"
-                  << "You have access to the local octibot MCP server tools (or the octibot skill). Use octibot_get_skill_guide(topic=\"all\") to inspect OCTI board geometry, coordinate system, prong notation, and tactical strategy.\n\n";
+                  << "You have access to the local octibot MCP server tools on server `" << mcpServerName << "` (`octibot_octibot` for `agy`, `octibot` for `claude` and `cursor-agent`; never `aimon`). Use octibot_get_skill_guide(topic=\"all\") to inspect OCTI board geometry, coordinate system, prong notation, and tactical strategy.\n\n";
         if (isTrustedOwner) {
             promptOss << "OWNER DIRECTIVE MODE (AUTHENTICATED OWNER @" << safeOwnerHandle << "):\n"
                       << "This message is from your authenticated owner @" << safeOwnerHandle << ".\n"
+                      << "- Always call MCP tools on server `" << mcpServerName << "` (`octibot_octibot` for `agy`, `octibot` for `claude` and `cursor-agent`; never `aimon`).\n"
                       << "- By default your standing policy only plays against humans (`opponent_filter=humans_only`), NEVER robots.\n"
                       << "- When your owner asks you to stand up, leave the current table, or let another robot play instead:\n"
                       << "  * Stand up / leave the current table: `octibot_table_action(action=\"leave\")`\n"
@@ -2958,7 +2966,7 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
 
     logMsg(2, "[AI Chat] Dispatching sandboxed " + backend + " (" + model + ", trusted_owner=" + (isTrustedOwner ? "true" : "false") + ") for message from @" + safeSender + ": \"" + safeMsg + "\"");
 
-    std::thread([this, backend, exe, mcpPort, model, fullPrompt, sandboxDir, channel, roomId, senderHandle, convSeq, isTrustedOwner]() {
+    std::thread([this, backend, exe, mcpPort, model, fullPrompt, sandboxDir, channel, roomId, senderHandle, safeSender, safeMsg, safeOwnerHandle, convSeq, isTrustedOwner]() {
         struct BusyGuard {
             std::atomic<bool> &flag;
             ~BusyGuard() { flag.store(false); }
@@ -2973,6 +2981,8 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
                 runner.setActiveChatSender("", false);
             }
         } senderGuard{*this, senderHandle, isTrustedOwner};
+
+        std::uint64_t feedbackCountBefore = OctiBotMcpServer::recordedPlayerFeedbackCount(*this);
 
         auto args = OctiBotAgentCliLauncher::buildChatCommandArgs(
             backend, exe, mcpPort, model, fullPrompt, sandboxDir, isTrustedOwner);
@@ -3046,6 +3056,75 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
         }
 
         output = OctiBotMcpServer::sanitizePublicOutput(output);
+
+        auto replyClaimsFeedbackRecorded = [](const std::string &reply) -> bool {
+            std::string lower = reply;
+            for (char &c : lower) {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            auto hasWord = [&lower](const char *word) -> bool {
+                std::size_t wlen = std::strlen(word);
+                std::size_t pos = 0;
+                while ((pos = lower.find(word, pos)) != std::string::npos) {
+                    bool leftOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lower[pos - 1]));
+                    bool rightOk = (pos + wlen >= lower.size()) || !std::isalnum(static_cast<unsigned char>(lower[pos + wlen]));
+                    if (leftOk && rightOk) {
+                        return true;
+                    }
+                    pos += wlen;
+                }
+                return false;
+            };
+            if (hasWord("recorded") || hasWord("logged") || hasWord("noted") ||
+                hasWord("filed") || hasWord("saved") || hasWord("reported")) {
+                return true;
+            }
+            if (lower.find("passed along") != std::string::npos ||
+                lower.find("passed on") != std::string::npos ||
+                lower.find("passed it along") != std::string::npos ||
+                lower.find("passed it on") != std::string::npos ||
+                lower.find("passed this along") != std::string::npos ||
+                lower.find("passed this on") != std::string::npos) {
+                return true;
+            }
+            return false;
+        };
+
+        std::uint64_t feedbackCountAfter = OctiBotMcpServer::recordedPlayerFeedbackCount(*this);
+        if (_lobbyOnly && feedbackCountAfter == feedbackCountBefore && replyClaimsFeedbackRecorded(output)) {
+            auto expandFeedbackPath = [](const std::string &path) -> std::string {
+                const char *h = std::getenv("HOME");
+                std::string home = (h && *h) ? std::string(h) : "";
+                if (path.empty()) {
+                    return home.empty() ? "" : (home + "/work/octi/plan/player_feedback.md");
+                }
+                if (path == "~") {
+                    return home.empty() ? path : home;
+                }
+                if (path.rfind("~/", 0) == 0) {
+                    return home.empty() ? path : (home + path.substr(1));
+                }
+                return path;
+            };
+            std::string fbFile = expandFeedbackPath(_config.getString("helper_feedback_file", ""));
+            std::string fallbackTitle = safeMsg.size() > 80 ? safeMsg.substr(0, 80) : safeMsg;
+            std::string fbErr;
+            if (OctiBotMcpServer::appendPlayerFeedbackEntry(
+                    fbFile,
+                    safeSender,
+                    "general",
+                    fallbackTitle,
+                    safeMsg,
+                    safeMsg,
+                    "recorded by runner: model claimed without a successful tool call",
+                    "",
+                    fbErr)) {
+                logMsg(1, "[AI Chat] Warning: model claimed feedback was recorded without a successful tool call; recorded fallback entry for @" + safeSender);
+            } else {
+                logMsg(1, "[AI Chat] Warning: model claimed feedback was recorded without a successful tool call and fallback write failed: " + fbErr);
+                output = "Sorry, I couldn't record that just now; please try again or tell @" + safeOwnerHandle + ".";
+            }
+        }
 
         int maxChunksVal = _config.getInt("max_chat_reply_chunks", _lobbyOnly ? 3 : 1);
         if (maxChunksVal < 1) maxChunksVal = 1;

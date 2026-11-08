@@ -2300,6 +2300,572 @@ TEST(OctiBotHelperTest, AssistMatchConstraintsAndSenderBinding) {
 }
 
 // ============================================================================
+// 15. OctiBotHelper Feedback Fix Tests (Envelope 0)
+// ============================================================================
+
+namespace {
+
+static std::string readTextFileAll(const std::string &path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) {
+        return "";
+    }
+    return std::string((std::istreambuf_iterator<char>(ifs)),
+                       std::istreambuf_iterator<char>());
+}
+
+static std::size_t countSubstringOccurrences(const std::string &haystack,
+                                             const std::string &needle) {
+    if (needle.empty()) {
+        return 0;
+    }
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
+static bool writeExecutableScript(const std::string &path,
+                                  const std::string &content) {
+    std::ofstream ofs(path, std::ios::out | std::ios::trunc);
+    if (!ofs.is_open()) {
+        return false;
+    }
+    ofs << content;
+    ofs.flush();
+    ofs.close();
+#if !defined(_WIN32)
+    ::chmod(path.c_str(), 0700);
+#endif
+    return true;
+}
+
+static bool waitForConversationCompletion(OctiBotRunner &runner,
+                                          std::size_t minCount,
+                                          std::string &outReply,
+                                          std::string &outSource,
+                                          int timeoutMs = 5000) {
+    int loops = timeoutMs / 25;
+    if (loops < 1) loops = 1;
+    for (int i = 0; i < loops; ++i) {
+        auto hist = runner.getConversationHistory();
+        if (hist.size() >= minCount) {
+            const auto &last = hist.back();
+            if (!last.replyText.empty() || last.replySource == "seen") {
+                outReply = last.replyText;
+                outSource = last.replySource;
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_GROUP(OctiBotHelperFeedbackFix) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(OctiBotHelperFeedbackFix, HandlerAcceptsAliasesSynthesizesTitleAndSummaryOnly) {
+    char tmpTmpl[] = "/tmp/octibot_fb_alias_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    std::string testDir = td;
+    std::string fbPath = testDir + "/alias_feedback.md";
+
+    OctiBotConfigStore cfg;
+    cfg.set("lobby_only", "true");
+    cfg.set("robot_name", "octibot-helper");
+    cfg.set("helper_feedback_enabled", "true");
+    cfg.set("helper_feedback_file", fbPath);
+
+    auto agent = std::make_unique<LobbyHelperAgent>(cfg);
+    OctiBotRunner runner(std::move(agent), cfg);
+    OctiBotMcpServer server(runner);
+
+    // 1. Schema required array must be ["summary"]
+    auto toolsJson = server.buildToolsListJson();
+    bool foundSchema = false;
+    for (const auto &t : toolsJson) {
+        if (t.value("name", "") == "octibot_record_player_feedback") {
+            foundSchema = true;
+            CHECK_TRUE(t.contains("inputSchema"));
+            CHECK_TRUE(t["inputSchema"].contains("required"));
+            const auto &reqArr = t["inputSchema"]["required"];
+            CHECK_TRUE(reqArr.is_array());
+            CHECK_EQUAL(1, reqArr.size());
+            CHECK_EQUAL("summary", reqArr[0].get<std::string>());
+        }
+    }
+    CHECK_TRUE(foundSchema);
+
+    // 2. Call with ONLY summary (no player_handle, no title, no category, no activeChatSender)
+    {
+        nlohmann::json args;
+        args["summary"] = "Single summary-only feedback report. Second sentence ignored in title.";
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("general", res.value("category", ""));
+        CHECK_EQUAL("Single summary-only feedback report.", res.value("title", ""));
+    }
+
+    // 3. Test summary alias 'details' + player_handle alias 'player'
+    {
+        nlohmann::json args;
+        args["player"] = "alias_p1";
+        args["details"] = "Details alias first sentence! More details follow here.";
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("general", res.value("category", ""));
+        CHECK_EQUAL("Details alias first sentence!", res.value("title", ""));
+    }
+
+    // 4. Test summary alias 'description' + player_handle alias 'reporter'
+    {
+        nlohmann::json args;
+        args["reporter"] = "@alias_p2";
+        args["description"] = "Description alias question? Follow-up sentence.";
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("Description alias question?", res.value("title", ""));
+    }
+
+    // 5. Test summary alias 'feedback' + player_handle alias 'user'
+    {
+        nlohmann::json args;
+        args["user"] = "alias_p3";
+        args["feedback"] = "Feedback alias newline split\nSecond line of feedback.";
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("Feedback alias newline split", res.value("title", ""));
+    }
+
+    // 6. Test summary alias 'message' with >80 char first sentence (synthesized title capped at 80 chars)
+    {
+        std::string longSentence =
+            "This first sentence in message alias is deliberately longer than eighty characters to verify truncation.";
+        nlohmann::json args;
+        args["player_handle"] = "alias_p4";
+        args["message"] = longSentence;
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        std::string synthTitle = res.value("title", "");
+        CHECK_EQUAL(80, synthTitle.size());
+        CHECK_EQUAL(longSentence.substr(0, 80), synthTitle);
+    }
+
+    // 7. Test summary alias 'text'
+    {
+        nlohmann::json args;
+        args["player_handle"] = "alias_p5";
+        args["text"] = "Text alias report body.";
+        auto res = nlohmann::json::parse(server.callTool("octibot_record_player_feedback", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("Text alias report body.", res.value("title", ""));
+    }
+
+    std::string content = readTextFileAll(fbPath);
+    CHECK_EQUAL(6, countSubstringOccurrences(content, "## ["));
+    CHECK_TRUE(content.find("Single summary-only feedback report.") != std::string::npos);
+    CHECK_TRUE(content.find("- **Player**: `@alias_p1`") != std::string::npos);
+    CHECK_TRUE(content.find("- **Player**: `@alias_p2`") != std::string::npos);
+    CHECK_TRUE(content.find("- **Player**: `@alias_p3`") != std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+}
+
+TEST(OctiBotHelperFeedbackFix, ConciergeAndOwnerPromptsContainSignaturesServerAndTruthfulnessRule) {
+    char tmpTmpl[] = "/tmp/octibot_fb_prompt_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    std::string testDir = td;
+    std::string promptDumpPath = testDir + "/captured_prompt.txt";
+    std::string fakeCliPath = testDir + "/fake_prompt_cli.py";
+
+    std::string pyScript =
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "with open(" + nlohmann::json(promptDumpPath).dump() + ", 'w', encoding='utf-8') as f:\n"
+        "    f.write(sys.argv[-1] if len(sys.argv) > 1 else '')\n"
+        "print('Ack from fake CLI')\n";
+    CHECK_TRUE(writeExecutableScript(fakeCliPath, pyScript));
+
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-prompt-owner";
+    claims.name = "prompt_owner";
+    claims.email = "prompt_owner@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rHelper = env->store.createRobot(ownerId, "octibot-helper", "Lobby Concierge");
+    auto rPlay = env->store.createRobot(ownerId, "octibot-sdk-cpu", "Playing Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rHelper.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rPlay.status));
+
+    struct BackendExpectation {
+        std::string backend;
+        std::string expectedServer;
+    };
+    std::vector<BackendExpectation> backends = {
+        {"agy", "octibot_octibot"},
+        {"claude", "octibot"},
+        {"cursor-agent", "octibot"}
+    };
+
+    for (const auto &be : backends) {
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("lobby_only", "true");
+        cfg.set("robot_name", "octibot-helper");
+        cfg.set("bot_token", rHelper.rawToken);
+        cfg.set("ai_cli_backend", be.backend);
+        cfg.set("ai_cli_executable", fakeCliPath);
+        cfg.set("ai_cli_sandbox_dir", testDir + "/sandbox_" + be.backend);
+
+        auto runner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(cfg), cfg);
+        std::string err;
+        CHECK_TRUE(runner->connectAndAuthenticate(err));
+        runner->start();
+
+        runner->dispatchOwnerPrompt("How do I report a UI issue?", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*runner, 1, reply, source));
+        runner->stop();
+
+        std::string prompt = readTextFileAll(promptDumpPath);
+        CHECK_TRUE(prompt.find("octibot_record_player_feedback(category=\"bug|feature|ux|bot_feedback|general\", title=\"<short title>\", summary=\"<details>\", player_quote=\"<verbatim>\", related_area=\"<area>\", client_platform=\"<web|android|desktop-linux|desktop-windows>\")") != std::string::npos);
+        CHECK_TRUE(prompt.find("octibot_assist_match(") != std::string::npos);
+        CHECK_TRUE(prompt.find("octibot_get_lobby()") != std::string::npos);
+        CHECK_TRUE(prompt.find("octibot_get_skill_guide(topic=") != std::string::npos);
+        CHECK_TRUE(prompt.find(be.expectedServer) != std::string::npos);
+        CHECK_TRUE(prompt.find("aimon") != std::string::npos);
+        CHECK_TRUE(prompt.find("Never say feedback was recorded unless") != std::string::npos);
+        CHECK_TRUE(prompt.find("\"ok\": true") != std::string::npos);
+    }
+
+    // Verify playing-bot owner prompt also includes the backend server-name line
+    for (const auto &be : backends) {
+        OctiBotConfigStore playCfg;
+        playCfg.set("server_host", "127.0.0.1");
+        playCfg.set("server_port", std::to_string(env->port));
+        playCfg.set("lobby_only", "false");
+        playCfg.set("table_behavior", "idle");
+        playCfg.set("robot_name", "octibot-sdk-cpu");
+        playCfg.set("bot_token", rPlay.rawToken);
+        playCfg.set("ai_cli_backend", be.backend);
+        playCfg.set("ai_cli_executable", fakeCliPath);
+        playCfg.set("ai_cli_sandbox_dir", testDir + "/sandbox_play_" + be.backend);
+
+        auto playRunner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(playCfg), playCfg);
+        std::string err;
+        CHECK_TRUE(playRunner->connectAndAuthenticate(err));
+        playRunner->start();
+
+        playRunner->dispatchOwnerPrompt("Check lobby tables", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*playRunner, 1, reply, source));
+        playRunner->stop();
+
+        std::string playPrompt = readTextFileAll(promptDumpPath);
+        CHECK_TRUE(playPrompt.find(be.expectedServer) != std::string::npos);
+        CHECK_TRUE(playPrompt.find("aimon") != std::string::npos);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+}
+
+TEST(OctiBotHelperFeedbackFix, GuardRecordsFallbackWhenModelClaimsSuccessWithoutToolCall) {
+    char tmpTmpl[] = "/tmp/octibot_fb_guard_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    std::string testDir = td;
+    std::string fbPath = testDir + "/guard_fallback.md";
+    std::string fakeCliPath = testDir + "/fake_claim_no_tool.py";
+
+    std::string pyScript =
+        "#!/usr/bin/env python3\n"
+        "print('I have recorded your feedback')\n";
+    CHECK_TRUE(writeExecutableScript(fakeCliPath, pyScript));
+
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-guard-owner-1";
+    claims.name = "guard_owner_1";
+    claims.email = "guard1@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rHelper = env->store.createRobot(ownerId, "octibot-helper", "Lobby Concierge");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rHelper.status));
+
+    OctiBotConfigStore cfg;
+    cfg.set("server_host", "127.0.0.1");
+    cfg.set("server_port", std::to_string(env->port));
+    cfg.set("lobby_only", "true");
+    cfg.set("robot_name", "octibot-helper");
+    cfg.set("bot_token", rHelper.rawToken);
+    cfg.set("helper_feedback_enabled", "true");
+    cfg.set("helper_feedback_file", fbPath);
+    cfg.set("ai_cli_backend", "agy");
+    cfg.set("ai_cli_executable", fakeCliPath);
+    cfg.set("ai_cli_sandbox_dir", testDir + "/sandbox");
+
+    auto runner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(cfg), cfg);
+    OctiBotMcpServer server(*runner);
+
+    std::string err;
+    CHECK_TRUE(runner->connectAndAuthenticate(err));
+    runner->start();
+
+    std::string playerMsg =
+        "The Draw Resign buttons card is sandwiched between Lobby Chat and Table Chat and should be below Table Chat.";
+    runner->dispatchOwnerPrompt(playerMsg, "lobby", "");
+
+    std::string reply, source;
+    CHECK_TRUE(waitForConversationCompletion(*runner, 1, reply, source));
+    runner->stop();
+
+    CHECK_EQUAL("I have recorded your feedback", reply);
+    CHECK_TRUE(std::filesystem::exists(fbPath));
+
+    std::string content = readTextFileAll(fbPath);
+    CHECK_EQUAL(1, countSubstringOccurrences(content, "## ["));
+    CHECK_TRUE(content.find("[GENERAL] [OPEN] " + playerMsg.substr(0, 80)) != std::string::npos);
+    CHECK_TRUE(content.find("- **Player**: `@guard_owner_1`") != std::string::npos);
+    CHECK_TRUE(content.find("- **Related Area**: `recorded by runner: model claimed without a successful tool call`") != std::string::npos);
+    CHECK_TRUE(content.find("Quote: \"" + playerMsg + "\"") != std::string::npos);
+    CHECK_TRUE(content.find("Summary: " + playerMsg) != std::string::npos);
+
+    bool foundWarningLog = false;
+    for (const auto &logEntry : runner->getLogsAfter(0)) {
+        if (logEntry.line.find("claimed") != std::string::npos &&
+            logEntry.line.find("feedback") != std::string::npos) {
+            foundWarningLog = true;
+            break;
+        }
+    }
+    CHECK_TRUE(foundWarningLog);
+
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+}
+
+TEST(OctiBotHelperFeedbackFix, GuardSkipsFallbackAfterSuccessfulToolCallOrNoClaimAndReplacesOnFailure) {
+    char tmpTmpl[] = "/tmp/octibot_fb_cases_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    std::string testDir = td;
+
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-guard-owner-2";
+    claims.name = "guard_owner_2";
+    claims.email = "guard2@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rHelper = env->store.createRobot(ownerId, "octibot-helper", "Lobby Concierge");
+    auto rPlay = env->store.createRobot(ownerId, "octibot-sdk-cpu", "Playing Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rHelper.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rPlay.status));
+
+    // 1. Same reply after a successful tool call writes nothing extra
+    {
+        std::string fbPath1 = testDir + "/tool_called.md";
+        std::string fakeCli1 = testDir + "/fake_with_tool_call.py";
+
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("lobby_only", "true");
+        cfg.set("robot_name", "octibot-helper");
+        cfg.set("bot_token", rHelper.rawToken);
+        cfg.set("helper_feedback_enabled", "true");
+        cfg.set("helper_feedback_file", fbPath1);
+        cfg.set("ai_cli_backend", "agy");
+        cfg.set("ai_cli_executable", fakeCli1);
+        cfg.set("ai_cli_sandbox_dir", testDir + "/sandbox1");
+
+        auto runner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(cfg), cfg);
+        OctiBotMcpServer server(*runner);
+        CHECK_TRUE(server.startHttpServer(0, "127.0.0.1"));
+        int mcpPort = server.boundHttpPort();
+        runner->setMcpServerPort(mcpPort);
+
+        std::string pyScript =
+            "#!/usr/bin/env python3\n"
+            "import json, urllib.request\n"
+            "req_body = json.dumps({\n"
+            "    'jsonrpc': '2.0',\n"
+            "    'id': 1,\n"
+            "    'method': 'tools/call',\n"
+            "    'params': {\n"
+            "        'name': 'octibot_record_player_feedback',\n"
+            "        'arguments': {\n"
+            "            'category': 'ux',\n"
+            "            'title': 'Leave button popup dialog',\n"
+            "            'summary': 'Clicking Leave in Table Chat pops up a zoomed chat dialog.'\n"
+            "        }\n"
+            "    }\n"
+            "}).encode('utf-8')\n"
+            "req = urllib.request.Request('http://127.0.0.1:" + std::to_string(mcpPort) + "/mcp',\n"
+            "                             data=req_body,\n"
+            "                             headers={'Content-Type': 'application/json'})\n"
+            "urllib.request.urlopen(req, timeout=5).read()\n"
+            "print('I have recorded your feedback')\n";
+        CHECK_TRUE(writeExecutableScript(fakeCli1, pyScript));
+
+        std::string err;
+        CHECK_TRUE(runner->connectAndAuthenticate(err));
+        runner->start();
+
+        runner->dispatchOwnerPrompt("Leaving a table pops up a zoomed chat dialog.", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*runner, 1, reply, source));
+        runner->stop();
+        server.stopHttpServer();
+
+        CHECK_EQUAL("I have recorded your feedback", reply);
+        std::string content = readTextFileAll(fbPath1);
+        CHECK_EQUAL(1, countSubstringOccurrences(content, "## ["));
+        CHECK_TRUE(content.find("[UX] [OPEN] Leave button popup dialog") != std::string::npos);
+        CHECK_TRUE(content.find("recorded by runner: model claimed without a successful tool call") == std::string::npos);
+    }
+
+    // 2. A reply without a claim writes nothing
+    {
+        std::string fbPath2 = testDir + "/no_claim.md";
+        std::string fakeCli2 = testDir + "/fake_no_claim.py";
+        CHECK_TRUE(writeExecutableScript(fakeCli2,
+            "#!/usr/bin/env python3\n"
+            "print('In OCTI, pods jump over adjacent pods along inserted prong directions.')\n"));
+
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("lobby_only", "true");
+        cfg.set("robot_name", "octibot-helper");
+        cfg.set("bot_token", rHelper.rawToken);
+        cfg.set("helper_feedback_enabled", "true");
+        cfg.set("helper_feedback_file", fbPath2);
+        cfg.set("ai_cli_backend", "agy");
+        cfg.set("ai_cli_executable", fakeCli2);
+        cfg.set("ai_cli_sandbox_dir", testDir + "/sandbox2");
+
+        auto runner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(cfg), cfg);
+        OctiBotMcpServer server(*runner);
+
+        std::string err;
+        CHECK_TRUE(runner->connectAndAuthenticate(err));
+        runner->start();
+
+        runner->dispatchOwnerPrompt("How do jumps work?", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*runner, 1, reply, source));
+        runner->stop();
+
+        CHECK_EQUAL("In OCTI, pods jump over adjacent pods along inserted prong directions.", reply);
+        CHECK_FALSE(std::filesystem::exists(fbPath2));
+    }
+
+    // 3. A failed fallback write replaces the reply
+    {
+        std::string badFbPath = testDir + "/not_a_markdown_file.txt";
+        std::string fakeCli3 = testDir + "/fake_claim_fail.py";
+        CHECK_TRUE(writeExecutableScript(fakeCli3,
+            "#!/usr/bin/env python3\n"
+            "print('I have recorded your feedback')\n"));
+
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("lobby_only", "true");
+        cfg.set("robot_name", "octibot-helper");
+        cfg.set("bot_token", rHelper.rawToken);
+        cfg.set("helper_feedback_enabled", "true");
+        cfg.set("helper_feedback_file", badFbPath);
+        cfg.set("ai_cli_backend", "agy");
+        cfg.set("ai_cli_executable", fakeCli3);
+        cfg.set("ai_cli_sandbox_dir", testDir + "/sandbox3");
+
+        auto runner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(cfg), cfg);
+        OctiBotMcpServer server(*runner);
+
+        std::string err;
+        CHECK_TRUE(runner->connectAndAuthenticate(err));
+        runner->start();
+
+        runner->dispatchOwnerPrompt("Please record this broken UI button.", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*runner, 1, reply, source));
+        runner->stop();
+
+        CHECK_EQUAL("Sorry, I couldn't record that just now; please try again or tell @guard_owner_2.", reply);
+        CHECK_FALSE(std::filesystem::exists(badFbPath));
+    }
+
+    // 4. The guard does nothing for playing bots
+    {
+        std::string fbPath4 = testDir + "/playing_bot.md";
+        std::string fakeCli4 = testDir + "/fake_playing_claim.py";
+        CHECK_TRUE(writeExecutableScript(fakeCli4,
+            "#!/usr/bin/env python3\n"
+            "print('I have recorded your feedback')\n"));
+
+        OctiBotConfigStore playCfg;
+        playCfg.set("server_host", "127.0.0.1");
+        playCfg.set("server_port", std::to_string(env->port));
+        playCfg.set("lobby_only", "false");
+        playCfg.set("table_behavior", "idle");
+        playCfg.set("robot_name", "octibot-sdk-cpu");
+        playCfg.set("bot_token", rPlay.rawToken);
+        playCfg.set("helper_feedback_enabled", "true");
+        playCfg.set("helper_feedback_file", fbPath4);
+        playCfg.set("ai_cli_backend", "agy");
+        playCfg.set("ai_cli_executable", fakeCli4);
+        playCfg.set("ai_cli_sandbox_dir", testDir + "/sandbox4");
+
+        auto playRunner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(playCfg), playCfg);
+        OctiBotMcpServer server(*playRunner);
+
+        std::string err;
+        CHECK_TRUE(playRunner->connectAndAuthenticate(err));
+        playRunner->start();
+
+        playRunner->dispatchOwnerPrompt("I have a comment about this move.", "lobby", "");
+        std::string reply, source;
+        CHECK_TRUE(waitForConversationCompletion(*playRunner, 1, reply, source));
+        playRunner->stop();
+
+        CHECK_EQUAL("I have recorded your feedback", reply);
+        CHECK_FALSE(std::filesystem::exists(fbPath4));
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+}
+
+// ============================================================================
 
 int main(int argc, char **argv) {
 #if !defined(_WIN32)

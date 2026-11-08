@@ -61,6 +61,8 @@ public:
                                           const std::string &relatedArea,
                                           const std::string &clientPlatform,
                                           std::string &errorOut);
+    std::uint64_t recordedPlayerFeedbackCount() const { return _recordedFeedbackCount.load(); }
+    static std::uint64_t recordedPlayerFeedbackCount(const OctiBotRunner &runner);
 
     std::string callTool(const std::string &name, const std::string &argumentsJson);
 
@@ -105,6 +107,7 @@ private:
     mutable std::mutex _healthCacheMutex;
     std::chrono::steady_clock::time_point _lastHealthCheckTime{};
     nlohmann::json _cachedHealthJson;
+    std::atomic<std::uint64_t> _recordedFeedbackCount{0};
 };
 
 class OctiBotAgentCliLauncher {
