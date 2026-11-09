@@ -906,6 +906,10 @@ void OctiBotRunner::run() {
     }
 
     while (_running && !_superseded) {
+        {
+            std::lock_guard<std::mutex> lock(_loopMutex);
+            _lastObservedWakeSeq = _loopWakeSeq;
+        }
         loopStep();
         waitForLoopWake(computeNextWaitMs());
     }
@@ -955,30 +959,19 @@ void OctiBotRunner::wakeLoop(bool markRoomDirty, bool markLobbyDirty) {
 }
 
 void OctiBotRunner::waitForLoopWake(int maxWaitMs) {
-    if (!_running || _superseded) {
-        return;
-    }
-    if (_roomStateDirty.load() || _lobbyTablesDirty.load()) {
-        std::lock_guard<std::mutex> lock(_loopMutex);
-        _lastObservedWakeSeq = _loopWakeSeq;
-        return;
-    }
-    if (maxWaitMs <= 0) {
+    if (!_running || _superseded || maxWaitMs <= 0) {
         std::lock_guard<std::mutex> lock(_loopMutex);
         _lastObservedWakeSeq = _loopWakeSeq;
         return;
     }
     std::unique_lock<std::mutex> lock(_loopMutex);
     if (_loopWakeSeq != _lastObservedWakeSeq ||
-        _roomStateDirty.load() || _lobbyTablesDirty.load() ||
         !_running || _superseded) {
         _lastObservedWakeSeq = _loopWakeSeq;
         return;
     }
     _loopWakeCv.wait_for(lock, std::chrono::milliseconds(maxWaitMs), [this] {
         return _loopWakeSeq != _lastObservedWakeSeq ||
-               _roomStateDirty.load() ||
-               _lobbyTablesDirty.load() ||
                !_running ||
                _superseded;
     });
@@ -989,8 +982,11 @@ int OctiBotRunner::computeNextWaitMs() const {
     if (!_running || _superseded) {
         return 0;
     }
-    if (_roomStateDirty.load() || _lobbyTablesDirty.load()) {
-        return 0;
+    {
+        std::lock_guard<std::mutex> lock(_loopMutex);
+        if (_loopWakeSeq != _lastObservedWakeSeq) {
+            return 0;
+        }
     }
     bool lobbyStreamOk = _client.isLobbyEventStreamActive();
     bool gameStreamOk = _client.isGameEventStreamActive();
@@ -1802,6 +1798,8 @@ void OctiBotRunner::loopStep() {
     pollRecentLobbyChat();
 
     if (_lobbyOnly || _policy.tableBehavior() == "lobby_only") {
+        _roomStateDirty.store(false);
+        _lobbyTablesDirty.store(false);
         return;
     }
 
@@ -1823,6 +1821,7 @@ void OctiBotRunner::loopStep() {
     }
 
     if (roomId.empty()) {
+        _roomStateDirty.store(false);
         bool lobbyStreamOk = _client.isLobbyEventStreamActive();
         bool shouldScanLobby = _lobbyTablesDirty.exchange(false) ||
                                !lobbyStreamOk ||
@@ -2056,7 +2055,7 @@ void OctiBotRunner::loopStep() {
                                 handleLobbySseEvent(ev.event, ev.dataJson);
                             });
                     }
-                    _lobbyTablesDirty.store(true);
+                    wakeLoop(false, true);
                     logMsg(2, "Room #" + roomId + " closed; returned to lobby.");
                     notifyEvent("ROOM_LEFT");
                     return;
@@ -2252,13 +2251,14 @@ void OctiBotRunner::loopStep() {
                         std::lock_guard<std::mutex> lock(_stateMutex);
                         _currentSeat = joinRes.data.seat;
                     }
-                    _roomStateDirty.store(true);
+                    wakeLoop(true, false);
                     logMsg(2, "Joined remaining seat " + std::to_string(joinRes.data.seat) +
                            " in hosted table #" + roomId);
                     notifyEvent("ROOM_JOINED");
                 }
             }
         } else if (_currentPhase == "IN_PROGRESS") {
+            _lobbyTablesDirty.store(false);
             bool allowRobotsNow = _activeGameView.allowRobots ||
                 (ov.active && (ov.allowRobots || !ov.targetPlayerHandle.empty() || !ov.targetRoomId.empty()));
             if (_policy.opponentFilter() == "humans_only" && !allowRobotsNow) {
@@ -2311,6 +2311,7 @@ void OctiBotRunner::loopStep() {
                 playEngineTurn();
             }
         } else if (_currentPhase == "FINISHED" || _currentPhase == "GAME_OVER" || _currentPhase == "ABANDONED") {
+            _lobbyTablesDirty.store(false);
             bool hasConnectedOpponent = false;
             bool oppIsRobot = false;
             std::string oppHandle;
@@ -2410,7 +2411,7 @@ void OctiBotRunner::loopStep() {
                             handleLobbySseEvent(ev.event, ev.dataJson);
                         });
                 }
-                _lobbyTablesDirty.store(true);
+                wakeLoop(false, true);
                 logMsg(2, "Opponent left finished room #" + roomId + "; leaving table and returning to lobby.");
                 notifyEvent("ROOM_LEFT");
                 return;
@@ -2454,7 +2455,7 @@ void OctiBotRunner::loopStep() {
                     [this](const SseEvent &ev) {
                         handleLobbySseEvent(ev.event, ev.dataJson);
                     });
-                _lobbyTablesDirty.store(true);
+                wakeLoop(false, true);
                 logMsg(2, "Post-game linger (" + std::to_string(lingerSec) + "s silence) elapsed in room #" +
                        roomId + "; said goodbye, left table, and returned to lobby.");
                 notifyEvent("ROOM_LEFT");
@@ -2577,7 +2578,7 @@ void OctiBotRunner::playEngineTurn() {
             moveErr = res.errorMessage;
         }
         if (ok) {
-            _roomStateDirty.store(true);
+            wakeLoop(true, false);
             logMsg(3, "Move " + chosenMove + " accepted by server in room #" + roomId);
             bool hasPrevEval = false;
             int prevEvalScore = 0;
