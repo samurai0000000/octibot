@@ -475,13 +475,13 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
         if (!_gameOver) {
             advanceTurn();
             if (_mode == GAME_MODE_2 || _mode == GAME_MODE_OFK) {
-                if (generateLegalMoves().empty()) {
+                if (!hasAnyLegalMove()) {
                     _gameOver = true;
                     _winner = (_turn == PLAYER_A) ? PLAYER_B : PLAYER_A;
                 }
             } else if (_mode == GAME_MODE_4) {
                 int seatsChecked = 0;
-                while (seatsChecked < 4 && !_players[_turn].eliminated && generateLegalMoves().empty()) {
+                while (seatsChecked < 4 && !_players[_turn].eliminated && !hasAnyLegalMove()) {
                     advanceTurn();
                     seatsChecked++;
                 }
@@ -518,13 +518,13 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
     if (!_gameOver) {
         advanceTurn();
         if (_mode == GAME_MODE_2 || _mode == GAME_MODE_OFK) {
-            if (generateLegalMoves().empty()) {
+            if (!hasAnyLegalMove()) {
                 _gameOver = true;
                 _winner = (_turn == PLAYER_A) ? PLAYER_B : PLAYER_A;
             }
         } else if (_mode == GAME_MODE_4) {
             int seatsChecked = 0;
-            while (seatsChecked < 4 && !_players[_turn].eliminated && generateLegalMoves().empty()) {
+            while (seatsChecked < 4 && !_players[_turn].eliminated && !hasAnyLegalMove()) {
                 advanceTurn();
                 seatsChecked++;
             }
@@ -1507,7 +1507,7 @@ static void dfsJumpChains(const OctiBoard *board,
             op.y0 = sy;
             op.pod = pod;
             op.hops = currentHops;
-            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
 
             // Recurse further along jump chain
             dfsJumpChains(board, edgeless, turn, lx, ly, pod, ghostPods,
@@ -1532,7 +1532,7 @@ static void dfsJumpChains(const OctiBoard *board,
             op.y0 = sy;
             op.pod = pod;
             op.hops = currentHops;
-            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
 
             dfsJumpChains(board, edgeless, turn, lx, ly, pod, ghostPods,
                           jumpedSquares, currentHops, sx, sy, outMoves);
@@ -1552,6 +1552,7 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                                      std::vector<OctiMove> &outMoves)
 {
     outMoves.clear();
+    outMoves.reserve(64);
 
     int w = _board->getBoardWidth();
     int h = _board->getBoardHeight();
@@ -1589,24 +1590,24 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                         if (_players[_turn].freePods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = false;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                         if (_board->canLiberate(_turn) && _players[_turn].capturedPods > 0 && sq.isOccupiedBy(_turn)) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     } else {
                         // Enemy base
                         if (_players[_turn].freePods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = false;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                         if (_players[_turn].capturedPods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     }
                 } else if (_mode == GAME_MODE_4) {
@@ -1624,12 +1625,12 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                         if (_players[_turn].freePods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = false;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                         if (sq.isOccupiedBy(_turn) && _board->canLiberate(_turn) && _players[_turn].capturedPods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     } else if (sq.getType() == partnerHome) {
                         // Never allow placing freePods on partnerHome
@@ -1637,13 +1638,13 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                             if (_players[partner].capturedPods > 0) {
                                 OctiMoveOp op;
                                 op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                                outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                                outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                             }
                         } else {
                             if (_board->canLiberate(_turn) && _players[_turn].capturedPods > 0) {
                                 OctiMoveOp op;
                                 op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                                outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                                outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                             }
                         }
                     } else if (sq.getType() == NEUTRAL_OCTI_SQUARE) {
@@ -1651,19 +1652,19 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                         if (_players[_turn].capturedPods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     } else {
                         // Enemy base
                         if (_players[_turn].freePods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = false;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                         if (_players[_turn].capturedPods > 0) {
                             OctiMoveOp op;
                             op.x0 = x; op.y0 = y; op.addPod = true; op.liberate = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     }
                 }
@@ -1672,20 +1673,41 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
     }
 
     // 2. Prong Additions, 3. Prong Repositions, 4. Distance-1 Moves, 5. Jumps
+    OctiPodType turnPodType = playerToPodType(_turn);
+    std::vector<std::pair<int, int>> jumpedSquares;
+    std::vector<OctiHop> currentHops;
+    jumpedSquares.reserve(16);
+    currentHops.reserve(16);
+
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             const OctiSquare &sq = _board->squareAt(x, y);
-            std::set<std::uint32_t> seenConfigs;
+            int numPods = sq.getNumPods();
+            if (numPods == 0) {
+                continue;
+            }
+            std::uint32_t seenConfigs[32];
+            int numSeen = 0;
 
-            for (int i = 0; i < sq.getNumPods(); i++) {
+            for (int i = 0; i < numPods; i++) {
                 const OctiPod &pod = sq.getPodAt(i);
-                if (pod.getType() != playerToPodType(_turn)) {
+                if (pod.getType() != turnPodType) {
                     continue;
                 }
-                if (seenConfigs.count(pod.rawConfig() & 0xFFFFu) > 0) {
+                std::uint32_t cfg = pod.rawConfig() & 0xFFFFu;
+                bool dupCfg = false;
+                for (int s = 0; s < numSeen; ++s) {
+                    if (seenConfigs[s] == cfg) {
+                        dupCfg = true;
+                        break;
+                    }
+                }
+                if (dupCfg) {
                     continue;
                 }
-                seenConfigs.insert(pod.rawConfig() & 0xFFFFu);
+                if (numSeen < 32) {
+                    seenConfigs[numSeen++] = cfg;
+                }
 
                 // 2. Prong Additions
                 for (int d = 0; d < DIR_MAX; d++) {
@@ -1697,7 +1719,7 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                             op.pod = pod;
                             op.addProngDir = dir;
                             op.superProng = false;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                         if (_useSuperProngs && _players[_turn].freeSuperProngs > 0) {
                             OctiMoveOp op;
@@ -1705,13 +1727,13 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                             op.pod = pod;
                             op.addProngDir = dir;
                             op.superProng = true;
-                            outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
                     }
                 }
 
                 // 3. Prong Repositions
-                if (_mode != GAME_MODE_OFK) {
+                if (_mode != GAME_MODE_OFK && cfg != 0u) {
                     for (int rm = 0; rm < DIR_MAX; rm++) {
                         OctiDir rmDir = static_cast<OctiDir>(rm);
                         if (pod.prongAt(rmDir) == NORMAL_PRONG) {
@@ -1724,54 +1746,55 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                                     op.rmProngDir = rmDir;
                                     op.addProngDir = addDir;
                                     op.superProng = false;
-                                    outMoves.emplace_back(std::vector<OctiMoveOp>{op});
+                                    outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                                 }
                             }
                         }
                     }
                 }
 
-                // 4. Distance-1 Moves
-                for (int d = 0; d < DIR_MAX; d++) {
-                    OctiDir dir = static_cast<OctiDir>(d);
-                    if (pod.prongAt(dir) != NO_PRONG) {
-                        int dx = dirDeltaX(dir);
-                        int dy = dirDeltaY(dir);
-                        int nx = _useEdgelessBoard ? (((x + dx) % w + w) % w) : (x + dx);
-                        int ny = _useEdgelessBoard ? (((y + dy) % h + h) % h) : (y + dy);
+                // 4. Distance-1 Moves & 5. Distance-2 Jumps
+                if (cfg != 0u) {
+                    for (int d = 0; d < DIR_MAX; d++) {
+                        OctiDir dir = static_cast<OctiDir>(d);
+                        if (pod.prongAt(dir) != NO_PRONG) {
+                            int dx = dirDeltaX(dir);
+                            int dy = dirDeltaY(dir);
+                            int nx = _useEdgelessBoard ? (((x + dx) % w + w) % w) : (x + dx);
+                            int ny = _useEdgelessBoard ? (((y + dy) % h + h) % h) : (y + dy);
 
-                        if (!_useEdgelessBoard) {
-                            if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
-                                continue;
+                            if (!_useEdgelessBoard) {
+                                if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
+                                    continue;
+                                }
                             }
+
+                            const OctiSquare &destSq = _board->squareAt(nx, ny);
+                            if (_mode == GAME_MODE_OFK) {
+                                if (!destSq.isEmpty()) continue;
+                            } else {
+                                if (destSq.hasEnemyOf(_turn)) continue;
+                            }
+
+                            OctiHop hop;
+                            hop.x = nx;
+                            hop.y = ny;
+                            hop.capture = false;
+
+                            OctiMoveOp op;
+                            op.x0 = x; op.y0 = y;
+                            op.pod = pod;
+                            op.hops.push_back(hop);
+                            outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
                         }
-
-                        const OctiSquare &destSq = _board->squareAt(nx, ny);
-                        if (_mode == GAME_MODE_OFK) {
-                            if (!destSq.isEmpty()) continue;
-                        } else {
-                            if (destSq.hasEnemyOf(_turn)) continue;
-                        }
-
-                        OctiHop hop;
-                        hop.x = nx;
-                        hop.y = ny;
-                        hop.capture = false;
-
-                        OctiMoveOp op;
-                        op.x0 = x; op.y0 = y;
-                        op.pod = pod;
-                        op.hops.push_back(hop);
-                        outMoves.emplace_back(std::vector<OctiMoveOp>{op});
                     }
-                }
 
-                // 5. Distance-2 Jumps
-                std::vector<OctiPod> ghostPods = sq.pods();
-                std::vector<std::pair<int, int>> jumpedSquares;
-                std::vector<OctiHop> currentHops;
-                dfsJumpChains(_board, _useEdgelessBoard, _turn, x, y, pod, ghostPods,
-                              jumpedSquares, currentHops, x, y, outMoves);
+                    const std::vector<OctiPod> &ghostPods = sq.pods();
+                    jumpedSquares.clear();
+                    currentHops.clear();
+                    dfsJumpChains(_board, _useEdgelessBoard, _turn, x, y, pod, ghostPods,
+                                  jumpedSquares, currentHops, x, y, outMoves);
+                }
             }
         }
     }
@@ -2139,7 +2162,7 @@ static void appendDeduplicatedRegularMoves(const OctiBoard *board,
             ops.reserve(preludeOps.size() + 1);
             ops.insert(ops.end(), preludeOps.begin(), preludeOps.end());
             ops.push_back(regOp);
-            outMoves.emplace_back(std::move(ops));
+            outMoves.push_back(OctiMove::fromValidatedOps(std::move(ops)));
         }
     }
 }
@@ -2357,6 +2380,190 @@ static void applyBonusCapturesToState(OctiBoard &board,
     }
 }
 
+bool OctiGame::hasAnyLegalMove() const
+{
+    if (!_gameStarted || _gameOver || _turn == PLAYER_UNDEF || !_board) {
+        return false;
+    }
+
+    int w = _board->getBoardWidth();
+    int h = _board->getBoardHeight();
+
+    // 1. Reserve pod placements & liberations (checked before pod/prong/move scan)
+    if (_mode != GAME_MODE_OFK) {
+        int numPlayers = _board->getNumPlayers();
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const OctiSquare &sq = _board->squareAt(x, y);
+                OctiSquareType st = sq.getType();
+                if (st == NEUTRAL_SQUARE) {
+                    continue;
+                }
+                bool isFriendlyHome = false;
+                if (numPlayers == 2) {
+                    isFriendlyHome = (_turn == PLAYER_A && st == A_HOME_SQUARE) ||
+                                     (_turn == PLAYER_B && st == B_HOME_SQUARE);
+                } else if (numPlayers == 4) {
+                    isFriendlyHome = (st == static_cast<OctiSquareType>(_turn));
+                }
+
+                if (isFriendlyHome) {
+                    if (sq.hasEnemyOf(_turn)) {
+                        continue;
+                    }
+                } else {
+                    if (!sq.isOccupiedBy(_turn)) {
+                        continue;
+                    }
+                }
+
+                if (_mode == GAME_MODE_2) {
+                    bool isFriendlyBase =
+                        (st == (_turn == PLAYER_A ? A_HOME_SQUARE : B_HOME_SQUARE));
+                    if (isFriendlyBase) {
+                        if (_players[_turn].freePods > 0) {
+                            return true;
+                        }
+                        if (_board->canLiberate(_turn) &&
+                            _players[_turn].capturedPods > 0 &&
+                            sq.isOccupiedBy(_turn)) {
+                            return true;
+                        }
+                    } else {
+                        if (_players[_turn].freePods > 0 ||
+                            _players[_turn].capturedPods > 0) {
+                            return true;
+                        }
+                    }
+                } else if (_mode == GAME_MODE_4) {
+                    OctiSquareType homeType =
+                        (_turn == PLAYER_A ? A_HOME_SQUARE :
+                         _turn == PLAYER_B ? B_HOME_SQUARE :
+                         _turn == PLAYER_C ? C_HOME_SQUARE : D_HOME_SQUARE);
+                    OctiPlayer partner =
+                        (_turn == PLAYER_A ? PLAYER_C :
+                         _turn == PLAYER_C ? PLAYER_A :
+                         _turn == PLAYER_B ? PLAYER_D : PLAYER_B);
+                    OctiSquareType partnerHome =
+                        (partner == PLAYER_A ? A_HOME_SQUARE :
+                         partner == PLAYER_B ? B_HOME_SQUARE :
+                         partner == PLAYER_C ? C_HOME_SQUARE : D_HOME_SQUARE);
+
+                    if (st == homeType) {
+                        if (_players[_turn].freePods > 0) {
+                            return true;
+                        }
+                        if (sq.isOccupiedBy(_turn) &&
+                            _board->canLiberate(_turn) &&
+                            _players[_turn].capturedPods > 0) {
+                            return true;
+                        }
+                    } else if (st == partnerHome) {
+                        if (_players[partner].eliminated) {
+                            if (_players[partner].capturedPods > 0) {
+                                return true;
+                            }
+                        } else {
+                            if (_board->canLiberate(_turn) &&
+                                _players[_turn].capturedPods > 0) {
+                                return true;
+                            }
+                        }
+                    } else if (st == NEUTRAL_OCTI_SQUARE) {
+                        if (_players[_turn].capturedPods > 0) {
+                            return true;
+                        }
+                    } else {
+                        if (_players[_turn].freePods > 0 ||
+                            _players[_turn].capturedPods > 0) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Prong additions, 3. Prong repositions, 4. Steps, 5. Jumps
+    const OctiPodType turnPodType = playerToPodType(_turn);
+    const bool hasReserveProng =
+        (_players[_turn].freeProngs > 0) ||
+        (_useSuperProngs && _players[_turn].freeSuperProngs > 0);
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const OctiSquare &sq = _board->squareAt(x, y);
+            int numPods = sq.getNumPods();
+            if (numPods == 0) {
+                continue;
+            }
+            for (int i = 0; i < numPods; i++) {
+                const OctiPod &pod = sq.getPodAt(i);
+                if (pod.getType() != turnPodType) {
+                    continue;
+                }
+                int totalProngs = pod.getNumProngs();
+                if (hasReserveProng && totalProngs < DIR_MAX) {
+                    return true;
+                }
+                if (_mode != GAME_MODE_OFK &&
+                    totalProngs < DIR_MAX &&
+                    pod.getNumNormalProngs() > 0) {
+                    return true;
+                }
+                if ((pod.rawConfig() & 0xFFFFu) == 0u) {
+                    continue;
+                }
+                for (int d = 0; d < DIR_MAX; d++) {
+                    OctiDir dir = static_cast<OctiDir>(d);
+                    if (pod.prongAt(dir) == NO_PRONG) {
+                        continue;
+                    }
+                    int dx = dirDeltaX(dir);
+                    int dy = dirDeltaY(dir);
+                    int nx = _useEdgelessBoard ? (((x + dx) % w + w) % w) : (x + dx);
+                    int ny = _useEdgelessBoard ? (((y + dy) % h + h) % h) : (y + dy);
+                    if (!_useEdgelessBoard &&
+                        (nx < 0 || nx >= w || ny < 0 || ny >= h)) {
+                        continue;
+                    }
+
+                    const OctiSquare &adjSq = _board->squareAt(nx, ny);
+                    if (_mode == GAME_MODE_OFK) {
+                        if (adjSq.isEmpty()) {
+                            return true;
+                        }
+                    } else {
+                        if (!adjSq.hasEnemyOf(_turn)) {
+                            return true;
+                        }
+                    }
+
+                    // Adjacent square in prong direction is non-empty if it blocked
+                    // OFK step or had an enemy pod; check if a jump over (nx, ny) lands
+                    // on an empty square. (Also covers jumping over friendly pods.)
+                    if (!adjSq.isEmpty()) {
+                        int lx = _useEdgelessBoard
+                            ? (((x + dx * 2) % w + w) % w)
+                            : (x + dx * 2);
+                        int ly = _useEdgelessBoard
+                            ? (((y + dy * 2) % h + h) % h)
+                            : (y + dy * 2);
+                        if (_useEdgelessBoard ||
+                            (lx >= 0 && lx < w && ly >= 0 && ly < h)) {
+                            if (_board->squareAt(lx, ly).isEmpty()) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 void OctiGame::generateLegalMoves(std::vector<OctiMove> &outMoves) const
 {
     outMoves.clear();
@@ -2450,6 +2657,333 @@ std::vector<OctiMove> OctiGame::generateLegalMoves() const
 {
     std::vector<OctiMove> moves;
     generateLegalMoves(moves);
+    return moves;
+}
+
+static inline bool isEnemyHomeSquareForTactical(OctiSquareType sqType,
+                                                OctiGameMode mode,
+                                                OctiPlayer p)
+{
+    if (mode == GAME_MODE_2 || mode == GAME_MODE_OFK) {
+        if (p == PLAYER_A) {
+            return sqType == B_HOME_SQUARE;
+        }
+        if (p == PLAYER_B) {
+            return sqType == A_HOME_SQUARE;
+        }
+        return false;
+    }
+    if (mode == GAME_MODE_4) {
+        if (p == PLAYER_A || p == PLAYER_C) {
+            return sqType == B_HOME_SQUARE || sqType == D_HOME_SQUARE;
+        }
+        if (p == PLAYER_B || p == PLAYER_D) {
+            return sqType == A_HOME_SQUARE || sqType == C_HOME_SQUARE;
+        }
+    }
+    return false;
+}
+
+static void dfsTacticalJumpChains(const OctiBoard *board,
+                                  OctiGameMode mode,
+                                  bool edgeless,
+                                  OctiPlayer turn,
+                                  int cx, int cy,
+                                  const OctiPod &pod,
+                                  const std::vector<OctiPod> &ghostPods,
+                                  std::vector<std::pair<int, int>> &jumpedSquares,
+                                  std::vector<OctiHop> &currentHops,
+                                  bool hasEnemyCaptureSoFar,
+                                  int sx, int sy,
+                                  std::vector<OctiMove> &outMoves)
+{
+    int w = board->getBoardWidth();
+    int h = board->getBoardHeight();
+
+    for (int d = 0; d < DIR_MAX; d++) {
+        OctiDir dir = static_cast<OctiDir>(d);
+        if (pod.prongAt(dir) == NO_PRONG) {
+            continue;
+        }
+
+        int jdx = dirDeltaX(dir);
+        int jdy = dirDeltaY(dir);
+        int dx = jdx * 2;
+        int dy = jdy * 2;
+
+        int jx = edgeless ? (((cx + jdx) % w + w) % w) : (cx + jdx);
+        int jy = edgeless ? (((cy + jdy) % h + h) % h) : (cy + jdy);
+        int lx = edgeless ? (((cx + dx) % w + w) % w) : (cx + dx);
+        int ly = edgeless ? (((cy + dy) % h + h) % h) : (cy + dy);
+
+        if (!edgeless) {
+            if (jx < 0 || jx >= w || jy < 0 || jy >= h) continue;
+            if (lx < 0 || lx >= w || ly < 0 || ly >= h) continue;
+        }
+
+        std::pair<int, int> jCoord = {jx, jy};
+        if (std::find(jumpedSquares.begin(), jumpedSquares.end(), jCoord) !=
+            jumpedSquares.end()) {
+            continue;
+        }
+
+        const OctiSquare &jumpedSq = board->squareAt(jx, jy);
+        if (isEmptyForJump(jumpedSq, jx, jy, sx, sy, ghostPods)) {
+            continue;
+        }
+
+        const OctiSquare &landSq = board->squareAt(lx, ly);
+        if (!isEmptyForJump(landSq, lx, ly, sx, sy, ghostPods)) {
+            continue;
+        }
+
+        const bool landIsUncapturedEnemyBase =
+            isEnemyHomeSquareForTactical(landSq.getType(), mode, turn) &&
+            !landSq.isCapturedByTeamOf(turn);
+
+        // Branch 1: Without capture
+        {
+            OctiHop hop;
+            hop.x = lx;
+            hop.y = ly;
+            hop.capture = false;
+
+            currentHops.push_back(hop);
+            jumpedSquares.push_back(jCoord);
+
+            if (hasEnemyCaptureSoFar || landIsUncapturedEnemyBase) {
+                OctiMoveOp op;
+                op.x0 = sx;
+                op.y0 = sy;
+                op.pod = pod;
+                op.hops = currentHops;
+                outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
+            }
+
+            dfsTacticalJumpChains(board, mode, edgeless, turn, lx, ly, pod,
+                                  ghostPods, jumpedSquares, currentHops,
+                                  hasEnemyCaptureSoFar, sx, sy, outMoves);
+
+            jumpedSquares.pop_back();
+            currentHops.pop_back();
+        }
+
+        // Branch 2: With capture
+        {
+            const bool hasEnemyCapture2 =
+                hasEnemyCaptureSoFar || jumpedSq.hasEnemyOf(turn);
+
+            OctiHop hop;
+            hop.x = lx;
+            hop.y = ly;
+            hop.capture = true;
+
+            currentHops.push_back(hop);
+            jumpedSquares.push_back(jCoord);
+
+            if (hasEnemyCapture2 || landIsUncapturedEnemyBase) {
+                OctiMoveOp op;
+                op.x0 = sx;
+                op.y0 = sy;
+                op.pod = pod;
+                op.hops = currentHops;
+                outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
+            }
+
+            dfsTacticalJumpChains(board, mode, edgeless, turn, lx, ly, pod,
+                                  ghostPods, jumpedSquares, currentHops,
+                                  hasEnemyCapture2, sx, sy, outMoves);
+
+            jumpedSquares.pop_back();
+            currentHops.pop_back();
+        }
+    }
+}
+
+static bool isMoveTacticalForQuiescence(const OctiBoard &board,
+                                        OctiGameMode mode,
+                                        bool edgeless,
+                                        OctiPlayer turn,
+                                        const OctiMove &m)
+{
+    int w = board.getBoardWidth();
+    int h = board.getBoardHeight();
+    const auto &mOps = m.getOps();
+    for (std::size_t opIdx = 0; opIdx < mOps.size(); ++opIdx) {
+        const auto &op = mOps[opIdx];
+        int cx = op.x0;
+        int cy = op.y0;
+        for (const auto &hop : op.hops) {
+            int dx = hop.x - cx;
+            int dy = hop.y - cy;
+            if (edgeless) {
+                for (int d = -2; d <= 2; d++) {
+                    if (((cx + d) % w + w) % w == hop.x) {
+                        dx = d;
+                        break;
+                    }
+                }
+                for (int d = -2; d <= 2; d++) {
+                    if (((cy + d) % h + h) % h == hop.y) {
+                        dy = d;
+                        break;
+                    }
+                }
+            }
+            if (hop.capture && (std::abs(dx) == 2 || std::abs(dy) == 2)) {
+                int mx = edgeless ? (((cx + dx / 2) % w + w) % w) : (cx + dx / 2);
+                int my = edgeless ? (((cy + dy / 2) % h + h) % h) : (cy + dy / 2);
+                if (board.isValidCoord(mx, my)) {
+                    const OctiSquare &midSq = board.squareAt(mx, my);
+                    if (midSq.hasEnemyOf(turn)) {
+                        return true;
+                    }
+                }
+            }
+            cx = hop.x;
+            cy = hop.y;
+        }
+        if (!op.hops.empty()) {
+            const OctiHop &lastHop = op.hops.back();
+            bool continuedLater = false;
+            for (std::size_t j = opIdx + 1; j < mOps.size(); ++j) {
+                if (!mOps[j].hops.empty() &&
+                    mOps[j].x0 == lastHop.x &&
+                    mOps[j].y0 == lastHop.y) {
+                    continuedLater = true;
+                    break;
+                }
+            }
+            if (!continuedLater) {
+                const OctiSquare &destSq = board.squareAt(lastHop.x, lastHop.y);
+                if (isEnemyHomeSquareForTactical(destSq.getType(), mode, turn) &&
+                    !destSq.isCapturedByTeamOf(turn)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+void OctiGame::generateTacticalMoves(std::vector<OctiMove> &outMoves) const
+{
+    outMoves.clear();
+    if (!_gameStarted || _gameOver || _turn == PLAYER_UNDEF || !_board) {
+        return;
+    }
+
+    if (_useSuperProngs) {
+        std::vector<OctiMove> rawMoves;
+        generateLegalMoves(rawMoves);
+        outMoves.reserve(rawMoves.size());
+        for (const auto &m : rawMoves) {
+            if (isMoveTacticalForQuiescence(
+                    *_board, _mode, _useEdgelessBoard, _turn, m)) {
+                outMoves.push_back(m);
+            }
+        }
+        return;
+    }
+
+    int w = _board->getBoardWidth();
+    int h = _board->getBoardHeight();
+    OctiPodType turnPodType = playerToPodType(_turn);
+
+    std::vector<std::pair<int, int>> jumpedSquares;
+    std::vector<OctiHop> currentHops;
+    jumpedSquares.reserve(32);
+    currentHops.reserve(32);
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const OctiSquare &sq = _board->squareAt(x, y);
+            int numPods = sq.getNumPods();
+            if (numPods == 0) {
+                continue;
+            }
+            std::uint32_t seenConfigs[32];
+            int numSeen = 0;
+
+            for (int i = 0; i < numPods; i++) {
+                const OctiPod &pod = sq.getPodAt(i);
+                if (pod.getType() != turnPodType) {
+                    continue;
+                }
+                std::uint32_t cfg = pod.rawConfig() & 0xFFFFu;
+                bool dupCfg = false;
+                for (int s = 0; s < numSeen; ++s) {
+                    if (seenConfigs[s] == cfg) {
+                        dupCfg = true;
+                        break;
+                    }
+                }
+                if (dupCfg) {
+                    continue;
+                }
+                if (numSeen < 32) {
+                    seenConfigs[numSeen++] = cfg;
+                }
+                if (cfg == 0u) {
+                    continue;
+                }
+
+                // 1. Distance-1 step onto an uncaptured enemy home square
+                for (int d = 0; d < DIR_MAX; d++) {
+                    OctiDir dir = static_cast<OctiDir>(d);
+                    if (pod.prongAt(dir) == NO_PRONG) {
+                        continue;
+                    }
+                    int dx = dirDeltaX(dir);
+                    int dy = dirDeltaY(dir);
+                    int nx = _useEdgelessBoard ? (((x + dx) % w + w) % w) : (x + dx);
+                    int ny = _useEdgelessBoard ? (((y + dy) % h + h) % h) : (y + dy);
+                    if (!_useEdgelessBoard &&
+                        (nx < 0 || nx >= w || ny < 0 || ny >= h)) {
+                        continue;
+                    }
+
+                    const OctiSquare &destSq = _board->squareAt(nx, ny);
+                    if (_mode == GAME_MODE_OFK) {
+                        if (!destSq.isEmpty()) continue;
+                    } else {
+                        if (destSq.hasEnemyOf(_turn)) continue;
+                    }
+
+                    if (!isEnemyHomeSquareForTactical(destSq.getType(), _mode, _turn) ||
+                        destSq.isCapturedByTeamOf(_turn)) {
+                        continue;
+                    }
+
+                    OctiHop hop;
+                    hop.x = nx;
+                    hop.y = ny;
+                    hop.capture = false;
+
+                    OctiMoveOp op;
+                    op.x0 = x;
+                    op.y0 = y;
+                    op.pod = pod;
+                    op.hops.push_back(hop);
+                    outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(op)));
+                }
+
+                // 2. Distance-2 jump chains with enemy capture or enemy base landing
+                const std::vector<OctiPod> &ghostPods = sq.pods();
+                jumpedSquares.clear();
+                currentHops.clear();
+                dfsTacticalJumpChains(_board, _mode, _useEdgelessBoard, _turn,
+                                      x, y, pod, ghostPods, jumpedSquares,
+                                      currentHops, false, x, y, outMoves);
+            }
+        }
+    }
+}
+
+std::vector<OctiMove> OctiGame::generateTacticalMoves() const
+{
+    std::vector<OctiMove> moves;
+    generateTacticalMoves(moves);
     return moves;
 }
 

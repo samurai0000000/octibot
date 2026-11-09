@@ -172,8 +172,11 @@ public:
     std::string getPreparedMoveString() const;
 
     // Legal move generation
+    bool hasAnyLegalMove() const;
     void generateLegalMoves(std::vector<OctiMove> &outMoves) const;
     std::vector<OctiMove> generateLegalMoves() const;
+    void generateTacticalMoves(std::vector<OctiMove> &outMoves) const;
+    std::vector<OctiMove> generateTacticalMoves() const;
 
     // Transcript serialization and deserialization
     void serialize(std::ostream &out) const;

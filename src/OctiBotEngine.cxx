@@ -27,7 +27,7 @@ namespace {
 constexpr int WIN_SCORE = 1000000;
 constexpr int INF_SCORE = 2000000;
 constexpr std::size_t TT_SIZE = 262144; // 256K entries (1 << 18)
-constexpr std::size_t TT_MUTEX_COUNT = 1024;
+constexpr std::size_t TT_MUTEX_COUNT = 16384;
 
 long steadyClockMs()
 {
@@ -390,6 +390,49 @@ JumpMobilityThreat evaluatePodJumpThreat(const OctiBoard &board,
 // Dominated Move Filtering
 // ---------------------------------------------------------------------------
 
+namespace {
+
+inline std::uint64_t mixPathKey64(std::uint64_t z)
+{
+    z += 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+bool sameMovePathIgnoringCapture(const std::vector<OctiMoveOp> &a,
+                                 const std::vector<OctiMoveOp> &b)
+{
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const OctiMoveOp &oa = a[i];
+        const OctiMoveOp &ob = b[i];
+        if (oa.x0 != ob.x0 ||
+            oa.y0 != ob.y0 ||
+            (oa.pod.rawConfig() & 0xFFFFu) != (ob.pod.rawConfig() & 0xFFFFu) ||
+            oa.addPod != ob.addPod ||
+            oa.liberate != ob.liberate ||
+            oa.addProngDir != ob.addProngDir ||
+            oa.rmProngDir != ob.rmProngDir ||
+            oa.superProng != ob.superProng ||
+            oa.isSuperProngBonusMove != ob.isSuperProngBonusMove ||
+            oa.hops.size() != ob.hops.size()) {
+            return false;
+        }
+        for (std::size_t h = 0; h < oa.hops.size(); ++h) {
+            if (oa.hops[h].x != ob.hops[h].x ||
+                oa.hops[h].y != ob.hops[h].y) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
                                           OctiPlayer turn,
                                           const std::vector<OctiMove> &moves)
@@ -403,33 +446,67 @@ std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
     bool edgeless = board.getGame() ? board.getGame()->useEdgelessBoard() : false;
     int freeProngs = board.getGame() ? board.getGame()->getFreeProngs(turn) : 0;
 
-    using HopCoordVec = std::vector<std::pair<int, int>>;
-    using OpKey = std::tuple<int, int, std::uint32_t, bool, bool, int, int, bool, bool, HopCoordVec>;
-    // PathKey: (opKeys, friendlyCaptureMask)
-    using PathKey = std::pair<std::vector<OpKey>, std::uint32_t>;
-    std::map<PathKey, std::vector<std::uint32_t>> enemyVariantsByKey;
-    std::vector<bool> pointlessSelfCapture(moves.size(), false);
-
-    auto buildMovePathKey = [&](const std::vector<OctiMoveOp> &ops,
-                                PathKey &outKey,
-                                std::uint32_t &outEnemyCapMask) -> bool {
-        bool hasAnyHops = false;
-        std::vector<OpKey> opKeys;
-        opKeys.reserve(ops.size());
+    struct MoveDomInfo {
+        std::uint64_t pathKey = 0;
         std::uint32_t friendlyCapMask = 0;
         std::uint32_t enemyCapMask = 0;
+        bool hasAnyHops = false;
+        bool pointlessSelfCap = false;
+    };
+
+    MoveDomInfo stackInfos[128];
+    std::vector<MoveDomInfo> heapInfos;
+    MoveDomInfo *infos = stackInfos;
+    if (moves.size() > 128) {
+        heapInfos.resize(moves.size());
+        infos = heapInfos.data();
+    }
+
+    bool anyPointlessSelfCap = false;
+    bool anyEnemyCap = false;
+    std::size_t validHopIndicesStack[128];
+    std::vector<std::size_t> validHopIndicesHeap;
+    std::size_t *validHopIndices = validHopIndicesStack;
+    if (moves.size() > 128) {
+        validHopIndicesHeap.resize(moves.size());
+        validHopIndices = validHopIndicesHeap.data();
+    }
+    std::size_t numValidHopMoves = 0;
+
+    for (std::size_t i = 0; i < moves.size(); ++i) {
+        const auto &ops = moves[i].getOps();
+        MoveDomInfo info;
+
+        // Quick skip for single-op non-hop moves (pod add, prong add, reposition)
+        if (ops.size() == 1 && ops[0].hops.empty()) {
+            infos[i] = info;
+            continue;
+        }
+
+        std::uint64_t h = mixPathKey64(static_cast<std::uint64_t>(ops.size()));
         std::size_t globalHopIdx = 0;
+        bool badSelfCap = false;
 
         for (const auto &op : ops) {
-            HopCoordVec coords;
-            coords.reserve(op.hops.size());
+            h = mixPathKey64(h ^ static_cast<std::uint64_t>(op.x0 & 0xFF));
+            h = mixPathKey64(h ^ (static_cast<std::uint64_t>(op.y0 & 0xFF) << 8));
+            h = mixPathKey64(h ^ static_cast<std::uint64_t>(op.pod.rawConfig() & 0xFFFFu));
+            h = mixPathKey64(h ^ ((op.addPod ? 1ULL : 0ULL) |
+                                  ((op.liberate ? 1ULL : 0ULL) << 1) |
+                                  ((static_cast<std::uint64_t>(op.addProngDir) & 0xFFULL) << 2) |
+                                  ((static_cast<std::uint64_t>(op.rmProngDir) & 0xFFULL) << 10) |
+                                  ((op.superProng ? 1ULL : 0ULL) << 18) |
+                                  ((op.isSuperProngBonusMove ? 1ULL : 0ULL) << 19)));
+            h = mixPathKey64(h ^ static_cast<std::uint64_t>(op.hops.size()));
+
             int cx = op.x0;
             int cy = op.y0;
-
             for (std::size_t hIdx = 0; hIdx < op.hops.size(); ++hIdx) {
-                hasAnyHops = true;
+                info.hasAnyHops = true;
                 const auto &hopItem = op.hops[hIdx];
-                coords.push_back({hopItem.x, hopItem.y});
+                h = mixPathKey64(h ^ (static_cast<std::uint64_t>(hopItem.x & 0xFF) |
+                                      (static_cast<std::uint64_t>(hopItem.y & 0xFF) << 8)));
+
                 int dx = hopItem.x - cx;
                 int dy = hopItem.y - cy;
                 if (edgeless) {
@@ -447,9 +524,19 @@ std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
                     if (board.isValidCoord(mx, my)) {
                         const OctiSquare &midSq = board.squareAt(mx, my);
                         if (midSq.hasEnemyOf(turn)) {
-                            enemyCapMask |= (1U << (globalHopIdx & 31U));
+                            info.enemyCapMask |= (1U << (globalHopIdx & 31U));
                         } else {
-                            friendlyCapMask |= (1U << (globalHopIdx & 31U));
+                            if (freeProngs > 0) {
+                                int prongsOnMid = 0;
+                                for (int pi = 0; pi < midSq.getNumPods(); ++pi) {
+                                    prongsOnMid += midSq.getPodAt(pi).getNumProngs();
+                                }
+                                if (prongsOnMid == 0) {
+                                    badSelfCap = true;
+                                    break;
+                                }
+                            }
+                            info.friendlyCapMask |= (1U << (globalHopIdx & 31U));
                         }
                     }
                 }
@@ -457,107 +544,58 @@ std::vector<OctiMove> filterDominatedMoves(const OctiBoard &board,
                 cy = hopItem.y;
                 ++globalHopIdx;
             }
-
-            opKeys.emplace_back(op.x0,
-                                op.y0,
-                                op.pod.rawConfig() & 0xFFFFu,
-                                op.addPod,
-                                op.liberate,
-                                static_cast<int>(op.addProngDir),
-                                static_cast<int>(op.rmProngDir),
-                                op.superProng,
-                                op.isSuperProngBonusMove,
-                                std::move(coords));
-        }
-
-        outKey = PathKey(std::move(opKeys), friendlyCapMask);
-        outEnemyCapMask = enemyCapMask;
-        return hasAnyHops;
-    };
-
-    for (std::size_t i = 0; i < moves.size(); ++i) {
-        const auto &m = moves[i];
-        const auto &ops = m.getOps();
-
-        // Check if move contains pointless self-capture of 0-prong friendly pod when freeProngs > 0
-        bool badSelfCap = false;
-        for (const auto &op : ops) {
-            int cx = op.x0;
-            int cy = op.y0;
-            for (const auto &hop : op.hops) {
-                int dx = hop.x - cx;
-                int dy = hop.y - cy;
-                if (edgeless) {
-                    for (int d = -2; d <= 2; d++) {
-                        if (((cx + d) % boardW + boardW) % boardW == hop.x) { dx = d; break; }
-                    }
-                    for (int d = -2; d <= 2; d++) {
-                        if (((cy + d) % boardH + boardH) % boardH == hop.y) { dy = d; break; }
-                    }
-                }
-                bool isJump = (std::abs(dx) == 2 || std::abs(dy) == 2);
-                if (isJump && hop.capture) {
-                    int mx = edgeless ? (((cx + dx / 2) % boardW + boardW) % boardW) : (cx + dx / 2);
-                    int my = edgeless ? (((cy + dy / 2) % boardH + boardH) % boardH) : (cy + dy / 2);
-                    if (board.isValidCoord(mx, my)) {
-                        const OctiSquare &midSq = board.squareAt(mx, my);
-                        if (!midSq.hasEnemyOf(turn)) {
-                            int prongsOnMid = 0;
-                            for (int pi = 0; pi < midSq.getNumPods(); ++pi) {
-                                prongsOnMid += midSq.getPodAt(pi).getNumProngs();
-                            }
-                            if (prongsOnMid == 0 && freeProngs > 0) {
-                                badSelfCap = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                cx = hop.x;
-                cy = hop.y;
+            if (badSelfCap) {
+                break;
             }
-            if (badSelfCap) break;
         }
 
         if (badSelfCap) {
-            pointlessSelfCapture[i] = true;
+            info.pointlessSelfCap = true;
+            anyPointlessSelfCap = true;
+            infos[i] = info;
             continue;
         }
 
-        PathKey key;
-        std::uint32_t enemyCapMask = 0;
-        if (buildMovePathKey(ops, key, enemyCapMask)) {
-            enemyVariantsByKey[key].push_back(enemyCapMask);
+        info.pathKey = h;
+        infos[i] = info;
+        if (info.hasAnyHops) {
+            validHopIndices[numValidHopMoves++] = i;
+            if (info.enemyCapMask != 0) {
+                anyEnemyCap = true;
+            }
         }
+    }
+
+    if (!anyPointlessSelfCap && !anyEnemyCap) {
+        return moves;
     }
 
     std::vector<OctiMove> filtered;
     filtered.reserve(moves.size());
     for (std::size_t i = 0; i < moves.size(); ++i) {
-        if (pointlessSelfCapture[i]) {
+        const MoveDomInfo &info = infos[i];
+        if (info.pointlessSelfCap) {
             continue;
         }
-        const auto &m = moves[i];
-        const auto &ops = m.getOps();
-        PathKey key;
-        std::uint32_t enemyCapMask = 0;
-        if (buildMovePathKey(ops, key, enemyCapMask)) {
-            auto it = enemyVariantsByKey.find(key);
-            if (it != enemyVariantsByKey.end()) {
-                bool isDominated = false;
-                for (std::uint32_t otherEnemyMask : it->second) {
-                    if (otherEnemyMask != enemyCapMask &&
-                        (otherEnemyMask & enemyCapMask) == enemyCapMask) {
-                        isDominated = true;
-                        break;
-                    }
-                }
-                if (isDominated) {
-                    continue;
+        if (anyEnemyCap && info.hasAnyHops) {
+            bool isDominated = false;
+            for (std::size_t k = 0; k < numValidHopMoves; ++k) {
+                std::size_t j = validHopIndices[k];
+                const MoveDomInfo &other = infos[j];
+                if (other.enemyCapMask != info.enemyCapMask &&
+                    (other.enemyCapMask & info.enemyCapMask) == info.enemyCapMask &&
+                    other.pathKey == info.pathKey &&
+                    other.friendlyCapMask == info.friendlyCapMask &&
+                    sameMovePathIgnoringCapture(moves[i].getOps(), moves[j].getOps())) {
+                    isDominated = true;
+                    break;
                 }
             }
+            if (isDominated) {
+                continue;
+            }
         }
-        filtered.push_back(m);
+        filtered.push_back(moves[i]);
     }
 
     return filtered.empty() ? moves : filtered;
@@ -1453,7 +1491,7 @@ int scoreMoveHeuristic(const OctiBoard &board,
 std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
                                        std::vector<OctiMove> &rawMoves,
                                        OctiPlayer turn,
-                                       const std::string &ttBestMove,
+                                       std::uint64_t ttBestMoveKey,
                                        std::size_t maxBranch,
                                        const BotTuningProfile &profile,
                                        bool includeComposites = true)
@@ -1475,7 +1513,8 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
                                          !ops[0].addPod &&
                                          ops[0].addProngDir != DIR_UNDEF &&
                                          ops[0].rmProngDir != DIR_UNDEF);
-            if (!isDominatedRearrange || (!ttBestMove.empty() && m.asString() == ttBestMove)) {
+            if (!isDominatedRearrange ||
+                (ttBestMoveKey != 0ULL && m.structuralKey() == ttBestMoveKey)) {
                 prunedMoves.push_back(m);
             }
         }
@@ -1537,7 +1576,7 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
     scored.reserve(moves.size());
     for (std::size_t i = 0; i < moves.size(); ++i) {
         int s = scoreMoveHeuristic(board, moves[i], turn, targets, profile, enemyThreatMask, baseThreatScalePct);
-        if (!ttBestMove.empty() && moves[i].asString() == ttBestMove) {
+        if (ttBestMoveKey != 0ULL && moves[i].structuralKey() == ttBestMoveKey) {
             s += 200000;
         }
         scored.push_back({s, i});
@@ -1553,7 +1592,7 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
     result.reserve(limit);
     if (moves.size() <= limit) {
         for (std::size_t i = 0; i < limit; ++i) {
-            result.push_back(moves[scored[i].second]);
+            result.push_back(std::move(moves[scored[i].second]));
         }
         return result;
     }
@@ -1572,7 +1611,7 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
         const OctiMove &m = moves[mIdx];
         const auto &mOps = m.getOps();
         if (mOps.size() <= 1 || !mOps[0].isSuperProngBonusMove ||
-            (!ttBestMove.empty() && m.asString() == ttBestMove)) {
+            (ttBestMoveKey != 0ULL && m.structuralKey() == ttBestMoveKey)) {
             result.push_back(m);
             continue;
         }
@@ -1694,6 +1733,22 @@ OctiBotEngine &OctiBotEngine::operator=(const OctiBotEngine &other)
 }
 
 OctiBotEngine::~OctiBotEngine() = default;
+
+std::uint64_t OctiBotEngine::lookupTranspositionBestMoveKey(const OctiBoard &board) const
+{
+    std::uint64_t hashKey = computePositionHash(board);
+    std::size_t ttIdx = hashKey % TT_SIZE;
+    std::unique_lock<std::mutex> lock(
+        g_ttMutexes[ttIdx % TT_MUTEX_COUNT].mtx, std::defer_lock);
+    if (_profile.lazySmpThreads > 1) {
+        lock.lock();
+    }
+    const TranspositionEntry &ttEntry = _tt[ttIdx];
+    if (ttEntry.key == hashKey && ttEntry.depth >= 0) {
+        return ttEntry.bestMoveKey;
+    }
+    return 0ULL;
+}
 
 void OctiBotEngine::setDifficulty(BotDifficulty d)
 {
@@ -2928,85 +2983,19 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
         return standPat;
     }
 
-    std::vector<OctiMove> rawMoves = game->generateLegalMoves();
-    if (rawMoves.empty()) {
-        return standPat;
-    }
-
-    // Filter to tactical moves only: captures and uncaptured enemy base entries
-    OctiPlayer turn = game->getTurn();
-    int w = scratchBoard.getBoardWidth();
-    int h = scratchBoard.getBoardHeight();
-    bool edgeless = game->useEdgelessBoard();
     std::vector<OctiMove> tacticalMoves;
-    for (const auto &m : rawMoves) {
-        bool isTactical = false;
-        const auto &mOps = m.getOps();
-        for (std::size_t opIdx = 0; opIdx < mOps.size(); ++opIdx) {
-            const auto &op = mOps[opIdx];
-            int cx = op.x0;
-            int cy = op.y0;
-            for (const auto &hop : op.hops) {
-                int dx = hop.x - cx;
-                int dy = hop.y - cy;
-                if (edgeless) {
-                    for (int d = -2; d <= 2; d++) {
-                        if (((cx + d) % w + w) % w == hop.x) { dx = d; break; }
-                    }
-                    for (int d = -2; d <= 2; d++) {
-                        if (((cy + d) % h + h) % h == hop.y) { dy = d; break; }
-                    }
-                }
-                if (hop.capture && (std::abs(dx) == 2 || std::abs(dy) == 2)) {
-                    int mx = edgeless ? (((cx + dx / 2) % w + w) % w) : (cx + dx / 2);
-                    int my = edgeless ? (((cy + dy / 2) % h + h) % h) : (cy + dy / 2);
-                    if (scratchBoard.isValidCoord(mx, my)) {
-                        const OctiSquare &midSq = scratchBoard.squareAt(mx, my);
-                        if (midSq.hasEnemyOf(turn)) {
-                            isTactical = true;
-                            break;
-                        }
-                    }
-                }
-                cx = hop.x;
-                cy = hop.y;
-            }
-            if (isTactical) break;
-            if (!op.hops.empty()) {
-                const OctiHop &lastHop = op.hops.back();
-                bool continuedLater = false;
-                for (std::size_t j = opIdx + 1; j < mOps.size(); ++j) {
-                    if (!mOps[j].hops.empty() &&
-                        mOps[j].x0 == lastHop.x &&
-                        mOps[j].y0 == lastHop.y) {
-                        continuedLater = true;
-                        break;
-                    }
-                }
-                if (!continuedLater) {
-                    const OctiSquare &destSq = scratchBoard.squareAt(lastHop.x, lastHop.y);
-                    if (isEnemyHomeSquareFor(destSq.getType(), mode, turn) &&
-                        !destSq.isCapturedByTeamOf(turn)) {
-                        isTactical = true;
-                    }
-                }
-            }
-            if (isTactical) break;
-        }
-        if (isTactical) {
-            tacticalMoves.push_back(m);
-        }
-    }
-
+    game->generateTacticalMoves(tacticalMoves);
     if (tacticalMoves.empty()) {
         return standPat;
     }
+
+    OctiPlayer turn = game->getTurn();
 
     std::size_t qCap = (_profile.quiesceBranchCap > 0)
         ? static_cast<std::size_t>(_profile.quiesceBranchCap)
         : tacticalMoves.size();
     std::vector<OctiMove> ordered = orderAndCapMoves(
-        scratchBoard, tacticalMoves, turn, "", qCap, _profile, false);
+        scratchBoard, tacticalMoves, turn, 0ULL, qCap, _profile, false);
 
     OctiGameSnapshot snap = game->captureSnapshot();
 
@@ -3103,7 +3092,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     const bool useTtLock = (_profile.lazySmpThreads > 1);
     std::uint64_t hashKey = computePositionHash(scratchBoard);
     std::size_t ttIdx = hashKey % TT_SIZE;
-    std::string ttMove;
+    std::uint64_t ttMoveKey = 0ULL;
     {
         std::unique_lock<std::mutex> lock(
             g_ttMutexes[ttIdx % TT_MUTEX_COUNT].mtx, std::defer_lock);
@@ -3130,7 +3119,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             if (alpha >= beta) {
                 return ttScore;
             }
-            ttMove = ttEntry.bestMove;
+            ttMoveKey = ttEntry.bestMoveKey;
         }
     }
 
@@ -3144,15 +3133,16 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         ? static_cast<std::size_t>(_profile.treeBranchCap)
         : 24;
     std::vector<OctiMove> ordered = orderAndCapMoves(
-        scratchBoard, rawMoves, turn, ttMove, maxBranch, _profile,
+        scratchBoard, rawMoves, turn, ttMoveKey, maxBranch, _profile,
         (ply <= _profile.compositeMoveMaxPly && depth >= 2));
 
     int origAlpha = alpha;
     int bestVal = -INF_SCORE;
-    std::string bestMoveStr = ordered[0].asString();
+    std::size_t bestIdx = 0;
     OctiGameSnapshot snap = game->captureSnapshot();
 
-    for (const auto &mv : ordered) {
+    for (std::size_t mvIdx = 0; mvIdx < ordered.size(); ++mvIdx) {
+        const OctiMove &mv = ordered[mvIdx];
         try {
             game->move(mv);
         } catch (...) {
@@ -3188,7 +3178,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
 
         if (val > bestVal) {
             bestVal = val;
-            bestMoveStr = mv.asString();
+            bestIdx = mvIdx;
         }
         if (val > alpha) {
             alpha = val;
@@ -3199,15 +3189,16 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     }
 
     if (!timedOut && bestVal > -INF_SCORE) {
+        const std::uint64_t bestMoveKey = ordered[bestIdx].structuralKey();
         std::unique_lock<std::mutex> lock(
             g_ttMutexes[ttIdx % TT_MUTEX_COUNT].mtx, std::defer_lock);
         if (useTtLock) {
             lock.lock();
         }
         TranspositionEntry &ttEntry = _tt[ttIdx];
-        if (ttEntry.key == 0 || depth >= ttEntry.depth - 1) {
+        if (ttEntry.key == 0 || depth >= static_cast<int>(ttEntry.depth) - 1) {
             ttEntry.key = hashKey;
-            ttEntry.depth = depth;
+            ttEntry.depth = static_cast<std::int16_t>(depth);
             int storeScore = bestVal;
             if (storeScore >= WIN_SCORE - 1000) {
                 storeScore += ply;
@@ -3215,7 +3206,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
                 storeScore -= ply;
             }
             ttEntry.score = storeScore;
-            ttEntry.bestMove = bestMoveStr;
+            ttEntry.bestMoveKey = bestMoveKey;
             if (bestVal <= origAlpha) {
                 ttEntry.flag = 2;
             } else if (bestVal >= beta) {
@@ -3324,7 +3315,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
         ? static_cast<std::size_t>(_profile.rootBranchCap)
         : 40;
     std::vector<OctiMove> rootCandidates = orderAndCapMoves(
-        scratchBoard, legalMoves, rootTurn, "", rootCap, _profile,
+        scratchBoard, legalMoves, rootTurn, 0ULL, rootCap, _profile,
         (_profile.compositeMoveMaxPly >= 0));
 
     std::string bestMoveStr = rootCandidates[0].asString();
@@ -3437,9 +3428,10 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                 outStats->bestScore = bestScore;
                 outStats->elapsedMs = std::max(0L, steadyClockMs() - startMs);
             }
+            std::uint64_t bestRootKey = OctiMove(bestMoveStr).structuralKey();
             auto it = std::find_if(rootCandidates.begin(), rootCandidates.end(),
                                    [&](const OctiMove &m) {
-                                       return m.asString() == bestMoveStr;
+                                       return m.structuralKey() == bestRootKey;
                                    });
             if (it != rootCandidates.end() && it != rootCandidates.begin()) {
                 std::rotate(rootCandidates.begin(), it, it + 1);
@@ -3558,7 +3550,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             ? static_cast<std::size_t>(_profile.rootBranchCap)
             : 40);
     std::vector<OctiMove> rootCandidates = orderAndCapMoves(
-        scratchBoard, legalMoves, rootTurn, "", rootCap, _profile,
+        scratchBoard, legalMoves, rootTurn, 0ULL, rootCap, _profile,
         (_profile.compositeMoveMaxPly >= 0));
     if (rootCandidates.empty()) {
         return {};

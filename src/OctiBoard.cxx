@@ -117,57 +117,6 @@ void OctiBoard::clear()
     }
 }
 
-OctiGameMode OctiBoard::getGameMode() const
-{
-    return _mode;
-}
-
-int OctiBoard::getNumPlayers() const
-{
-    return (_mode == GAME_MODE_4) ? 4 : 2;
-}
-
-int OctiBoard::getBoardWidth() const
-{
-    return _width;
-}
-
-int OctiBoard::getBoardHeight() const
-{
-    return _height;
-}
-
-bool OctiBoard::isValidCoord(int x, int y) const
-{
-    return (x >= 0 && x < _width && y >= 0 && y < _height);
-}
-
-OctiSquare &OctiBoard::squareAt(int x, int y)
-{
-    if (!isValidCoord(x, y)) {
-        throw IllegalMoveException("square coordinate out of bounds");
-    }
-    return _boardSquares[x][y];
-}
-
-const OctiSquare &OctiBoard::squareAt(int x, int y) const
-{
-    if (!isValidCoord(x, y)) {
-        throw IllegalMoveException("square coordinate out of bounds");
-    }
-    return _boardSquares[x][y];
-}
-
-OctiGame *OctiBoard::getGame()
-{
-    return _game.get();
-}
-
-const OctiGame *OctiBoard::getGame() const
-{
-    return _game.get();
-}
-
 bool OctiBoard::canLiberate(OctiPlayer player) const
 {
     if (_mode == GAME_MODE_UNDEF || _mode == GAME_MODE_OFK) {

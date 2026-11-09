@@ -48,17 +48,56 @@ public:
 
     void clear();
 
-    OctiGameMode getGameMode() const;
-    int getNumPlayers() const;
-    int getBoardWidth() const;
-    int getBoardHeight() const;
-    bool isValidCoord(int x, int y) const;
+    OctiGameMode getGameMode() const
+    {
+        return _mode;
+    }
 
-    OctiSquare &squareAt(int x, int y);
-    const OctiSquare &squareAt(int x, int y) const;
+    int getNumPlayers() const
+    {
+        return (_mode == GAME_MODE_4) ? 4 : 2;
+    }
 
-    OctiGame *getGame();
-    const OctiGame *getGame() const;
+    int getBoardWidth() const
+    {
+        return _width;
+    }
+
+    int getBoardHeight() const
+    {
+        return _height;
+    }
+
+    bool isValidCoord(int x, int y) const
+    {
+        return (x >= 0 && x < _width && y >= 0 && y < _height);
+    }
+
+    OctiSquare &squareAt(int x, int y)
+    {
+        if (!isValidCoord(x, y)) {
+            throw IllegalMoveException("square coordinate out of bounds");
+        }
+        return _boardSquares[x][y];
+    }
+
+    const OctiSquare &squareAt(int x, int y) const
+    {
+        if (!isValidCoord(x, y)) {
+            throw IllegalMoveException("square coordinate out of bounds");
+        }
+        return _boardSquares[x][y];
+    }
+
+    OctiGame *getGame()
+    {
+        return _game.get();
+    }
+
+    const OctiGame *getGame() const
+    {
+        return _game.get();
+    }
 
     bool canLiberate(OctiPlayer player) const;
 
