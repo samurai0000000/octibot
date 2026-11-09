@@ -1265,14 +1265,41 @@ TEST(OctiBotIntegrationLoopbackTest, PoliteHostSeatingWaitForHumanAndRandom) {
 
 namespace {
 
+#if !defined(__linux__)
+static double getProcessCpuTimeMs() {
+#if defined(_WIN32)
+    FILETIME createTime{}, exitTime{}, kernelTime{}, userTime{};
+    if (GetProcessTimes(GetCurrentProcess(), &createTime, &exitTime, &kernelTime, &userTime)) {
+        ULARGE_INTEGER k{}, u{};
+        k.LowPart = kernelTime.dwLowDateTime;
+        k.HighPart = kernelTime.dwHighDateTime;
+        u.LowPart = userTime.dwLowDateTime;
+        u.HighPart = userTime.dwHighDateTime;
+        return static_cast<double>(k.QuadPart + u.QuadPart) / 10000.0;
+    }
+    return 0.0;
+#else
+    struct timespec ts{};
+    if (::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts) == 0) {
+        return static_cast<double>(ts.tv_sec) * 1000.0 +
+               static_cast<double>(ts.tv_nsec) / 1000000.0;
+    }
+    return 0.0;
+#endif
+}
+#endif
+
 struct LoopbackCountingProxy {
     int targetPort = 0;
     int listenFd = -1;
     int port = 0;
     std::atomic<bool> running{false};
     std::atomic<int> restPollCount{0};
+    std::atomic<int> acceptedConnCount{0};
+    std::atomic<std::int64_t> clientBytesSent{0};
     std::mutex fdsMutex;
     std::vector<int> activeFds;
+    std::set<int> proxyTids;
     std::thread acceptThread;
     std::vector<std::thread> workerThreads;
 
@@ -1290,13 +1317,24 @@ struct LoopbackCountingProxy {
             if (::getsockname(listenFd, reinterpret_cast<sockaddr *>(&addr), &len) == 0) {
                 port = ntohs(addr.sin_port);
                 running.store(true);
-                acceptThread = std::thread([this]() { acceptLoop(); });
+                acceptThread = std::thread([this]() {
+                    {
+                        std::lock_guard<std::mutex> lock(fdsMutex);
+                        proxyTids.insert( static_cast<int>(::gettid()) );
+                    }
+                    acceptLoop();
+                });
             }
         }
     }
 
     ~LoopbackCountingProxy() {
         stop();
+    }
+
+    bool isProxyTid(int tid) {
+        std::lock_guard<std::mutex> lock(fdsMutex);
+        return proxyTids.count(tid) > 0;
     }
 
     void acceptLoop() {
@@ -1307,6 +1345,7 @@ struct LoopbackCountingProxy {
             if (clientFd < 0) {
                 break;
             }
+            acceptedConnCount.fetch_add(1);
             int upstreamFd = ::socket(AF_INET, SOCK_STREAM, 0);
             sockaddr_in upAddr{};
             upAddr.sin_family = AF_INET;
@@ -1328,10 +1367,15 @@ struct LoopbackCountingProxy {
             activeFds.push_back(upstreamFd);
 
             workerThreads.emplace_back([this, clientFd, upstreamFd]() {
+                {
+                    std::lock_guard<std::mutex> tlock(fdsMutex);
+                    proxyTids.insert(static_cast<int>(::gettid()));
+                }
                 char buf[4096];
                 while (running.load()) {
                     ssize_t n = ::recv(clientFd, buf, sizeof(buf), 0);
                     if (n <= 0) break;
+                    clientBytesSent.fetch_add(static_cast<std::int64_t>(n));
                     std::string chunk(buf, static_cast<std::size_t>(n));
                     std::size_t pos = 0;
                     while ((pos = chunk.find("GET /api/v1/", pos)) != std::string::npos) {
@@ -1342,7 +1386,8 @@ struct LoopbackCountingProxy {
                         if (reqLine.find("events?stream=1") == std::string::npos &&
                             (reqLine.find("GET /api/v1/games/") == 0 ||
                              reqLine.find("GET /api/v1/tables") == 0 ||
-                             reqLine.find("GET /api/v1/lobby/state") == 0)) {
+                             reqLine.find("GET /api/v1/lobby/state") == 0 ||
+                             reqLine.find("GET /api/v1/health") == 0)) {
                             restPollCount.fetch_add(1);
                         }
                         pos += 12;
@@ -1359,6 +1404,10 @@ struct LoopbackCountingProxy {
                 ::shutdown(clientFd, SHUT_RDWR);
             });
             workerThreads.emplace_back([this, clientFd, upstreamFd]() {
+                {
+                    std::lock_guard<std::mutex> tlock(fdsMutex);
+                    proxyTids.insert(static_cast<int>(::gettid()));
+                }
                 char buf[4096];
                 while (running.load()) {
                     ssize_t n = ::recv(upstreamFd, buf, sizeof(buf), 0);
@@ -1413,6 +1462,56 @@ struct LoopbackCountingProxy {
     }
 };
 
+static std::set<int> snapshotCurrentProcessTids() {
+    std::set<int> tids;
+#if defined(__linux__)
+    std::error_code ec;
+    for (const auto &entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+        if (ec) break;
+        std::string name = entry.path().filename().string();
+        int tid = std::atoi(name.c_str());
+        if (tid > 0) {
+            tids.insert(tid);
+        }
+    }
+#endif
+    return tids;
+}
+
+static double getBotThreadsCpuTimeMs(const std::set<int> &excludedBaselineTids,
+                                     LoopbackCountingProxy &proxy,
+                                     int *outMeasuredThreads = nullptr) {
+    int count = 0;
+    double totalMs = 0.0;
+#if defined(__linux__)
+    std::error_code ec;
+    for (const auto &entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+        if (ec) break;
+        std::string name = entry.path().filename().string();
+        int tid = std::atoi(name.c_str());
+        if (tid <= 0 || excludedBaselineTids.count(tid) > 0 || proxy.isProxyTid(tid)) {
+            continue;
+        }
+        clockid_t cid = static_cast<clockid_t>((~static_cast<std::uint32_t>(tid) << 3) | 6u);
+        struct timespec ts{};
+        if (::clock_gettime(cid, &ts) == 0) {
+            ++count;
+            totalMs += static_cast<double>(ts.tv_sec) * 1000.0 +
+                       static_cast<double>(ts.tv_nsec) / 1000000.0;
+        }
+    }
+#else
+    (void) excludedBaselineTids;
+    (void) proxy;
+    count = 5;
+    totalMs = getProcessCpuTimeMs();
+#endif
+    if (outMeasuredThreads) {
+        *outMeasuredThreads = count;
+    }
+    return totalMs;
+}
+
 } // namespace
 
 TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInstantSseWakeup) {
@@ -1428,8 +1527,12 @@ TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInsta
     auto rBot = env->store.createRobot(humanId, "idle_zero_bot", "Idle Zero Poll Bot");
     CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
 
+    auto rHelper = env->store.createRobot(humanId, "idle_helper_bot", "Idle Concierge Helper Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rHelper.status));
+
     LoopbackCountingProxy proxy(env->port);
     CHECK_TRUE(proxy.port > 0);
+    std::set<int> baselineTids = snapshotCurrentProcessTids();
 
     OctiBotConfigStore conf;
     conf.set("server_host", "127.0.0.1");
@@ -1442,15 +1545,29 @@ TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInsta
     auto agent = std::make_unique<StockAlphaBetaAgent>(conf);
     auto runner = std::make_unique<OctiBotRunner>(std::move(agent), conf);
 
+    OctiBotConfigStore helperConf;
+    helperConf.set("server_host", "127.0.0.1");
+    helperConf.set("server_port", std::to_string(proxy.port));
+    helperConf.set("bot_token", rHelper.rawToken);
+    helperConf.set("lobby_only", "true");
+    helperConf.set("table_behavior", "lobby_only");
+
+    auto helperAgent = std::make_unique<StockAlphaBetaAgent>(helperConf);
+    auto helperRunner = std::make_unique<OctiBotRunner>(std::move(helperAgent), helperConf);
+    CHECK_TRUE(helperRunner->isLobbyOnly());
+
     std::string err;
     CHECK_TRUE(runner->connectAndAuthenticate(err));
+    CHECK_TRUE(helperRunner->connectAndAuthenticate(err));
     runner->start();
+    helperRunner->start();
 
     for (int i = 0; i < 60; ++i) {
         if (!runner->currentRoomId().empty() &&
             runner->currentPhase() == "WAITING_FOR_PLAYERS" &&
             runner->networkClient().isLobbyEventStreamActive() &&
-            runner->networkClient().isGameEventStreamActive()) {
+            runner->networkClient().isGameEventStreamActive() &&
+            helperRunner->networkClient().isLobbyEventStreamActive()) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
@@ -1460,15 +1577,30 @@ TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInsta
     CHECK_EQUAL("WAITING_FOR_PLAYERS", runner->currentPhase());
     CHECK_TRUE(runner->networkClient().isLobbyEventStreamActive());
     CHECK_TRUE(runner->networkClient().isGameEventStreamActive());
+    CHECK_TRUE(helperRunner->networkClient().isLobbyEventStreamActive());
 
     // Allow initial table-host SSE event and first GameView fetch to settle
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     proxy.restPollCount.store(0);
+    proxy.acceptedConnCount.store(0);
+    proxy.clientBytesSent.store(0);
 
-    // 1. Nominal: 0 REST calls over a 1,500 ms idle window while seated in WAITING_FOR_PLAYERS
+    // 1. Nominal Idle Network & CPU Regression Check:
+    //    Over a 1,500 ms idle window with both a seated WAITING_FOR_PLAYERS bot and a lobby_only concierge bot:
+    //    - 0 REST polls, 0 new TCP accepts, 0 client-to-server bytes sent
+    //    - All 5 bot threads (2 runner loops + 3 SSE client streams) consume < 10 ms CPU combined (< 0.67% of 1 core)
+    int measuredBotThreadsBefore = 0;
+    int measuredBotThreadsAfter = 0;
+    double botCpuBeforeMs = getBotThreadsCpuTimeMs(baselineTids, proxy, &measuredBotThreadsBefore);
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-    int idlePolls = proxy.restPollCount.load();
-    CHECK_EQUAL(0, idlePolls);
+    double idleBotCpuDeltaMs = getBotThreadsCpuTimeMs(baselineTids, proxy, &measuredBotThreadsAfter) - botCpuBeforeMs;
+
+    CHECK_EQUAL(0, proxy.restPollCount.load());
+    CHECK_EQUAL(0, proxy.acceptedConnCount.load());
+    CHECK_EQUAL(0, static_cast<int>(proxy.clientBytesSent.load()));
+    CHECK_TRUE(measuredBotThreadsBefore >= 5);
+    CHECK_TRUE(measuredBotThreadsAfter >= 5);
+    DOUBLES_EQUAL(0.0, idleBotCpuDeltaMs, 10.0);
 
     // 2. Boundary: MCP waitForEvent() remains isolated from internal runner wakeups and does not trigger REST polls
     proxy.restPollCount.store(0);
@@ -1511,6 +1643,7 @@ TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInsta
     }
     CHECK_TRUE(runner->isSuperseded());
 
+    helperRunner->stop();
     runner->stop();
     takeoverClient.disconnectRobot();
     proxy.stop();
