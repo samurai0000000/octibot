@@ -1263,6 +1263,259 @@ TEST(OctiBotIntegrationLoopbackTest, PoliteHostSeatingWaitForHumanAndRandom) {
     runner->stop();
 }
 
+namespace {
+
+struct LoopbackCountingProxy {
+    int targetPort = 0;
+    int listenFd = -1;
+    int port = 0;
+    std::atomic<bool> running{false};
+    std::atomic<int> restPollCount{0};
+    std::mutex fdsMutex;
+    std::vector<int> activeFds;
+    std::thread acceptThread;
+    std::vector<std::thread> workerThreads;
+
+    explicit LoopbackCountingProxy(int upstreamPort) : targetPort(upstreamPort) {
+        listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
+        int opt = 1;
+        ::setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        if (::bind(listenFd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0 &&
+            ::listen(listenFd, 32) == 0) {
+            socklen_t len = sizeof(addr);
+            if (::getsockname(listenFd, reinterpret_cast<sockaddr *>(&addr), &len) == 0) {
+                port = ntohs(addr.sin_port);
+                running.store(true);
+                acceptThread = std::thread([this]() { acceptLoop(); });
+            }
+        }
+    }
+
+    ~LoopbackCountingProxy() {
+        stop();
+    }
+
+    void acceptLoop() {
+        while (running.load()) {
+            sockaddr_in cliAddr{};
+            socklen_t cliLen = sizeof(cliAddr);
+            int clientFd = ::accept(listenFd, reinterpret_cast<sockaddr *>(&cliAddr), &cliLen);
+            if (clientFd < 0) {
+                break;
+            }
+            int upstreamFd = ::socket(AF_INET, SOCK_STREAM, 0);
+            sockaddr_in upAddr{};
+            upAddr.sin_family = AF_INET;
+            upAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            upAddr.sin_port = htons(static_cast<uint16_t>(targetPort));
+            if (::connect(upstreamFd, reinterpret_cast<sockaddr *>(&upAddr), sizeof(upAddr)) < 0) {
+                ::close(clientFd);
+                ::close(upstreamFd);
+                continue;
+            }
+
+            std::lock_guard<std::mutex> lock(fdsMutex);
+            if (!running.load()) {
+                ::close(clientFd);
+                ::close(upstreamFd);
+                break;
+            }
+            activeFds.push_back(clientFd);
+            activeFds.push_back(upstreamFd);
+
+            workerThreads.emplace_back([this, clientFd, upstreamFd]() {
+                char buf[4096];
+                while (running.load()) {
+                    ssize_t n = ::recv(clientFd, buf, sizeof(buf), 0);
+                    if (n <= 0) break;
+                    std::string chunk(buf, static_cast<std::size_t>(n));
+                    std::size_t pos = 0;
+                    while ((pos = chunk.find("GET /api/v1/", pos)) != std::string::npos) {
+                        std::size_t lineEnd = chunk.find("\r\n", pos);
+                        std::string reqLine = (lineEnd == std::string::npos)
+                            ? chunk.substr(pos)
+                            : chunk.substr(pos, lineEnd - pos);
+                        if (reqLine.find("events?stream=1") == std::string::npos &&
+                            (reqLine.find("GET /api/v1/games/") == 0 ||
+                             reqLine.find("GET /api/v1/tables") == 0 ||
+                             reqLine.find("GET /api/v1/lobby/state") == 0)) {
+                            restPollCount.fetch_add(1);
+                        }
+                        pos += 12;
+                    }
+                    ssize_t sent = 0;
+                    while (sent < n) {
+                        ssize_t w = ::send(upstreamFd, buf + sent, static_cast<std::size_t>(n - sent), MSG_NOSIGNAL);
+                        if (w <= 0) break;
+                        sent += w;
+                    }
+                    if (sent < n) break;
+                }
+                ::shutdown(upstreamFd, SHUT_RDWR);
+                ::shutdown(clientFd, SHUT_RDWR);
+            });
+            workerThreads.emplace_back([this, clientFd, upstreamFd]() {
+                char buf[4096];
+                while (running.load()) {
+                    ssize_t n = ::recv(upstreamFd, buf, sizeof(buf), 0);
+                    if (n <= 0) break;
+                    ssize_t sent = 0;
+                    while (sent < n) {
+                        ssize_t w = ::send(clientFd, buf + sent, static_cast<std::size_t>(n - sent), MSG_NOSIGNAL);
+                        if (w <= 0) break;
+                        sent += w;
+                    }
+                    if (sent < n) break;
+                }
+                ::shutdown(clientFd, SHUT_RDWR);
+                ::shutdown(upstreamFd, SHUT_RDWR);
+            });
+        }
+    }
+
+    void stop() {
+        if (!running.exchange(false)) {
+            return;
+        }
+        if (listenFd >= 0) {
+            ::shutdown(listenFd, SHUT_RDWR);
+            ::close(listenFd);
+            listenFd = -1;
+        }
+        {
+            std::lock_guard<std::mutex> lock(fdsMutex);
+            for (int fd : activeFds) {
+                ::shutdown(fd, SHUT_RDWR);
+            }
+        }
+        if (acceptThread.joinable()) {
+            acceptThread.join();
+        }
+        std::vector<std::thread> threadsToJoin;
+        std::vector<int> fdsToClose;
+        {
+            std::lock_guard<std::mutex> lock(fdsMutex);
+            threadsToJoin.swap(workerThreads);
+            fdsToClose.swap(activeFds);
+        }
+        for (auto &t : threadsToJoin) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+        for (int fd : fdsToClose) {
+            ::close(fd);
+        }
+    }
+};
+
+} // namespace
+
+TEST(OctiBotIntegrationLoopbackTest, SeatedWaitingBotZeroIdleRestPollingAndInstantSseWakeup) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-event-driven-owner";
+    claims.name = "event_owner";
+    claims.email = "event_owner@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t humanId = loginRes.profile.playerId;
+    CHECK_TRUE(humanId > 0);
+
+    auto rBot = env->store.createRobot(humanId, "idle_zero_bot", "Idle Zero Poll Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    LoopbackCountingProxy proxy(env->port);
+    CHECK_TRUE(proxy.port > 0);
+
+    OctiBotConfigStore conf;
+    conf.set("server_host", "127.0.0.1");
+    conf.set("server_port", std::to_string(proxy.port));
+    conf.set("bot_token", rBot.rawToken);
+    conf.set("table_behavior", "host_only");
+    conf.set("host_seat", "A");
+    conf.set("min_move_think_ms", "0");
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(conf);
+    auto runner = std::make_unique<OctiBotRunner>(std::move(agent), conf);
+
+    std::string err;
+    CHECK_TRUE(runner->connectAndAuthenticate(err));
+    runner->start();
+
+    for (int i = 0; i < 60; ++i) {
+        if (!runner->currentRoomId().empty() &&
+            runner->currentPhase() == "WAITING_FOR_PLAYERS" &&
+            runner->networkClient().isLobbyEventStreamActive() &&
+            runner->networkClient().isGameEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    std::string roomId = runner->currentRoomId();
+    CHECK_FALSE(roomId.empty());
+    CHECK_EQUAL("WAITING_FOR_PLAYERS", runner->currentPhase());
+    CHECK_TRUE(runner->networkClient().isLobbyEventStreamActive());
+    CHECK_TRUE(runner->networkClient().isGameEventStreamActive());
+
+    // Allow initial table-host SSE event and first GameView fetch to settle
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    proxy.restPollCount.store(0);
+
+    // 1. Nominal: 0 REST calls over a 1,500 ms idle window while seated in WAITING_FOR_PLAYERS
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    int idlePolls = proxy.restPollCount.load();
+    CHECK_EQUAL(0, idlePolls);
+
+    // 2. Boundary: MCP waitForEvent() remains isolated from internal runner wakeups and does not trigger REST polls
+    proxy.restPollCount.store(0);
+    runner->notifyEvent("MCP_EXTERNAL_PING");
+    std::string mcpReason;
+    CHECK_TRUE(runner->waitForEvent(50, mcpReason));
+    CHECK_EQUAL("MCP_EXTERNAL_PING", mcpReason);
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    CHECK_EQUAL(0, proxy.restPollCount.load());
+
+    // 3. Nominal SSE wakeup: human joins Seat 2 -> runner wakes via SSE and transitions to IN_PROGRESS in < 100 ms
+    auto tJoin0 = std::chrono::steady_clock::now();
+    RoomResult rRes = env->rooms->joinTable(roomId, humanId, 2, "");
+    CHECK_EQUAL(static_cast<int>(RoomCode::OK), static_cast<int>(rRes.code));
+    CHECK_TRUE(rRes.gameStarted);
+
+    for (int i = 0; i < 100; ++i) {
+        if (runner->currentPhase() == "IN_PROGRESS") {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    auto wakeElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - tJoin0).count();
+    CHECK_EQUAL("IN_PROGRESS", runner->currentPhase());
+    CHECK_TRUE(wakeElapsedMs < 100);
+
+    // 4. Fault injection: superseding robot token emits SSE closed(ROBOT_TOKEN_SUPERSEDED) and immediately halts runner
+    OctiNetworkClient takeoverClient;
+    takeoverClient.setEndpoint("127.0.0.1", env->port);
+    takeoverClient.setBotToken(rBot.rawToken);
+    auto tkRes = takeoverClient.connectRobot(false);
+    CHECK_TRUE(tkRes.ok);
+
+    for (int i = 0; i < 60; ++i) {
+        if (runner->isSuperseded()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK_TRUE(runner->isSuperseded());
+
+    runner->stop();
+    takeoverClient.disconnectRobot();
+    proxy.stop();
+}
+
 // ============================================================================
 // 6. OctiBotLogBuffer Tests
 // ============================================================================

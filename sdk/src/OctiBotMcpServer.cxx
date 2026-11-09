@@ -2552,23 +2552,37 @@ void OctiBotMcpServer::registerHttpRoutes() {
 nlohmann::json OctiBotMcpServer::buildStatusJson() {
     nlohmann::json root;
 
-    // 1. OCTI server telemetry with 3s cached TTL
+    // 1. OCTI server telemetry with shared process-wide cache (60s TTL when SSE active, 5s otherwise)
     {
-        std::lock_guard<std::mutex> lock(_healthCacheMutex);
+        static std::mutex s_sharedHealthMutex;
+        static std::chrono::steady_clock::time_point s_sharedHealthTime{};
+        static std::string s_sharedHealthEndpoint;
+        static nlohmann::json s_sharedHealthJson;
+
+        std::string host = _runner.config().getString("server_host", "octi.selfso.com");
+        int port = _runner.config().getInt("server_port", 443);
+        bool useSsl = _runner.config().getBool("server_use_ssl", true);
+        std::string endpointUrl = (useSsl ? "https://" : "http://") + host + ":" + std::to_string(port);
+
+        bool sseActive = _runner.networkClient().isLobbyEventStreamActive() ||
+                         _runner.networkClient().isGameEventStreamActive();
+        std::int64_t ttlMs = sseActive ? 60000 : 5000;
+
+        std::lock_guard<std::mutex> lock(s_sharedHealthMutex);
         auto now = std::chrono::steady_clock::now();
-        auto diffMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - _lastHealthCheckTime).count();
-        if (_lastHealthCheckTime.time_since_epoch().count() == 0 || diffMs > 3000) {
-            _lastHealthCheckTime = now;
+        auto diffMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - s_sharedHealthTime).count();
+        if (s_sharedHealthTime.time_since_epoch().count() == 0 ||
+            s_sharedHealthEndpoint != endpointUrl ||
+            diffMs > ttlMs) {
+            s_sharedHealthTime = now;
+            s_sharedHealthEndpoint = endpointUrl;
             auto t0 = std::chrono::steady_clock::now();
             auto res = _runner.networkClient().fetchHealth();
             auto t1 = std::chrono::steady_clock::now();
             int latency = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
 
             nlohmann::json srv;
-            std::string host = _runner.config().getString("server_host", "octi.selfso.com");
-            int port = _runner.config().getInt("server_port", 443);
-            bool useSsl = _runner.config().getBool("server_use_ssl", true);
-            srv["endpoint"] = (useSsl ? "https://" : "http://") + host + ":" + std::to_string(port);
+            srv["endpoint"] = endpointUrl;
             srv["online"] = res.ok;
             srv["latency_ms"] = latency;
             if (res.ok) {
@@ -2579,9 +2593,14 @@ nlohmann::json OctiBotMcpServer::buildStatusJson() {
             } else {
                 srv["error"] = res.errorMessage.empty() ? "Unreachable" : res.errorMessage;
             }
-            _cachedHealthJson = srv;
+            s_sharedHealthJson = srv;
         }
-        root["server"] = _cachedHealthJson;
+        {
+            std::lock_guard<std::mutex> instLock(_healthCacheMutex);
+            _lastHealthCheckTime = s_sharedHealthTime;
+            _cachedHealthJson = s_sharedHealthJson;
+        }
+        root["server"] = s_sharedHealthJson;
     }
 
     // 2. Robot Identity

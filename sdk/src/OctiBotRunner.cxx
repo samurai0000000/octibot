@@ -385,6 +385,7 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
         }
     }
 
+    wakeLoop(true, true);
     return true;
 }
 
@@ -887,6 +888,9 @@ void OctiBotRunner::run() {
         initialRoom = _currentRoomId;
     }
 
+    _roomStateDirty.store(true);
+    _lobbyTablesDirty.store(true);
+
     logMsg(3, "Starting lobby SSE stream");
     _client.startLobbyEventStream(initialLobbySeq,
         [this](const SseEvent &ev) {
@@ -903,7 +907,7 @@ void OctiBotRunner::run() {
 
     while (_running && !_superseded) {
         loopStep();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        waitForLoopWake(computeNextWaitMs());
     }
 
     if (_client.isAuthenticated() && !_superseded) {
@@ -916,6 +920,7 @@ void OctiBotRunner::run() {
 void OctiBotRunner::stop() {
     _running = false;
     notifyEvent("STOP");
+    wakeLoop(true, true);
     logMsg(3, "Stopping runner and SSE streams");
     _client.stopEventStreams();
 
@@ -923,6 +928,106 @@ void OctiBotRunner::stop() {
         _workerThread->join();
         _workerThread.reset();
     }
+
+    auto waitStart = std::chrono::steady_clock::now();
+    while (_aiChatBusy.load()) {
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - waitStart).count();
+        if (elapsedMs > 5000) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+}
+
+void OctiBotRunner::wakeLoop(bool markRoomDirty, bool markLobbyDirty) {
+    if (markRoomDirty) {
+        _roomStateDirty.store(true);
+    }
+    if (markLobbyDirty) {
+        _lobbyTablesDirty.store(true);
+    }
+    {
+        std::lock_guard<std::mutex> lock(_loopMutex);
+        ++_loopWakeSeq;
+    }
+    _loopWakeCv.notify_all();
+}
+
+void OctiBotRunner::waitForLoopWake(int maxWaitMs) {
+    if (!_running || _superseded) {
+        return;
+    }
+    if (_roomStateDirty.load() || _lobbyTablesDirty.load()) {
+        std::lock_guard<std::mutex> lock(_loopMutex);
+        _lastObservedWakeSeq = _loopWakeSeq;
+        return;
+    }
+    if (maxWaitMs <= 0) {
+        std::lock_guard<std::mutex> lock(_loopMutex);
+        _lastObservedWakeSeq = _loopWakeSeq;
+        return;
+    }
+    std::unique_lock<std::mutex> lock(_loopMutex);
+    if (_loopWakeSeq != _lastObservedWakeSeq ||
+        _roomStateDirty.load() || _lobbyTablesDirty.load() ||
+        !_running || _superseded) {
+        _lastObservedWakeSeq = _loopWakeSeq;
+        return;
+    }
+    _loopWakeCv.wait_for(lock, std::chrono::milliseconds(maxWaitMs), [this] {
+        return _loopWakeSeq != _lastObservedWakeSeq ||
+               _roomStateDirty.load() ||
+               _lobbyTablesDirty.load() ||
+               !_running ||
+               _superseded;
+    });
+    _lastObservedWakeSeq = _loopWakeSeq;
+}
+
+int OctiBotRunner::computeNextWaitMs() const {
+    if (!_running || _superseded) {
+        return 0;
+    }
+    if (_roomStateDirty.load() || _lobbyTablesDirty.load()) {
+        return 0;
+    }
+    bool lobbyStreamOk = _client.isLobbyEventStreamActive();
+    bool gameStreamOk = _client.isGameEventStreamActive();
+    if (_lobbyOnly || _policy.tableBehavior() == "lobby_only") {
+        return lobbyStreamOk ? 5000 : 1000;
+    }
+    std::string roomId;
+    std::string phase;
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        roomId = _currentRoomId;
+        phase = _currentPhase;
+    }
+    if (roomId.empty()) {
+        return lobbyStreamOk ? 2000 : 500;
+    }
+    if (phase == "WAITING_FOR_PLAYERS") {
+        return (gameStreamOk && lobbyStreamOk) ? 5000 : 500;
+    }
+    if (phase == "IN_PROGRESS") {
+        return gameStreamOk ? 1000 : 250;
+    }
+    if (phase == "FINISHED" || phase == "GAME_OVER" || phase == "ABANDONED") {
+        int lingerSec = std::max(5, _config.getInt("post_game_linger_sec", 60));
+        std::int64_t startMs = _postGameSilenceStartMs.load();
+        if (startMs > 0) {
+            std::int64_t remMs = (static_cast<std::int64_t>(lingerSec) * 1000) - (nowMs() - startMs);
+            if (remMs <= 200) {
+                return 200;
+            }
+            if (remMs < 2000) {
+                return static_cast<int>(remMs);
+            }
+        }
+        return 2000;
+    }
+    return (gameStreamOk && lobbyStreamOk) ? 2000 : 250;
 }
 
 bool OctiBotRunner::waitForEvent(int timeoutMs, std::string &outReason) {
@@ -980,6 +1085,7 @@ bool OctiBotRunner::submitAgentMove(const std::string &moveNotation, std::string
     _pendingAgentMove = moveNotation;
     _hasAgentMove = true;
     notifyEvent("AGENT_MOVE_READY");
+    wakeLoop(true, false);
     return true;
 }
 
@@ -1135,6 +1241,7 @@ bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int &outSeat, std
         });
     logMsg(2, "Joined table #" + assignedRoomId + " (seat " + std::to_string(assignedSeat) + ")");
     notifyEvent("ROOM_JOINED");
+    wakeLoop(true, false);
     return true;
 }
 
@@ -1181,6 +1288,7 @@ bool OctiBotRunner::hostRoomWithRequest(const CreateTableRequest &req, std::stri
            ", edgeless=" + (req.edgeless ? "true" : "false") +
            ", allow_robots=" + (req.allowRobots ? "true" : "false") + ")");
     notifyEvent("ROOM_HOSTED");
+    wakeLoop(true, false);
     return true;
 }
 
@@ -1252,6 +1360,7 @@ bool OctiBotRunner::leaveRoomById(const std::string &rawRoomId, std::string &err
         }
         logMsg(2, "Left table #" + roomId + (wasInProgress ? " (resigned active game)" : ""));
         notifyEvent("ROOM_LEFT");
+        wakeLoop(true, true);
     }
     return true;
 }
@@ -1416,6 +1525,7 @@ void OctiBotRunner::clearMatchOverride() {
         std::lock_guard<std::mutex> lock(_stateMutex);
         _matchOverride = BotMatchOverride();
     }
+    wakeLoop(true, true);
     logMsg(2, "[MatchOverride] Cleared match override; reverted to normal policy.");
 }
 
@@ -1475,6 +1585,7 @@ bool OctiBotRunner::applyMatchOverride(const BotMatchOverride &rawOv,
         curRoom = _currentRoomId;
         curPhase = _currentPhase;
     }
+    wakeLoop(true, true);
 
     logMsg(2, "[MatchOverride] Activated override: target_player=" +
            (ov.targetPlayerHandle.empty() ? "(any)" : ("@" + ov.targetPlayerHandle)) +
@@ -1631,6 +1742,9 @@ void OctiBotRunner::dispatchOwnerPrompt(const std::string &promptText,
 }
 
 void OctiBotRunner::pollRecentLobbyChat() {
+    if (_client.isLobbyEventStreamActive()) {
+        return;
+    }
     std::int64_t now = nowMs();
     std::int64_t lastSeq = 0;
     {
@@ -1709,6 +1823,14 @@ void OctiBotRunner::loopStep() {
     }
 
     if (roomId.empty()) {
+        bool lobbyStreamOk = _client.isLobbyEventStreamActive();
+        bool shouldScanLobby = _lobbyTablesDirty.exchange(false) ||
+                               !lobbyStreamOk ||
+                               ov.active ||
+                               (now - _lastLobbyTablesFetchMs >= 10000);
+        if (!shouldScanLobby) {
+            return;
+        }
         if (ov.active) {
             if (!ov.targetRoomId.empty()) {
                 int joinedSeat = 0;
@@ -1720,6 +1842,7 @@ void OctiBotRunner::loopStep() {
             std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
             std::string targetWaitingRoomId;
             auto tablesRes = _client.listTables(false);
+            _lastLobbyTablesFetchMs = nowMs();
             if (tablesRes.ok && !curTarget.empty()) {
                 for (const auto &t : tablesRes.data) {
                     if (t.phase != "WAITING_FOR_PLAYERS" || t.seatsFilled >= t.seatsTotal) {
@@ -1779,6 +1902,7 @@ void OctiBotRunner::loopStep() {
 
         if (behavior == "auto" || behavior == "join_only" || behavior == "host_only") {
             auto tablesRes = _client.listTables(false);
+            _lastLobbyTablesFetchMs = nowMs();
             if (tablesRes.ok) {
                 // First check if we are already seated in an IN_PROGRESS or WAITING_FOR_PLAYERS table
                 for (const auto &t : tablesRes.data) {
@@ -1832,6 +1956,7 @@ void OctiBotRunner::loopStep() {
                             });
                         logMsg(2, "Recovered unseated hosted table #" + t.roomId);
                         notifyEvent("ROOM_HOSTED");
+                        wakeLoop(true, false);
                         return;
                     }
                 }
@@ -1894,88 +2019,104 @@ void OctiBotRunner::loopStep() {
                     });
                 logMsg(2, "Matchmaking matched table #" + _currentRoomId);
                 notifyEvent("MATCHMAKING_MATCHED");
+                wakeLoop(true, false);
                 return;
             }
         }
     } else {
         // Room active
-        auto gvRes = _client.fetchGameView(roomId);
-        if (!gvRes.ok) {
-            if (gvRes.httpStatus == 404 || gvRes.httpStatus == 410) {
-                {
-                    std::lock_guard<std::mutex> lock(_stateMutex);
-                    if (_currentRoomId != roomId) {
-                        return;
-                    }
-                    _currentRoomId = "";
-                    _currentPhase = "IDLE";
-                }
-                _client.stopGameEventStream();
-                if (!_client.isLobbyEventStreamActive()) {
-                    _client.startLobbyEventStream(0,
-                        [this](const SseEvent &ev) {
-                            handleLobbySseEvent(ev.event, ev.dataJson);
-                        });
-                }
-                logMsg(2, "Room #" + roomId + " closed; returned to lobby.");
-                notifyEvent("ROOM_LEFT");
-                return;
-            }
-            if (gvRes.httpStatus == 409 && gvRes.errorCode == "ROBOT_TOKEN_SUPERSEDED") {
-                logMsg(1, "Token superseded: another instance connected with this token.");
-                _superseded = true;
-                _running = false;
-                notifyEvent("SUPERSEDED");
-                return;
-            }
-            return;
-        }
-
-        std::string oldPhase;
+        bool gameStreamOk = _client.isGameEventStreamActive();
+        bool needRoomFetch = _roomStateDirty.exchange(false) || !gameStreamOk;
         {
             std::lock_guard<std::mutex> lock(_stateMutex);
-            oldPhase = _currentPhase;
-            _activeGameView = gvRes.data;
-            _currentPhase = gvRes.data.phase;
-
-            int foundSeat = 0;
-            for (const auto &seat : gvRes.data.seats) {
-                if ((!_identity.handle.empty() && seat.handle == _identity.handle) ||
-                    (!_identity.robotUuid.empty() && seat.robotUuid == _identity.robotUuid)) {
-                    foundSeat = seat.seat;
-                    break;
-                }
+            if (_activeGameView.roomId != roomId || _currentPhase == "IDLE" || _currentPhase.empty()) {
+                needRoomFetch = true;
+            } else if (_currentPhase == "IN_PROGRESS" && (now - _lastRoomFetchMs >= 2000)) {
+                needRoomFetch = true;
             }
-            _currentSeat = foundSeat;
         }
 
-        if (!oldPhase.empty() && oldPhase != _currentPhase) {
-            logMsg(2, "Room #" + roomId + " phase transition: " + oldPhase + " -> " + _currentPhase);
-            if (_currentPhase == "IN_PROGRESS") {
-                _gameOverHandledRoomId.clear();
-                _lastProactiveCommentPly = -100;
-                _proactiveCommentsInGame = 0;
-                _postGameSilenceStartMs.store(0);
+        if (needRoomFetch) {
+            auto gvRes = _client.fetchGameView(roomId);
+            _lastRoomFetchMs = nowMs();
+            if (!gvRes.ok) {
+                if (gvRes.httpStatus == 404 || gvRes.httpStatus == 410) {
+                    {
+                        std::lock_guard<std::mutex> lock(_stateMutex);
+                        if (_currentRoomId != roomId) {
+                            return;
+                        }
+                        _currentRoomId = "";
+                        _currentPhase = "IDLE";
+                    }
+                    _client.stopGameEventStream();
+                    if (!_client.isLobbyEventStreamActive()) {
+                        _client.startLobbyEventStream(0,
+                            [this](const SseEvent &ev) {
+                                handleLobbySseEvent(ev.event, ev.dataJson);
+                            });
+                    }
+                    _lobbyTablesDirty.store(true);
+                    logMsg(2, "Room #" + roomId + " closed; returned to lobby.");
+                    notifyEvent("ROOM_LEFT");
+                    return;
+                }
+                if (gvRes.httpStatus == 409 && gvRes.errorCode == "ROBOT_TOKEN_SUPERSEDED") {
+                    logMsg(1, "Token superseded: another instance connected with this token.");
+                    _superseded = true;
+                    _running = false;
+                    notifyEvent("SUPERSEDED");
+                    return;
+                }
+                return;
+            }
 
-                std::string oppHandle;
-                for (const auto &seat : _activeGameView.seats) {
-                    if (seat.seat != _currentSeat && !seat.handle.empty()) {
-                        oppHandle = seat.handle;
+            std::string oldPhase;
+            {
+                std::lock_guard<std::mutex> lock(_stateMutex);
+                oldPhase = _currentPhase;
+                _activeGameView = gvRes.data;
+                _currentPhase = gvRes.data.phase;
+
+                int foundSeat = 0;
+                for (const auto &seat : gvRes.data.seats) {
+                    if ((!_identity.handle.empty() && seat.handle == _identity.handle) ||
+                        (!_identity.robotUuid.empty() && seat.robotUuid == _identity.robotUuid)) {
+                        foundSeat = seat.seat;
                         break;
                     }
                 }
+                _currentSeat = foundSeat;
+            }
 
-                std::string backend = _config.getString("ai_cli_backend", "none");
-                if (backend != "none" && !backend.empty() &&
-                    _config.getBool("ai_proactive_commentary", true) && !oppHandle.empty()) {
-                    dispatchAiProactiveEvent("game_start", roomId, oppHandle,
-                        "A new OCTI match has just started in Room #" + roomId + " against @" + oppHandle +
-                        ". Greet @" + oppHandle + " warmly in 1 short sentence and wish them a fun game.", false);
-                } else {
-                    std::string gMsg = _conversation.formatGameStartGreeting(_identity.handle, oppHandle);
-                    if (!gMsg.empty()) {
-                        _client.postGameChat(roomId, "ALL", gMsg);
-                        recordConversation("game", roomId, _identity.handle, "[Event: game_start]", gMsg, "greeting");
+            if (!oldPhase.empty() && oldPhase != _currentPhase) {
+                logMsg(2, "Room #" + roomId + " phase transition: " + oldPhase + " -> " + _currentPhase);
+                if (_currentPhase == "IN_PROGRESS") {
+                    _gameOverHandledRoomId.clear();
+                    _lastProactiveCommentPly = -100;
+                    _proactiveCommentsInGame = 0;
+                    _postGameSilenceStartMs.store(0);
+
+                    std::string oppHandle;
+                    for (const auto &seat : _activeGameView.seats) {
+                        if (seat.seat != _currentSeat && !seat.handle.empty()) {
+                            oppHandle = seat.handle;
+                            break;
+                        }
+                    }
+
+                    std::string backend = _config.getString("ai_cli_backend", "none");
+                    if (backend != "none" && !backend.empty() &&
+                        _config.getBool("ai_proactive_commentary", true) && !oppHandle.empty()) {
+                        dispatchAiProactiveEvent("game_start", roomId, oppHandle,
+                            "A new OCTI match has just started in Room #" + roomId + " against @" + oppHandle +
+                            ". Greet @" + oppHandle + " warmly in 1 short sentence and wish them a fun game.", false);
+                    } else {
+                        std::string gMsg = _conversation.formatGameStartGreeting(_identity.handle, oppHandle);
+                        if (!gMsg.empty()) {
+                            _client.postGameChat(roomId, "ALL", gMsg);
+                            recordConversation("game", roomId, _identity.handle, "[Event: game_start]", gMsg, "greeting");
+                        }
                     }
                 }
             }
@@ -2008,14 +2149,19 @@ void OctiBotRunner::loopStep() {
                         shouldKick = _policy.shouldKickSeatedPlayer(tsi, _identity.ownerHandle);
                     }
                     if (isHost && shouldKick) {
-                        _client.kickSeat(roomId, seat.seat);
+                        if (needRoomFetch) {
+                            _client.kickSeat(roomId, seat.seat);
+                        }
                     } else {
                         hasValidSeatedOpponent = true;
                     }
                 }
             }
-            if (!hasValidSeatedOpponent) {
+            bool shouldCheckOtherTables = (_lobbyTablesDirty.exchange(false) || !_client.isLobbyEventStreamActive()) &&
+                                          (ov.active || (now - _lastLobbyTablesFetchMs >= 2000));
+            if (!hasValidSeatedOpponent && shouldCheckOtherTables) {
                 auto tablesRes = _client.listTables(false);
+                _lastLobbyTablesFetchMs = nowMs();
                 if (tablesRes.ok) {
                     std::string lowerMyHandle = _identity.handle;
                     std::transform(lowerMyHandle.begin(), lowerMyHandle.end(), lowerMyHandle.begin(), ::tolower);
@@ -2106,6 +2252,7 @@ void OctiBotRunner::loopStep() {
                         std::lock_guard<std::mutex> lock(_stateMutex);
                         _currentSeat = joinRes.data.seat;
                     }
+                    _roomStateDirty.store(true);
                     logMsg(2, "Joined remaining seat " + std::to_string(joinRes.data.seat) +
                            " in hosted table #" + roomId);
                     notifyEvent("ROOM_JOINED");
@@ -2263,6 +2410,7 @@ void OctiBotRunner::loopStep() {
                             handleLobbySseEvent(ev.event, ev.dataJson);
                         });
                 }
+                _lobbyTablesDirty.store(true);
                 logMsg(2, "Opponent left finished room #" + roomId + "; leaving table and returning to lobby.");
                 notifyEvent("ROOM_LEFT");
                 return;
@@ -2306,6 +2454,7 @@ void OctiBotRunner::loopStep() {
                     [this](const SseEvent &ev) {
                         handleLobbySseEvent(ev.event, ev.dataJson);
                     });
+                _lobbyTablesDirty.store(true);
                 logMsg(2, "Post-game linger (" + std::to_string(lingerSec) + "s silence) elapsed in room #" +
                        roomId + "; said goodbye, left table, and returned to lobby.");
                 notifyEvent("ROOM_LEFT");
@@ -2428,6 +2577,7 @@ void OctiBotRunner::playEngineTurn() {
             moveErr = res.errorMessage;
         }
         if (ok) {
+            _roomStateDirty.store(true);
             logMsg(3, "Move " + chosenMove + " accepted by server in room #" + roomId);
             bool hasPrevEval = false;
             int prevEvalScore = 0;
@@ -3078,10 +3228,10 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             }
         };
 
-        if (output.empty() || !_running) {
+        if (output.empty()) {
             logMsg(2, "[AI Chat] Empty response from " + backend);
-            updateConversationReply(convSeq, "", "seen");
             executePendingLeaveIfAny();
+            updateConversationReply(convSeq, "", "seen");
             return;
         }
 
@@ -3162,8 +3312,8 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
 
         auto chunks = splitChatReplyIntoChunks(output, 450, static_cast<std::size_t>(maxChunksVal));
         if (chunks.empty()) {
-            updateConversationReply(convSeq, "", "seen");
             executePendingLeaveIfAny();
+            updateConversationReply(convSeq, "", "seen");
             return;
         }
 
@@ -3173,7 +3323,6 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             fullReply += chunks[i];
         }
 
-        updateConversationReply(convSeq, fullReply, "ai_cli:" + backend);
         logMsg(2, "[AI Chat] " + backend + " reply to @" + senderHandle + " (" +
                std::to_string(chunks.size()) + " chunks): \"" + fullReply + "\"");
 
@@ -3193,6 +3342,7 @@ void OctiBotRunner::dispatchAiChatReply(const std::string &channel,
             }
         }
         executePendingLeaveIfAny();
+        updateConversationReply(convSeq, fullReply, "ai_cli:" + backend);
     }).detach();
 #else
     (void) channel;
@@ -3489,14 +3639,14 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
             if (c == '\n' || c == '\r') c = ' ';
         }
 
-        if (output.empty() || !_running) {
+        if (output.empty()) {
             logMsg(2, "[AI Commentary] Empty response from " + backend + " for event " + eventKind);
             if (eventKind == "goodbye") {
                 std::string byeMsg = _conversation.formatGoodbyeChat(_identity.handle, opponentHandle);
                 if (!byeMsg.empty()) {
                     _client.postGameChat(roomId, "ALL", byeMsg);
-                    updateConversationReply(convSeq, byeMsg, "fallback:canned");
                     _postGameSilenceStartMs.store(nowMs());
+                    updateConversationReply(convSeq, byeMsg, "fallback:canned");
                 }
             } else {
                 updateConversationReply(convSeq, "", "seen");
@@ -3510,12 +3660,12 @@ void OctiBotRunner::dispatchAiProactiveEvent(const std::string &eventKind,
             output = output.substr(0, 447) + "...";
         }
 
-        updateConversationReply(convSeq, output, "ai_cli:" + backend + " (proactive)");
         logMsg(2, "[AI Commentary] " + backend + " (" + eventKind + ") to @" + opponentHandle + ": \"" + output + "\"");
         if (!roomId.empty()) {
             _client.postGameChat(roomId, "ALL", output);
             _postGameSilenceStartMs.store(nowMs());
         }
+        updateConversationReply(convSeq, output, "ai_cli:" + backend + " (proactive)");
     };
 
     if (waitForCompletion) {
@@ -3604,6 +3754,41 @@ static ParsedSiblingMatchDirective parseSiblingMatchDirective(const std::string 
 void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std::string &data) {
     if (eventType != "LOBBY_CHAT") {
         logMsg(3, "[SSE] event=" + eventType + " data=" + data);
+    }
+
+    if (eventType == "closed") {
+        if (data.find("ROBOT_TOKEN_SUPERSEDED") != std::string::npos) {
+            logMsg(1, "Token superseded via lobby SSE: another instance connected with this token.");
+            _superseded = true;
+            _running = false;
+            notifyEvent("SUPERSEDED");
+            wakeLoop(true, true);
+            return;
+        }
+        wakeLoop(false, true);
+        return;
+    }
+
+    if (eventType == "TABLE_UPDATED" || eventType == "TABLE_CLOSED" || eventType == "MATCH_FOUND") {
+        if (eventType == "MATCH_FOUND") {
+            wakeLoop(true, true);
+            return;
+        }
+        std::string curRoom = currentRoomId();
+        if (curRoom.empty()) {
+            wakeLoop(false, true);
+        } else {
+            try {
+                auto j = nlohmann::json::parse(data);
+                std::string evRoom = j.value("room_id", "");
+                if (evRoom.empty() || evRoom != curRoom) {
+                    wakeLoop(false, true);
+                }
+            } catch (...) {
+                wakeLoop(false, true);
+            }
+        }
+        return;
     }
 
     if (eventType == "LOBBY_CHAT") {
@@ -3697,6 +3882,7 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                                 recordConversation("lobby", "", msg.handle, msg.text, ack, "sibling_directive");
                             }
                             notifyEvent("CHAT_MENTION");
+                            wakeLoop(true, true);
                             return;
                         }
                     }
@@ -3724,6 +3910,7 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                     recordConversation("lobby", "", msg.handle, msg.text, cmdRes.replyText, "command");
                     recorded = true;
                 }
+                wakeLoop(false, true);
             } else if (cmdRes.action == ChatCommandActionType::JOIN_ROOM) {
                 BotMatchOverride joinOv;
                 joinOv.active = true;
@@ -3737,6 +3924,7 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                     recordConversation("lobby", "", msg.handle, msg.text, cmdRes.replyText, "command");
                     recorded = true;
                 }
+                wakeLoop(true, true);
             } else if (cmdRes.action == ChatCommandActionType::NONE && !msg.isRobot) {
                 std::string lowerText = msg.text;
                 std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
@@ -3807,6 +3995,7 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
                                     std::lock_guard<std::mutex> lock(_stateMutex);
                                     _matchOverride = ov;
                                 }
+                                wakeLoop(true, true);
                                 std::string ack = "Accepted match directive from @" + msg.handle +
                                                   " against @" + mentions[0] + "; joining their table.";
                                 logMsg(2, ack);
@@ -3910,6 +4099,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                                 recordConversation("game", ackRoom, senderHandle, text, ack, "sibling_directive");
                             }
                             notifyEvent("CHAT_MENTION");
+                            wakeLoop(true, true);
                             return;
                         }
                     }
@@ -3954,6 +4144,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 recordConversation("game", _currentRoomId, senderHandle, text, "Leaving table as requested.", "command");
                 std::string leaveErr;
                 leaveRoomById(_currentRoomId, leaveErr);
+                wakeLoop(true, true);
                 return;
             }
 
@@ -3981,7 +4172,9 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 }
             }
             notifyEvent("CHAT_MENTION");
+            wakeLoop(true, false);
         } catch (...) {}
+        return;
     } else if (eventType == "GAME_PROPOSAL" || eventType == "PROPOSAL_OFFERED") {
         try {
             auto j = nlohmann::json::parse(data);
@@ -4018,11 +4211,25 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             }
             notifyEvent("PROPOSAL");
         } catch (...) {}
+        wakeLoop(true, false);
+        return;
     } else if (eventType == "TURN" || eventType == "MOVE" || eventType == "GAME_STARTED") {
         notifyEvent("TURN");
+        wakeLoop(true, false);
+        return;
     } else if (eventType == "GAME_OVER") {
         notifyEvent("GAME_OVER");
+        wakeLoop(true, false);
+        return;
     } else if (eventType == "closed" || eventType == "ROOM_PURGED" || eventType == "ROOM_CLOSED") {
+        if (eventType == "closed" && data.find("ROBOT_TOKEN_SUPERSEDED") != std::string::npos) {
+            logMsg(1, "Token superseded via game SSE: another instance connected with this token.");
+            _superseded = true;
+            _running = false;
+            notifyEvent("SUPERSEDED");
+            wakeLoop(true, true);
+            return;
+        }
         std::string closedRoom;
         {
             std::lock_guard<std::mutex> lock(_stateMutex);
@@ -4043,6 +4250,8 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             });
             notifyEvent("ROOM_LEFT");
         }
+        wakeLoop(true, true);
+        return;
     } else if (eventType == "SEAT_LEFT" || eventType == "PLAYER_DISCONNECTED") {
         if ((_currentPhase == "FINISHED" || _currentPhase == "GAME_OVER" || _currentPhase == "ABANDONED") && !_currentRoomId.empty()) {
             auto gvRes = _client.fetchGameView(_currentRoomId);
@@ -4061,6 +4270,24 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                 }
             }
         }
+        wakeLoop(true, false);
+        return;
+    } else if (eventType == "ROOM_CREATED") {
+        return;
+    } else if (eventType == "SEAT_JOINED") {
+        try {
+            auto j = nlohmann::json::parse(data);
+            std::string h = j.value("handle", "");
+            int s = j.value("seat", -1);
+            if (!h.empty() && h == _identity.handle && s > 0 && s == currentSeat() &&
+                currentPhase() == "WAITING_FOR_PLAYERS") {
+                return;
+            }
+        } catch (...) {}
+        wakeLoop(true, false);
+        return;
+    } else {
+        wakeLoop(true, false);
     }
 }
 

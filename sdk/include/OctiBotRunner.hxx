@@ -197,6 +197,9 @@ private:
     void handleLobbySseEvent(const std::string &eventType, const std::string &data);
     void handleGameSseEvent(const std::string &eventType, const std::string &data);
     void playEngineTurn();
+    void wakeLoop(bool markRoomDirty = false, bool markLobbyDirty = false);
+    void waitForLoopWake(int maxWaitMs);
+    int computeNextWaitMs() const;
 
     std::unique_ptr<OctiBotAgent> _agent;
     OctiBotConfigStore _config;
@@ -266,6 +269,16 @@ private:
     std::condition_variable _eventCv;
     bool _hasPendingEvent = false;
     std::string _lastEventReason;
+
+    mutable std::mutex _loopMutex;
+    std::condition_variable _loopWakeCv;
+    std::uint64_t _loopWakeSeq = 0;
+    std::uint64_t _lastObservedWakeSeq = 0;
+    std::atomic<bool> _roomStateDirty{true};
+    std::atomic<bool> _lobbyTablesDirty{true};
+    std::int64_t _lastRoomFetchMs = 0;
+    std::int64_t _lastLobbyTablesFetchMs = 0;
+
     int _consecutiveRematches = 0;
     int _lastLoggedPlyCount = -1;
     std::string _gameOverHandledRoomId;
