@@ -2484,8 +2484,8 @@ TEST(OctiBotEngineCoreTest, SearchTopMovesForBookAndCanonicalOrientation)
             2,
             2,
             {
-                { canonMove0.c_str(), mirTop[0].score },
-                { canonMove1.c_str(), mirTop[1].score },
+                { canonMove0.c_str(), static_cast<std::int16_t>(mirTop[0].score) },
+                { canonMove1.c_str(), static_cast<std::int16_t>(mirTop[1].score) },
                 { nullptr, 0 }
             }
         }
@@ -2653,6 +2653,160 @@ TEST(OctiBotEngineCoreTest, UnboundedTimeBookSearchAndBookGenMultiLangSync)
     CHECK_TRUE(rcFault != 0);
 
     std::filesystem::remove_all(tmpDir, ec);
+}
+
+TEST(OctiBotEngineCoreTest, BookMoveScorePreservesUnclamped32BitMateAndLeadScores)
+{
+    octi::OctiBotEngine bot(octi::BotDifficulty::GRANDMASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile prof = bot.tuningProfile();
+    prof.lazySmpThreads = 1;
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    bot.setTuningProfile(prof);
+
+    // 1. Position with immediate 1-ply base-capture win (56aeh-57) AND non-mate large-lead moves (> 32000)
+    octi::OctiBoard mateBoard(octi::GAME_MODE_2);
+    mateBoard.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,1,23,0:0,5,10,0:B53defgh,B53e,A56aeh,A37abeg,A77abdh");
+    octi::BotSearchStats mateStats;
+    std::vector<octi::BookMoveScore> topMate =
+        bot.searchTopMovesForBook(mateBoard, 2, 0, 5, &mateStats);
+    CHECK_TRUE(topMate.size() >= 2);
+    STRCMP_EQUAL("56aeh-57", topMate[0].move.c_str());
+
+    std::int32_t mateScore = static_cast<std::int32_t>(topMate[0].score);
+    CHECK_TRUE(mateScore >= 900000);
+
+    // 2. Non-mate large-lead position (> 32000 but < 900000) must not collide with mateScore or clamp to 32000
+    octi::OctiBoard leadBoard(octi::GAME_MODE_2);
+    leadBoard.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,1,23,0:0,5,10,0:B53defgh,B53e,A53aeh,A37,A77");
+    octi::BotSearchStats leadStats;
+    std::vector<octi::BookMoveScore> topLead =
+        bot.searchTopMovesForBook(leadBoard, 2, 0, 3, &leadStats);
+    CHECK_TRUE(topLead.size() >= 1);
+
+    std::int32_t leadScore = static_cast<std::int32_t>(topLead[0].score);
+    CHECK_TRUE(leadScore > 32000);
+    CHECK_TRUE(leadScore < 900000);
+    CHECK_TRUE(mateScore > leadScore);
+
+    // 3. octi_book_gen preserves int16 [-32000, 32000] clamping when writing OpeningBookCandidate::score
+    std::string bookGenBin;
+    std::filesystem::path coreRoot =
+        std::filesystem::path(__FILE__).parent_path().parent_path();
+    if (std::filesystem::exists("build/octi_book_gen")) {
+        bookGenBin = "./build/octi_book_gen";
+    } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
+        bookGenBin = "./build/asan/octi_book_gen";
+    } else if (std::filesystem::exists("./octi_book_gen")) {
+        bookGenBin = "./octi_book_gen";
+    } else if (std::filesystem::exists(coreRoot / "build" / "octi_book_gen")) {
+        bookGenBin = (coreRoot / "build" / "octi_book_gen").string();
+    } else if (std::filesystem::exists(coreRoot / "build" / "asan" / "octi_book_gen")) {
+        bookGenBin = (coreRoot / "build" / "asan" / "octi_book_gen").string();
+    }
+    CHECK_FALSE(bookGenBin.empty());
+
+    std::filesystem::path tmpDir =
+        std::filesystem::temp_directory_path() / "octi_book_score32_clamp_test";
+    std::error_code ec;
+    std::filesystem::remove_all(tmpDir, ec);
+    std::filesystem::create_directories(tmpDir, ec);
+
+    std::string jsonPath = (tmpDir / "clamp_book.json").string();
+    std::string hxxPath = (tmpDir / "OctiOpeningBookData.hxx").string();
+    {
+        std::ofstream out(jsonPath);
+        out << "{\n"
+            << "  \"version\": 1,\n"
+            << "  \"entries\": [\n"
+            << "    {\n"
+            << "      \"canonicalKey\": \"0xBF20205531084330\",\n"
+            << "      \"depth\": 2,\n"
+            << "      \"ply\": 0,\n"
+            << "      \"candidates\": [\n"
+            << "        { \"move\": \"32+a\", \"score\": 1000000 },\n"
+            << "        { \"move\": \"42+a\", \"score\": -999999 }\n"
+            << "      ]\n"
+            << "    }\n"
+            << "  ]\n"
+            << "}\n";
+    }
+    std::string cmdClamp =
+        bookGenBin + " --from-json \"" + jsonPath + "\""
+        " --out-header \"" + hxxPath + "\" > /dev/null 2>&1";
+    int rcClamp = std::system(cmdClamp.c_str());
+    CHECK_EQUAL(0, rcClamp);
+
+    std::ifstream hxxIn(hxxPath);
+    std::ostringstream hxxOss;
+    hxxOss << hxxIn.rdbuf();
+    std::string hxxStr = hxxOss.str();
+    CHECK_TRUE(hxxStr.find("{ \"32+a\", 32000 }") != std::string::npos);
+    CHECK_TRUE(hxxStr.find("{ \"42+a\", -32000 }") != std::string::npos);
+
+    std::filesystem::remove_all(tmpDir, ec);
+}
+
+TEST(OctiBotEngineCoreTest, LazySmpAggregatesAllHelperThreadNodes)
+{
+    octi::OctiBoard b2p(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b2p.getGame()->start(octi::PLAYER_A);
+
+    // 1. searchTopMovesForBook: 4 threads aggregates main + helper thread nodes
+    octi::OctiBotEngine bot1(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile prof1 = bot1.tuningProfile();
+    prof1.lazySmpThreads = 1;
+    prof1.useOpeningBook = false;
+    prof1.rootScoreJitter = 0;
+    bot1.setTuningProfile(prof1);
+
+    octi::BotSearchStats bookStats1;
+    std::vector<octi::BookMoveScore> top1 =
+        bot1.searchTopMovesForBook(b2p, 3, 0, 3, &bookStats1);
+    CHECK_EQUAL(3, top1.size());
+    CHECK_TRUE(bookStats1.nodesVisited > 0);
+    CHECK_EQUAL(bookStats1.nodesVisited, bot1.liveNodesVisited());
+
+    octi::OctiBotEngine bot4(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile prof4 = bot4.tuningProfile();
+    prof4.lazySmpThreads = 4;
+    prof4.useOpeningBook = false;
+    prof4.rootScoreJitter = 0;
+    bot4.setTuningProfile(prof4);
+
+    octi::BotSearchStats bookStats4;
+    std::vector<octi::BookMoveScore> top4 =
+        bot4.searchTopMovesForBook(b2p, 3, 0, 3, &bookStats4);
+    CHECK_EQUAL(3, top4.size());
+    CHECK_EQUAL(bookStats4.nodesVisited, bot4.liveNodesVisited());
+    if (std::thread::hardware_concurrency() > 1) {
+        CHECK_TRUE(bookStats4.nodesVisited > bookStats1.nodesVisited);
+    }
+
+    // 2. chooseMove: 4 threads aggregates main + helper thread nodes and matches liveNodesVisited()
+    octi::OctiBotEngine chooseBot1(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    prof1.maxSearchDepth = 3;
+    prof1.timeBudgetMs = 10000;
+    chooseBot1.setTuningProfile(prof1);
+    octi::BotSearchStats chooseStats1;
+    std::string mv1 = chooseBot1.chooseMove(b2p, &chooseStats1);
+    CHECK_FALSE(mv1.empty());
+    CHECK_TRUE(chooseStats1.nodesVisited > 0);
+    CHECK_EQUAL(chooseStats1.nodesVisited, chooseBot1.liveNodesVisited());
+
+    octi::OctiBotEngine chooseBot4(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    prof4.maxSearchDepth = 3;
+    prof4.timeBudgetMs = 10000;
+    chooseBot4.setTuningProfile(prof4);
+    octi::BotSearchStats chooseStats4;
+    std::string mv4 = chooseBot4.chooseMove(b2p, &chooseStats4);
+    CHECK_FALSE(mv4.empty());
+    CHECK_EQUAL(chooseStats4.nodesVisited, chooseBot4.liveNodesVisited());
+    if (std::thread::hardware_concurrency() > 1) {
+        CHECK_TRUE(chooseStats4.nodesVisited > chooseStats1.nodesVisited);
+    }
 }
 
 TEST(OctiBotEngineCoreTest, DepthOneDeadlineFallbackAndPartialRootGuard)
