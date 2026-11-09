@@ -62,6 +62,7 @@ struct BotTuningProfile {
     int lazySmpThreads               = 2;     // Total search threads (1 = single-thread, 4 = Lazy SMP)
     int compositeMoveMaxPly          = 1;     // Max search ply to generate multi-pod composite moves (-1 = off)
     int rootScoreJitter              = 25;    // Random root score noise [-jitter, +jitter] (0 = deterministic)
+    int bookSelectionWindow          = 0;     // Opening book candidate score window (0 = deterministic top move)
     bool useOpeningBook              = true;  // Probe precomputed Zobrist opening playbook before live search
 
     // --- 2. Base Occupation & Distance Weights ---

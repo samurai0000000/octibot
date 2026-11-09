@@ -2361,6 +2361,7 @@ TEST(OctiBotEngineCoreTest, OpeningBookLookupNominalBoundaryAndFaultInjection)
     octi::BotTuningProfile enabledProf = bot.tuningProfile();
     enabledProf.useOpeningBook = true;
     enabledProf.rootScoreJitter = 0;
+    enabledProf.bookSelectionWindow = 0;
 
     std::uint64_t key2p3 = octi::OctiBotEngine::computeCanonicalOpeningHash(b2p3);
     const octi::OpeningBookEntry mixedTable[] = {
@@ -2403,8 +2404,8 @@ TEST(OctiBotEngineCoreTest, OpeningBookLookupNominalBoundaryAndFaultInjection)
         b2p3, allIllegalTable, 1, enabledProf, rng, noMove));
     STRCMP_EQUAL("", noMove.c_str());
 
-    // 4. Verify full 2,038-entry generated playbook and ply-4 2P 3-Base entry (33+h 57+d 53+h 37+d -> 73+h mirrored / 33+b canonical)
-    LONGS_EQUAL(2038, static_cast<long>(octi::g_openingBookEntryCount));
+    // 4. Verify full 2,058-entry generated playbook and ply-4 2P 3-Base entry (33+h 57+d 53+h 37+d -> 73+h mirrored / 33+b canonical)
+    LONGS_EQUAL(2058, static_cast<long>(octi::g_openingBookEntryCount));
     octi::OctiBoard bPly4(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
     bPly4.getGame()->start(octi::PLAYER_A);
     bPly4.getGame()->move("33+h");
@@ -2493,6 +2494,7 @@ TEST(OctiBotEngineCoreTest, SearchTopMovesForBookAndCanonicalOrientation)
     octi::BotTuningProfile deterministicProf = bot.tuningProfile();
     deterministicProf.useOpeningBook = true;
     deterministicProf.rootScoreJitter = 0;
+    deterministicProf.bookSelectionWindow = 0;
     std::uint64_t rng = 0x11223344ULL;
 
     std::string probedMir;
@@ -4144,6 +4146,202 @@ TEST(OctiCore_NetworkClient, ArchiveRobotPlayerFieldsAndFilterOverload)
     CHECK_FALSE(legacyHadRobot);
 }
 
+TEST(OctiCore_NetworkClient, KeepAliveClientPoolReusesSingleSocketAcrossSequentialRequests)
+{
+    struct LoopbackKeepAliveServer {
+        int listenFd = -1;
+        int boundPort = 0;
+        std::atomic<bool> stopRequested{false};
+        std::atomic<bool> closeAfterFirstResponse{false};
+        std::atomic<int> acceptCount{0};
+        std::atomic<int> requestCount{0};
+        std::thread worker;
+
+        explicit LoopbackKeepAliveServer(bool closeAfterFirst = false)
+        {
+            closeAfterFirstResponse.store(closeAfterFirst);
+            listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
+            if (listenFd < 0) {
+                return;
+            }
+            int opt = 1;
+            ::setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR,
+                         reinterpret_cast<const char *>(&opt), sizeof(opt));
+
+            sockaddr_in addr{};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            addr.sin_port = 0;
+            if (::bind(listenFd, reinterpret_cast<sockaddr *>(&addr),
+                       sizeof(addr)) < 0) {
+                ::close(listenFd);
+                listenFd = -1;
+                return;
+            }
+            socklen_t addrLen = sizeof(addr);
+            if (::getsockname(listenFd, reinterpret_cast<sockaddr *>(&addr),
+                              &addrLen) < 0) {
+                ::close(listenFd);
+                listenFd = -1;
+                return;
+            }
+            boundPort = ntohs(addr.sin_port);
+            if (::listen(listenFd, 16) < 0) {
+                ::close(listenFd);
+                listenFd = -1;
+                return;
+            }
+
+            worker = std::thread([this]() { runLoop(); });
+        }
+
+        ~LoopbackKeepAliveServer()
+        {
+            stop();
+        }
+
+        void stop()
+        {
+            stopRequested.store(true);
+            if (listenFd >= 0) {
+                ::shutdown(listenFd, SHUT_RDWR);
+            }
+            if (worker.joinable()) {
+                worker.join();
+            }
+            if (listenFd >= 0) {
+                ::close(listenFd);
+                listenFd = -1;
+            }
+        }
+
+        void runLoop()
+        {
+            static const char kResponse[] =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: application/json\r\n"
+                "Content-Length: 15\r\n"
+                "Connection: keep-alive\r\n"
+                "\r\n"
+                "{\"status\":\"ok\"}";
+            const std::size_t kResponseLen = sizeof(kResponse) - 1;
+
+            while (!stopRequested.load()) {
+                pollfd pfd{};
+                pfd.fd = listenFd;
+                pfd.events = POLLIN;
+                int pr = ::poll(&pfd, 1, 25);
+                if (pr <= 0 || !(pfd.revents & POLLIN)) {
+                    continue;
+                }
+                sockaddr_in cliAddr{};
+                socklen_t cliLen = sizeof(cliAddr);
+                int clientFd = ::accept(
+                    listenFd, reinterpret_cast<sockaddr *>(&cliAddr), &cliLen);
+                if (clientFd < 0) {
+                    continue;
+                }
+                acceptCount.fetch_add(1);
+
+                std::string reqBuf;
+                while (!stopRequested.load()) {
+                    pollfd cpfd{};
+                    cpfd.fd = clientFd;
+                    cpfd.events = POLLIN;
+                    int cpr = ::poll(&cpfd, 1, 25);
+                    if (cpr < 0) {
+                        break;
+                    }
+                    if (cpr == 0) {
+                        continue;
+                    }
+                    char buf[1024];
+                    ssize_t n = ::recv(clientFd, buf, sizeof(buf), 0);
+                    if (n <= 0) {
+                        break;
+                    }
+                    reqBuf.append(buf, static_cast<std::size_t>(n));
+                    std::size_t headerEnd = reqBuf.find("\r\n\r\n");
+                    if (headerEnd == std::string::npos) {
+                        continue;
+                    }
+                    reqBuf.erase(0, headerEnd + 4);
+                    requestCount.fetch_add(1);
+
+                    std::size_t sentTotal = 0;
+                    bool sendOk = true;
+                    while (sentTotal < kResponseLen) {
+                        ssize_t s = ::send(
+                            clientFd, kResponse + sentTotal,
+                            kResponseLen - sentTotal, 0);
+                        if (s <= 0) {
+                            sendOk = false;
+                            break;
+                        }
+                        sentTotal += static_cast<std::size_t>(s);
+                    }
+                    if (!sendOk || closeAfterFirstResponse.load()) {
+                        ::shutdown(clientFd, SHUT_WR);
+                        break;
+                    }
+                }
+                ::close(clientFd);
+            }
+        }
+    };
+
+    /* 1. Nominal socket reuse: 10 sequential fetchHealth() calls reuse 1 socket */
+    LoopbackKeepAliveServer server1(false);
+    CHECK_TRUE(server1.boundPort > 0);
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(server1.boundPort);
+    CHECK_TRUE(client != nullptr);
+
+    for (int i = 0; i < 10; ++i) {
+        octi::ApiResult<octi::HealthInfo> res = client->fetchHealth();
+        CHECK_TRUE(res.ok);
+        CHECK_EQUAL(200, res.httpStatus);
+        STRCMP_EQUAL("ok", res.data.status.c_str());
+    }
+    CHECK_EQUAL(1, server1.acceptCount.load());
+    CHECK_EQUAL(10, server1.requestCount.load());
+
+    /* 2. Boundary: setEndpoint() invalidates pooled client and connects to new port */
+    LoopbackKeepAliveServer server2(false);
+    CHECK_TRUE(server2.boundPort > 0);
+    CHECK_TRUE(server2.boundPort != server1.boundPort);
+
+    client->setEndpoint("127.0.0.1", server2.boundPort);
+    octi::ApiResult<octi::HealthInfo> switchRes = client->fetchHealth();
+    CHECK_TRUE(switchRes.ok);
+    CHECK_EQUAL(200, switchRes.httpStatus);
+    STRCMP_EQUAL("ok", switchRes.data.status.c_str());
+    CHECK_EQUAL(1, server2.acceptCount.load());
+    CHECK_EQUAL(1, server2.requestCount.load());
+    CHECK_EQUAL(1, server1.acceptCount.load());
+
+    /* 3. Fault injection: server closes keep-alive socket mid-idle after 1st response */
+    LoopbackKeepAliveServer server3(true);
+    CHECK_TRUE(server3.boundPort > 0);
+
+    client->setEndpoint("127.0.0.1", server3.boundPort);
+    octi::ApiResult<octi::HealthInfo> faultFirst = client->fetchHealth();
+    CHECK_TRUE(faultFirst.ok);
+    CHECK_EQUAL(200, faultFirst.httpStatus);
+    STRCMP_EQUAL("ok", faultFirst.data.status.c_str());
+    CHECK_EQUAL(1, server3.acceptCount.load());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+
+    octi::ApiResult<octi::HealthInfo> faultSecond = client->fetchHealth();
+    CHECK_TRUE(faultSecond.ok);
+    CHECK_EQUAL(200, faultSecond.httpStatus);
+    STRCMP_EQUAL("ok", faultSecond.data.status.c_str());
+    CHECK_EQUAL(2, server3.acceptCount.load());
+    CHECK_EQUAL(2, server3.requestCount.load());
+}
+
 // ---------------------------------------------------------------------------
 // Self-Capture Rules: OFK Double Jump, 2P Superprong & AI Leapfrog Preservation
 // ---------------------------------------------------------------------------
@@ -5367,6 +5565,369 @@ TEST(OctiEngineSuperProngVariants, AllThirteenVariantsTenGamesEachCompleteAndPla
                << " | " << s.capturingPreludeMoves << " |\n";
         }
     }
+}
+
+// ===========================================================================
+// Envelope 3: Opening Book All-Variants, 4P Key Fix & bookSelectionWindow
+// ===========================================================================
+
+TEST_GROUP(OctiOpeningBookAllVariants)
+{
+};
+
+TEST(OctiOpeningBookAllVariants, BookSelectionWindowDeterministicAndRandomized)
+{
+    octi::OctiBoard b2p3(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b2p3.getGame()->start(octi::PLAYER_A);
+
+    // Built-in AI profiles have bookSelectionWindow > 0 even when rootScoreJitter == 0
+    CHECK_TRUE(octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::CASUAL).bookSelectionWindow > 0);
+    CHECK_TRUE(octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL).bookSelectionWindow > 0);
+    CHECK_TRUE(octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER).bookSelectionWindow > 0);
+    CHECK_TRUE(octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::EXPERT).bookSelectionWindow > 0);
+    CHECK_TRUE(octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::GRANDMASTER).bookSelectionWindow > 0);
+    LONGS_EQUAL(0, octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::EXPERT).rootScoreJitter);
+    LONGS_EQUAL(0, octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::GRANDMASTER).rootScoreJitter);
+
+    // Default-constructed BotTuningProfile (bench / teacher / deterministic tests) has bookSelectionWindow == 0
+    octi::BotTuningProfile defaultProf;
+    LONGS_EQUAL(0, defaultProf.bookSelectionWindow);
+
+    // 1. bookSelectionWindow = 0 always returns the exact same move over 200 probes
+    octi::OctiBotEngine detBot(octi::BotDifficulty::GRANDMASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile detProf = detBot.tuningProfile();
+    detProf.useOpeningBook = true;
+    detProf.rootScoreJitter = 50; // Even with non-zero rootScoreJitter, bookSelectionWindow = 0 is deterministic
+    detProf.bookSelectionWindow = 0;
+    detBot.setTuningProfile(detProf);
+
+    std::string firstDetMove;
+    CHECK_TRUE(detBot.probeOpeningBook(b2p3, firstDetMove));
+    CHECK_FALSE(firstDetMove.empty());
+    for (int i = 0; i < 200; ++i) {
+        std::string mv;
+        CHECK_TRUE(detBot.probeOpeningBook(b2p3, mv));
+        STRCMP_EQUAL(firstDetMove.c_str(), mv.c_str());
+    }
+
+    // 2. bookSelectionWindow > 0 (with rootScoreJitter = 0, as in Expert/Master/Grandmaster)
+    // returns more than one distinct move over 200 probes of a position with near-equal candidates
+    octi::OctiBotEngine varBot(octi::BotDifficulty::GRANDMASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile varProf = varBot.tuningProfile();
+    CHECK_EQUAL(0, varProf.rootScoreJitter);
+    CHECK_TRUE(varProf.bookSelectionWindow > 0);
+
+    std::set<std::string> distinctMoves;
+    for (int i = 0; i < 200; ++i) {
+        std::string mv;
+        CHECK_TRUE(varBot.probeOpeningBook(b2p3, mv));
+        CHECK_FALSE(mv.empty());
+        distinctMoves.insert(mv);
+    }
+    CHECK_TRUE(distinctMoves.size() >= 2);
+}
+
+TEST(OctiOpeningBookAllVariants, FourPlayerBasesToWinKeyInvarianceAndStandardEntriesPreserved)
+{
+    // 1. 4P table with GAME_BASES_1 and with GAME_BASES_3 produce identical canonical opening hashes
+    octi::OctiBoard b4p1(octi::GAME_MODE_4, false, false, octi::GAME_BASES_1);
+    b4p1.getGame()->start(octi::PLAYER_A);
+
+    octi::OctiBoard b4p3(octi::GAME_MODE_4, false, false, octi::GAME_BASES_3);
+    b4p3.getGame()->start(octi::PLAYER_A);
+
+    std::uint64_t key4p1 = octi::OctiBotEngine::computeCanonicalOpeningHash(b4p1);
+    std::uint64_t key4p3 = octi::OctiBotEngine::computeCanonicalOpeningHash(b4p3);
+    CHECK_EQUAL(key4p1, key4p3);
+
+    // Transposition-table static hash remains unchanged
+    CHECK_EQUAL(0x5C3D5244B85BC3A6ULL, octi::OctiBotEngine::computePositionHashStatic(b4p3));
+
+    // Both 4P GAME_BASES_1 and GAME_BASES_3 hit the opening book from initial position
+    octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile detProf = bot.tuningProfile();
+    detProf.bookSelectionWindow = 0;
+    bot.setTuningProfile(detProf);
+
+    std::string move4p1;
+    std::string move4p3;
+    int score4p1 = 0, depth4p1 = 0;
+    int score4p3 = 0, depth4p3 = 0;
+    CHECK_TRUE(bot.probeOpeningBook(b4p1, move4p1, &score4p1, &depth4p1));
+    CHECK_TRUE(bot.probeOpeningBook(b4p3, move4p3, &score4p3, &depth4p3));
+    STRCMP_EQUAL("33+a", move4p1.c_str());
+    STRCMP_EQUAL("33+a", move4p3.c_str());
+    LONGS_EQUAL(score4p1, score4p3);
+    LONGS_EQUAL(8, depth4p1);
+    LONGS_EQUAL(8, depth4p3);
+
+    // Also verify ply 1..4 4P hits with both GAME_BASES_1 and GAME_BASES_3
+    b4p1.getGame()->move("33+a");
+    b4p3.getGame()->move("33+a");
+    CHECK_EQUAL(octi::OctiBotEngine::computeCanonicalOpeningHash(b4p1),
+                octi::OctiBotEngine::computeCanonicalOpeningHash(b4p3));
+    std::string reply4p1, reply4p3;
+    CHECK_TRUE(bot.probeOpeningBook(b4p1, reply4p1));
+    CHECK_TRUE(bot.probeOpeningBook(b4p3, reply4p3));
+    STRCMP_EQUAL(reply4p1.c_str(), reply4p3.c_str());
+
+    // 2. Existing standard-variant (2P_3B, 2P_1B, OFK) keys and entries unchanged
+    octi::OctiBoard b2p3(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b2p3.getGame()->start(octi::PLAYER_A);
+    CHECK_EQUAL(0x3BCD8E7CEAE1563EULL, octi::OctiBotEngine::computePositionHashStatic(b2p3));
+    CHECK_EQUAL(0x3BCD8E7CEAE1563EULL, octi::OctiBotEngine::computeCanonicalOpeningHash(b2p3));
+
+    octi::OctiBoard b2p1(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+    b2p1.getGame()->start(octi::PLAYER_A);
+    CHECK_EQUAL(0x26BE80163B6578BBULL, octi::OctiBotEngine::computePositionHashStatic(b2p1));
+    CHECK_EQUAL(0x26BE80163B6578BBULL, octi::OctiBotEngine::computeCanonicalOpeningHash(b2p1));
+
+    octi::OctiBoard bOfk(octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_1);
+    bOfk.getGame()->start(octi::PLAYER_A);
+    CHECK_EQUAL(0xBF20205531084330ULL, octi::OctiBotEngine::computeCanonicalOpeningHash(bOfk));
+
+    LONGS_EQUAL(2058, static_cast<long>(octi::g_openingBookEntryCount));
+}
+
+TEST(OctiOpeningBookAllVariants, CompiledOpeningBookHitsAll13VariantsAndHumanLossLines)
+{
+    octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    octi::BotTuningProfile detProf = bot.tuningProfile();
+    detProf.useOpeningBook = true;
+    detProf.rootScoreJitter = 0;
+    detProf.bookSelectionWindow = 0;
+    bot.setTuningProfile(detProf);
+
+    // 1. Compiled-in book hits at ply 0 across all 13 variants at depth 8
+    struct VariantInitCase {
+        octi::OctiGameMode mode;
+        octi::OctiGameBases bases;
+        bool sp;
+        bool ed;
+    };
+    const VariantInitCase all13[] = {
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, false, false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, false, true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, false, false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, false, true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, false, false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, false, true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  true  },
+        { octi::GAME_MODE_OFK, octi::GAME_BASES_1, false, false }
+    };
+    for (const auto &vc : all13) {
+        octi::OctiBoard b(vc.mode, vc.sp, vc.ed, vc.bases);
+        b.getGame()->start(octi::PLAYER_A);
+        std::string mv;
+        int sc = 0;
+        int dp = 0;
+        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+        CHECK_FALSE(mv.empty());
+        LONGS_EQUAL(8, dp);
+    }
+
+    // 2. All 4 4P variants hit identically with GAME_BASES_1 and GAME_BASES_3
+    for (bool sp : {false, true}) {
+        for (bool ed : {false, true}) {
+            octi::OctiBoard b1(octi::GAME_MODE_4, sp, ed, octi::GAME_BASES_1);
+            b1.getGame()->start(octi::PLAYER_A);
+            octi::OctiBoard b3(octi::GAME_MODE_4, sp, ed, octi::GAME_BASES_3);
+            b3.getGame()->start(octi::PLAYER_A);
+            CHECK_EQUAL(octi::OctiBotEngine::computeCanonicalOpeningHash(b1),
+                        octi::OctiBotEngine::computeCanonicalOpeningHash(b3));
+            std::string m1, m3;
+            int s1 = 0, s3 = 0, d1 = 0, d3 = 0;
+            CHECK_TRUE(bot.probeOpeningBook(b1, m1, &s1, &d1));
+            CHECK_TRUE(bot.probeOpeningBook(b3, m3, &s3, &d3));
+            STRCMP_EQUAL(m1.c_str(), m3.c_str());
+            LONGS_EQUAL(s1, s3);
+            LONGS_EQUAL(8, d1);
+            LONGS_EQUAL(8, d3);
+        }
+    }
+
+    // 3. Re-searched human-loss book lines return the updated depth-8 top moves
+    // (a) 2P 1-Base ply 1 after 33+b (Don Green game1 & game7): replaces 57+d (-3350) with 37+e (-3100)
+    {
+        octi::OctiBoard b(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        b.getGame()->start(octi::PLAYER_A);
+        b.getGame()->move("33+b");
+        std::string mv;
+        int sc = 0, dp = 0;
+        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+        CHECK_TRUE(mv != "57+d");
+        LONGS_EQUAL(-3100, sc);
+        LONGS_EQUAL(8, dp);
+    }
+    // (b) OFK ply 1 after 32+b (Don Green game2): replaces 26+d (-4143) with 36+e/46+e (-3343)
+    {
+        octi::OctiBoard b(octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_1);
+        b.getGame()->start(octi::PLAYER_A);
+        b.getGame()->move("32+b");
+        std::string mv;
+        int sc = 0, dp = 0;
+        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+        CHECK_TRUE(mv != "26+d");
+        LONGS_EQUAL(-3343, sc);
+        LONGS_EQUAL(8, dp);
+    }
+    // (c) OFK ply 2 after 32+a 36+d (Don Green game4): replaces 22+b (-28) with 42+a (-640)
+    {
+        octi::OctiBoard b(octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_1);
+        b.getGame()->start(octi::PLAYER_A);
+        b.getGame()->move("32+a");
+        b.getGame()->move("36+d");
+        std::string mv;
+        int sc = 0, dp = 0;
+        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+        CHECK_TRUE(mv != "22+b");
+        LONGS_EQUAL(-640, sc);
+        LONGS_EQUAL(8, dp);
+    }
+    // (d) OFK ply 2 after 32+a 46+f (Don Green game0 & game3): replaces 22+b (-620) with 42+h (-461)
+    {
+        octi::OctiBoard b(octi::GAME_MODE_OFK, false, false, octi::GAME_BASES_1);
+        b.getGame()->start(octi::PLAYER_A);
+        b.getGame()->move("32+a");
+        b.getGame()->move("46+f");
+        std::string mv;
+        int sc = 0, dp = 0;
+        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+        CHECK_TRUE(mv != "22+b");
+        LONGS_EQUAL(-461, sc);
+        LONGS_EQUAL(8, dp);
+    }
+}
+
+TEST(OctiOpeningBookAllVariants, BookGenNewVariantModesFlagsAndAll13Expansion)
+{
+    std::string bookGenBin;
+    if (std::filesystem::exists("build/octi_book_gen")) {
+        bookGenBin = "./build/octi_book_gen";
+    } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
+        bookGenBin = "./build/asan/octi_book_gen";
+    } else if (std::filesystem::exists("./octi_book_gen")) {
+        bookGenBin = "./octi_book_gen";
+    }
+    CHECK_FALSE(bookGenBin.empty());
+
+    std::filesystem::path tmpDir =
+        std::filesystem::temp_directory_path() / "octi_book_gen_all13_test";
+    std::error_code ec;
+    std::filesystem::remove_all(tmpDir, ec);
+    std::filesystem::create_directories(tmpDir, ec);
+
+    std::string jsonSp = (tmpDir / "sp.json").string();
+    std::string hxxSp = (tmpDir / "sp.hxx").string();
+    std::string javaSp = (tmpDir / "sp.java").string();
+
+    // 1. Test --mode 2P_3B --super-prongs
+    std::string cmdSp =
+        bookGenBin + " --no-resume --mode 2P_3B --super-prongs --max-ply 1 --search-depth 1"
+        " --out-json \"" + jsonSp + "\" --out-header \"" + hxxSp + "\" --out-java \"" + javaSp + "\" > /dev/null 2>&1";
+    CHECK_EQUAL(0, std::system(cmdSp.c_str()));
+
+    octi::OctiBoard b2p3Sp(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    b2p3Sp.getGame()->start(octi::PLAYER_A);
+    std::uint64_t key2p3Sp = octi::OctiBotEngine::computeCanonicalOpeningHash(b2p3Sp);
+
+    {
+        std::ifstream in(jsonSp);
+        nlohmann::json j;
+        in >> j;
+        LONGS_EQUAL(1, j["entryCount"].get<int>());
+        STRCMP_EQUAL("2P_3B_SP", j["entries"][0]["variant"].get<std::string>().c_str());
+        std::uint64_t parsedKey = std::stoull(j["entries"][0]["canonicalKey"].get<std::string>(), nullptr, 16);
+        CHECK_EQUAL(key2p3Sp, parsedKey);
+    }
+
+    // 2. Test --mode all13 --max-ply 1 --search-depth 1 expands all 13 variants
+    std::string json13 = (tmpDir / "all13.json").string();
+    std::string hxx13 = (tmpDir / "all13.hxx").string();
+    std::string java13 = (tmpDir / "all13.java").string();
+    std::string cmd13 =
+        bookGenBin + " --no-resume --mode all13 --max-ply 1 --search-depth 1"
+        " --out-json \"" + json13 + "\" --out-header \"" + hxx13 + "\" --out-java \"" + java13 + "\" > /dev/null 2>&1";
+    CHECK_EQUAL(0, std::system(cmd13.c_str()));
+
+    std::ifstream in13(json13);
+    nlohmann::json j13;
+    in13 >> j13;
+    LONGS_EQUAL(13, j13["entryCount"].get<int>());
+
+    // Build an in-memory OpeningBookEntry table from j13 and verify all 13 variants
+    // (plus 4P with GAME_BASES_1 and GAME_BASES_3) hit!
+    std::vector<std::string> moveStrings;
+    moveStrings.reserve(39);
+    std::vector<octi::OpeningBookEntry> entries;
+    for (const auto &item : j13["entries"]) {
+        octi::OpeningBookEntry e{};
+        e.canonicalKey = std::stoull(item["canonicalKey"].get<std::string>(), nullptr, 16);
+        e.depth = static_cast<std::uint8_t>(item["depth"].get<int>());
+        const auto &cands = item["candidates"];
+        e.numCandidates = static_cast<std::uint8_t>(std::min<std::size_t>(3, cands.size()));
+        for (std::size_t c = 0; c < 3; ++c) {
+            if (c < e.numCandidates) {
+                moveStrings.push_back(cands[c]["move"].get<std::string>());
+                e.candidates[c].move = moveStrings.back().c_str();
+                e.candidates[c].score = static_cast<std::int16_t>(cands[c]["score"].get<int>());
+            } else {
+                e.candidates[c].move = nullptr;
+                e.candidates[c].score = 0;
+            }
+        }
+        entries.push_back(e);
+    }
+    std::sort(entries.begin(), entries.end(),
+              [](const octi::OpeningBookEntry &a, const octi::OpeningBookEntry &b) {
+                  return a.canonicalKey < b.canonicalKey;
+              });
+
+    octi::BotTuningProfile prof;
+    prof.useOpeningBook = true;
+    prof.bookSelectionWindow = 0;
+    std::uint64_t rng = 0x5EED2026ULL;
+
+    struct VariantCheck {
+        octi::OctiGameMode mode;
+        octi::OctiGameBases bases;
+        bool sp;
+        bool ed;
+    };
+    const VariantCheck checks[] = {
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, false, false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, false, true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, false, false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  false },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, false, true  },
+        { octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, false, false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_1, false, false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_1, true,  false },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, false, true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_1, false, true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  true  },
+        { octi::GAME_MODE_4,   octi::GAME_BASES_1, true,  true  },
+        { octi::GAME_MODE_OFK, octi::GAME_BASES_1, false, false }
+    };
+    for (const auto &vc : checks) {
+        octi::OctiBoard b(vc.mode, vc.sp, vc.ed, vc.bases);
+        b.getGame()->start(octi::PLAYER_A);
+        std::string outMove;
+        CHECK_TRUE(octi::OctiBotEngine::probeOpeningBookTable(
+            b, entries.data(), entries.size(), prof, rng, outMove));
+        CHECK_FALSE(outMove.empty());
+    }
+
+    std::filesystem::remove_all(tmpDir, ec);
 }
 
 int main(int argc, char **argv)

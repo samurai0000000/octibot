@@ -1741,6 +1741,7 @@ BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty diffic
         p.lazySmpThreads = 1;
         p.compositeMoveMaxPly = -1;
         p.rootScoreJitter = 160;
+        p.bookSelectionWindow = 160;
         p.closestPodDistWeight = 280;
         p.secondClosestPodDistWeight = 0;
         p.oneStepBaseThreatBonus = 7500;
@@ -1771,6 +1772,7 @@ BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty diffic
         p.lazySmpThreads = 2;
         p.compositeMoveMaxPly = 1;
         p.rootScoreJitter = 20;
+        p.bookSelectionWindow = 25;
         p.closestPodDistWeight = 320;
         p.secondClosestPodDistWeight = 150;
         p.oneStepBaseThreatBonus = 8500;
@@ -1801,6 +1803,7 @@ BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty diffic
         p.lazySmpThreads = 4;
         p.compositeMoveMaxPly = 2;
         p.rootScoreJitter = 0;
+        p.bookSelectionWindow = 25;
         p.closestPodDistWeight = 350;
         p.secondClosestPodDistWeight = 220;
         p.oneStepBaseThreatBonus = 9500;
@@ -1831,6 +1834,7 @@ BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty diffic
         p.lazySmpThreads = 4;
         p.compositeMoveMaxPly = 3;
         p.rootScoreJitter = 0;
+        p.bookSelectionWindow = 25;
         p.closestPodDistWeight = 350;
         p.secondClosestPodDistWeight = 220;
         p.oneStepBaseThreatBonus = 9500;
@@ -1862,6 +1866,7 @@ BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty diffic
         p.lazySmpThreads = 4;
         p.compositeMoveMaxPly = 2;
         p.rootScoreJitter = 0;
+        p.bookSelectionWindow = 25;
         p.closestPodDistWeight = 350;
         p.secondClosestPodDistWeight = 220;
         p.oneStepBaseThreatBonus = 9500;
@@ -1965,7 +1970,8 @@ OctiDir mirrorDirHorizontal(OctiDir d)
 }
 
 std::uint64_t computePositionHashInternal(const OctiBoard &board,
-                                          bool mirrorHorizontal)
+                                          bool mirrorHorizontal,
+                                          bool exclude4PBases = false)
 {
     std::uint64_t h = 0;
     const OctiGame *game = board.getGame();
@@ -1978,8 +1984,10 @@ std::uint64_t computePositionHashInternal(const OctiBoard &board,
     OctiGameMode mode = board.getGameMode();
     h ^= g_zobrist.mode[static_cast<int>(mode) % 4];
     h ^= g_zobrist.turn[static_cast<int>(game->getTurn()) % 5];
-    int btw = std::min(4, std::max(0, game->getBasesToWin()));
-    h ^= g_zobrist.basesToWin[btw];
+    if (!exclude4PBases || mode != GAME_MODE_4) {
+        int btw = std::min(4, std::max(0, game->getBasesToWin()));
+        h ^= g_zobrist.basesToWin[btw];
+    }
     h ^= g_zobrist.edgeless[game->useEdgelessBoard() ? 1 : 0];
     h ^= g_zobrist.superProngs[game->useSuperProngs() ? 1 : 0];
 
@@ -2053,7 +2061,7 @@ std::uint64_t OctiBotEngine::computePositionHash(const OctiBoard &board) const
 std::uint64_t OctiBotEngine::computeCanonicalOpeningHash(const OctiBoard &board,
                                                          bool *outMirrored)
 {
-    std::uint64_t hDirect = computePositionHashInternal(board, false);
+    std::uint64_t hDirect = computePositionHashInternal(board, false, true);
     if (board.getGameMode() == GAME_MODE_4) {
         if (outMirrored) {
             *outMirrored = false;
@@ -2061,7 +2069,7 @@ std::uint64_t OctiBotEngine::computeCanonicalOpeningHash(const OctiBoard &board,
         return hDirect;
     }
 
-    std::uint64_t hMirror = computePositionHashInternal(board, true);
+    std::uint64_t hMirror = computePositionHashInternal(board, true, true);
     if (hMirror < hDirect) {
         if (outMirrored) {
             *outMirrored = true;
@@ -2234,16 +2242,18 @@ bool OctiBotEngine::probeOpeningBookTable(const OctiBoard &board,
     }
 
     int bestScore = validCands[0].score;
-    int window = (profile.rootScoreJitter > 0) ? profile.rootScoreJitter : 15;
+    int window = (profile.bookSelectionWindow > 0) ? profile.bookSelectionWindow : 0;
     std::size_t eligibleCount = 1;
-    for (std::size_t i = 1; i < validCands.size(); ++i) {
-        if (validCands[i].score >= bestScore - window) {
-            ++eligibleCount;
+    if (window > 0) {
+        for (std::size_t i = 1; i < validCands.size(); ++i) {
+            if (validCands[i].score >= bestScore - window) {
+                ++eligibleCount;
+            }
         }
     }
 
     std::size_t chosenIdx = 0;
-    if (eligibleCount > 1 && profile.rootScoreJitter > 0) {
+    if (eligibleCount > 1 && window > 0) {
         std::uint64_t x = rngState ? rngState : 0x5EED2026ULL;
         x ^= x << 13;
         x ^= x >> 7;
@@ -3477,6 +3487,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     int effBudgetMs = (timeBudgetMs > 0) ? std::max(10, timeBudgetMs) : 0;
     _profile.useOpeningBook = false;
     _profile.rootScoreJitter = 0;
+    _profile.bookSelectionWindow = 0;
     _profile.maxSearchDepth = maxTargetDepth;
     _profile.timeBudgetMs = effBudgetMs;
     _timeBudgetMs = effBudgetMs;
