@@ -48,7 +48,7 @@ struct OpeningBookEntry {
 
 struct BookMoveScore {
     std::string move;
-    std::int16_t score = 0;
+    std::int32_t score = 0;
 };
 
 struct BotTuningProfile {

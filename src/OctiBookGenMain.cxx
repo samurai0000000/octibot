@@ -642,6 +642,13 @@ bool atomicWriteTextFile(const std::string &path,
     return true;
 }
 
+std::int16_t clampScore16(std::int32_t s)
+{
+    if (s > 32000) return 32000;
+    if (s < -32000) return -32000;
+    return static_cast<std::int16_t>(s);
+}
+
 bool writeHeaderFile(const std::string &path,
                      const std::map<std::uint64_t, GeneratedBookEntry> &bookMap)
 {
@@ -678,7 +685,7 @@ bool writeHeaderFile(const std::string &path,
             }
             if (c < numCands) {
                 out << "{ \"" << e.candidates[c].move << "\", "
-                    << e.candidates[c].score << " }";
+                    << clampScore16(e.candidates[c].score) << " }";
             } else {
                 out << "{ nullptr, 0 }";
             }
@@ -742,7 +749,7 @@ bool writeJsonFile(const std::string &path,
         for (std::size_t c = 0; c < numCands; ++c) {
             nlohmann::json cj;
             cj["move"] = e.candidates[c].move;
-            cj["score"] = e.candidates[c].score;
+            cj["score"] = clampScore16(e.candidates[c].score);
             candsArr.push_back(cj);
         }
         item["candidates"] = candsArr;
@@ -813,7 +820,7 @@ bool writeJavaFile(const std::string &path,
             for (std::size_t c = 0; c < numCands; ++c) {
                 out << ",\n            new OctiBotEngine.OpeningBookCandidate(\""
                     << e.candidates[c].move << "\", "
-                    << e.candidates[c].score << ")";
+                    << clampScore16(e.candidates[c].score) << ")";
             }
             out << ")" << (idx + 1 < chunkEnd ? "," : "") << "\n";
         }
@@ -881,7 +888,7 @@ bool updateJsFileWithMarkers(
                 << "    candidates: [\n";
         for (std::size_t c = 0; c < numCands; ++c) {
             jsBlock << "      { move: \"" << e.candidates[c].move
-                    << "\", score: " << e.candidates[c].score << " }"
+                    << "\", score: " << clampScore16(e.candidates[c].score) << " }"
                     << (c + 1 < numCands ? "," : "") << "\n";
         }
         jsBlock << "    ]\n"
@@ -1002,7 +1009,7 @@ bool loadJsonFile(const std::string &path,
                 }
                 octi::BookMoveScore bms;
                 bms.move = cj["move"].get<std::string>();
-                bms.score = static_cast<std::int16_t>(cj.value("score", 0));
+                bms.score = clampScore16(cj.value("score", 0));
                 e.candidates.push_back(bms);
             }
         }
@@ -1334,7 +1341,8 @@ int main(int argc, char **argv)
                         }
                     }
                     if (!dup) {
-                        entry.candidates.push_back({canonMove, topMoves[i].score});
+                        entry.candidates.push_back(
+                            {canonMove, clampScore16(topMoves[i].score)});
                     }
                 }
 
@@ -1354,7 +1362,7 @@ int main(int argc, char **argv)
                 std::string bestCandMove =
                     entry.candidates.empty() ? "-" : entry.candidates[0].move;
                 std::int16_t bestCandScore =
-                    entry.candidates.empty() ? 0 : entry.candidates[0].score;
+                    entry.candidates.empty() ? 0 : clampScore16(entry.candidates[0].score);
                 int entryDepth = entry.depth;
                 bool didIntraCheckpoint = false;
                 std::size_t currentBookSize = 0;
