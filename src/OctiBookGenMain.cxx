@@ -93,6 +93,8 @@ int detectDefaultThreads()
 
 struct BookGenConfig {
     std::string mode = "all";
+    bool superProngs = false;
+    bool edgeless = false;
     int maxPly = 6;
     int searchDepth = 9;
     int timeBudgetMs = 0;
@@ -106,7 +108,11 @@ struct BookGenConfig {
     std::string outJava = ".book/OctiOpeningBookData.java";
     std::vector<std::string> outJs;
     std::string fromJson;
+    std::set<std::uint64_t> reSearchKeys;
+    bool reSearchOnly = false;
     bool explicitMode = false;
+    bool explicitSuperProngs = false;
+    bool explicitEdgeless = false;
     bool explicitMaxPly = false;
     bool explicitSearchDepth = false;
     bool explicitTimeBudgetMs = false;
@@ -173,12 +179,25 @@ void printUsage(const char *progName)
         << "Options:\n"
         << "  -h, --help                 Show this help message and exit\n"
         << "  --mode <variant>           Game variant(s) to expand:\n"
-        << "                               all     = 2P (3-Base & 1-Base), OFK (7x7), 4P (default)\n"
-        << "                               2P      = 2-Player 3-Base standard\n"
-        << "                               2P_1B   = 2-Player 1-Base fast victory\n"
-        << "                               2P_ALL  = Both 2P 3-Base and 2P 1-Base\n"
-        << "                               OFK     = OCTI for Kids (6x7)\n"
-        << "                               4P      = 4-Player 2v2 Coalitions\n"
+        << "                               all        = 2P (3-Base & 1-Base), OFK (7x7), 4P (default)\n"
+        << "                               all13      = All 13 variants (2P 3B/1B & 4P x SP/ED + OFK)\n"
+        << "                               new9       = All 9 non-standard SP/ED variants\n"
+        << "                               2P / 2P_3B = 2-Player 3-Base standard\n"
+        << "                               2P_3B_SP   = 2-Player 3-Base with superprongs\n"
+        << "                               2P_3B_ED   = 2-Player 3-Base on edgeless board\n"
+        << "                               2P_3B_SPED = 2-Player 3-Base with superprongs + edgeless\n"
+        << "                               2P_1B      = 2-Player 1-Base fast victory\n"
+        << "                               2P_1B_SP   = 2-Player 1-Base with superprongs\n"
+        << "                               2P_1B_ED   = 2-Player 1-Base on edgeless board\n"
+        << "                               2P_1B_SPED = 2-Player 1-Base with superprongs + edgeless\n"
+        << "                               2P_ALL     = Both 2P 3-Base and 2P 1-Base\n"
+        << "                               4P         = 4-Player 2v2 Coalitions\n"
+        << "                               4P_SP      = 4-Player with superprongs\n"
+        << "                               4P_ED      = 4-Player on edgeless board\n"
+        << "                               4P_SPED    = 4-Player with superprongs + edgeless\n"
+        << "                               OFK        = OCTI for Kids (6x7)\n"
+        << "  --super-prongs             Enable superprongs rule for base mode(s) (default: off)\n"
+        << "  --edgeless                 Enable edgeless wraparound board for base mode(s) (default: off)\n"
         << "  --max-ply <int>            Number of opening plies to expand (default: 6)\n"
         << "  --search-depth <int>       Alpha-beta search depth per position (default: 9)\n"
         << "  --time-budget-ms <int>     Max wall-clock budget per position in ms, 0=unlimited (default: 0)\n"
@@ -192,7 +211,10 @@ void printUsage(const char *progName)
         << "  --out-json <path>          Output JSON playbook path (default: .book/opening_book.json)\n"
         << "  --out-java <path>          Output Java class path (default: .book/OctiOpeningBookData.java)\n"
         << "  --out-js <path>            Repeatable JS/HTML/C++ file path with BEGIN/END_OPENING_BOOK_DATA markers\n"
-        << "  --from-json <path>         Load existing JSON playbook and write requested outputs without searching\n\n"
+        << "  --from-json <path>         Load existing JSON playbook and write requested outputs without searching\n"
+        << "  --re-search-key <hex>      Repeatable canonical key to force re-searching at --search-depth\n"
+        << "  --re-search-keys-file <f>  File with one hex canonical key per line to force re-searching\n"
+        << "  --re-search-only           Re-search existing matching book entries in place without expanding new children\n\n"
         << "Recommended High-Core Profiles:\n"
         << "  1. Standard Book (6 plies, depth 9, pure depth-bound):\n"
         << "     ./core/build/octi_book_gen --mode all --max-ply 6 --search-depth 9 \\\n"
@@ -226,6 +248,12 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
         } else if (arg == "--mode" && i + 1 < argc) {
             cfg.mode = argv[++i];
             cfg.explicitMode = true;
+        } else if (arg == "--super-prongs") {
+            cfg.superProngs = true;
+            cfg.explicitSuperProngs = true;
+        } else if (arg == "--edgeless") {
+            cfg.edgeless = true;
+            cfg.explicitEdgeless = true;
         } else if (arg == "--max-ply" && i + 1 < argc) {
             cfg.maxPly = std::atoi(argv[++i]);
             cfg.explicitMaxPly = true;
@@ -262,6 +290,37 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
             cfg.outJs.push_back(argv[++i]);
         } else if (arg == "--from-json" && i + 1 < argc) {
             cfg.fromJson = argv[++i];
+        } else if (arg == "--re-search-key" && i + 1 < argc) {
+            std::string kStr = argv[++i];
+            try {
+                std::uint64_t k = std::stoull(kStr, nullptr, 16);
+                cfg.reSearchKeys.insert(k);
+            } catch (...) {
+                std::cerr << "Error: Invalid hex key for --re-search-key: '" << kStr << "'\n";
+                return false;
+            }
+        } else if (arg == "--re-search-keys-file" && i + 1 < argc) {
+            std::string fPath = argv[++i];
+            std::ifstream kf(fPath);
+            if (!kf.is_open()) {
+                std::cerr << "Error: Failed to open --re-search-keys-file: '" << fPath << "'\n";
+                return false;
+            }
+            std::string line;
+            while (std::getline(kf, line)) {
+                std::istringstream iss(line);
+                std::string tok;
+                if (iss >> tok && !tok.empty() && tok[0] != '#') {
+                    try {
+                        cfg.reSearchKeys.insert(std::stoull(tok, nullptr, 16));
+                    } catch (...) {
+                        std::cerr << "Error: Invalid hex key in '" << fPath << "': '" << tok << "'\n";
+                        return false;
+                    }
+                }
+            }
+        } else if (arg == "--re-search-only") {
+            cfg.reSearchOnly = true;
         } else {
             std::cerr << "Error: Unknown or incomplete option '" << arg << "'\n\n";
             return false;
@@ -293,54 +352,130 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
     }
 
     std::string m = toUpperAscii(cfg.mode);
-    if (m != "ALL" && m != "2P" && m != "2P_3B" && m != "2P_1B" &&
-        m != "2P_ALL" && m != "OFK" && m != "4P") {
-        std::cerr << "Error:Unsupported --mode '" << cfg.mode
-                  << "' (expected all, 2P, 2P_1B, 2P_ALL, OFK, or 4P)\n";
+    static const std::set<std::string> kValidModes = {
+        "ALL", "ALL13", "NEW9",
+        "2P", "2P_3B", "2P_3B_SP", "2P_3B_ED", "2P_3B_SPED",
+        "2P_1B", "2P_1B_SP", "2P_1B_ED", "2P_1B_SPED",
+        "2P_ALL",
+        "4P", "4P_SP", "4P_ED", "4P_SPED",
+        "OFK"
+    };
+    if (kValidModes.find(m) == kValidModes.end()) {
+        std::cerr << "Error: Unsupported --mode '" << cfg.mode << "'\n";
+        return false;
+    }
+    if (m == "OFK" && (cfg.superProngs || cfg.edgeless)) {
+        std::cerr << "Error: OFK mode does not support --super-prongs or --edgeless\n";
         return false;
     }
 
     return true;
 }
 
-bool variantMatchesMode(const std::string &variantLabel,
-                        const std::string &modeFilter)
+struct VariantSpec {
+    const char *code;
+    const char *label;
+    octi::OctiGameMode mode;
+    octi::OctiGameBases bases;
+    bool superProngs;
+    bool edgeless;
+};
+
+const std::vector<VariantSpec> &allVariantSpecs()
 {
-    std::string m = toUpperAscii(modeFilter);
-    if (m == "ALL" || variantLabel.empty()) {
-        return true;
-    }
-    if (m == "2P" || m == "2P_3B") {
-        return variantLabel == "2P 3-Base";
-    }
-    if (m == "2P_1B") {
-        return variantLabel == "2P 1-Base";
-    }
-    if (m == "2P_ALL") {
-        return variantLabel == "2P 3-Base" || variantLabel == "2P 1-Base";
-    }
-    if (m == "OFK") {
-        return variantLabel == "OFK";
-    }
-    if (m == "4P") {
-        return variantLabel == "4P";
-    }
-    return true;
+    static const std::vector<VariantSpec> kSpecs = {
+        { "2P_3B",      "2P 3-Base",  octi::GAME_MODE_2,   octi::GAME_BASES_3, false, false },
+        { "2P_3B_SP",   "2P_3B_SP",   octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  false },
+        { "2P_3B_ED",   "2P_3B_ED",   octi::GAME_MODE_2,   octi::GAME_BASES_3, false, true  },
+        { "2P_3B_SPED", "2P_3B_SPED", octi::GAME_MODE_2,   octi::GAME_BASES_3, true,  true  },
+        { "2P_1B",      "2P 1-Base",  octi::GAME_MODE_2,   octi::GAME_BASES_1, false, false },
+        { "2P_1B_SP",   "2P_1B_SP",   octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  false },
+        { "2P_1B_ED",   "2P_1B_ED",   octi::GAME_MODE_2,   octi::GAME_BASES_1, false, true  },
+        { "2P_1B_SPED", "2P_1B_SPED", octi::GAME_MODE_2,   octi::GAME_BASES_1, true,  true  },
+        { "4P",         "4P",         octi::GAME_MODE_4,   octi::GAME_BASES_3, false, false },
+        { "4P_SP",      "4P_SP",      octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  false },
+        { "4P_ED",      "4P_ED",      octi::GAME_MODE_4,   octi::GAME_BASES_3, false, true  },
+        { "4P_SPED",    "4P_SPED",    octi::GAME_MODE_4,   octi::GAME_BASES_3, true,  true  },
+        { "OFK",        "OFK",        octi::GAME_MODE_OFK, octi::GAME_BASES_1, false, false }
+    };
+    return kSpecs;
 }
 
-std::vector<FrontierNode> buildInitialSeeds(const std::string &modeFilter)
+bool specMatchesConfig(const VariantSpec &spec, const BookGenConfig &cfg)
 {
-    std::string m = toUpperAscii(modeFilter);
+    std::string m = toUpperAscii(cfg.mode);
+    if (m == "ALL13") {
+        if (cfg.explicitSuperProngs && spec.superProngs != cfg.superProngs) {
+            return false;
+        }
+        if (cfg.explicitEdgeless && spec.edgeless != cfg.edgeless) {
+            return false;
+        }
+        return true;
+    }
+    if (m == "NEW9") {
+        return spec.superProngs || spec.edgeless;
+    }
+    if (m == "ALL") {
+        return spec.superProngs == cfg.superProngs &&
+               spec.edgeless == cfg.edgeless;
+    }
+    if (m == "2P" || m == "2P_3B") {
+        return spec.mode == octi::GAME_MODE_2 &&
+               spec.bases == octi::GAME_BASES_3 &&
+               spec.superProngs == cfg.superProngs &&
+               spec.edgeless == cfg.edgeless;
+    }
+    if (m == "2P_1B") {
+        return spec.mode == octi::GAME_MODE_2 &&
+               spec.bases == octi::GAME_BASES_1 &&
+               spec.superProngs == cfg.superProngs &&
+               spec.edgeless == cfg.edgeless;
+    }
+    if (m == "2P_ALL") {
+        return spec.mode == octi::GAME_MODE_2 &&
+               spec.superProngs == cfg.superProngs &&
+               spec.edgeless == cfg.edgeless;
+    }
+    if (m == "4P") {
+        return spec.mode == octi::GAME_MODE_4 &&
+               spec.superProngs == cfg.superProngs &&
+               spec.edgeless == cfg.edgeless;
+    }
+    if (m == "OFK") {
+        return spec.mode == octi::GAME_MODE_OFK &&
+               !cfg.superProngs && !cfg.edgeless;
+    }
+    return m == spec.code;
+}
+
+bool variantMatchesConfig(const std::string &variantLabel,
+                          const BookGenConfig &cfg)
+{
+    if (variantLabel.empty()) {
+        return true;
+    }
+    for (const auto &spec : allVariantSpecs()) {
+        if (variantLabel == spec.label || variantLabel == spec.code) {
+            return specMatchesConfig(spec, cfg);
+        }
+    }
+    return false;
+}
+
+std::vector<FrontierNode> buildInitialSeeds(const BookGenConfig &cfg)
+{
     std::vector<FrontierNode> seeds;
 
-    auto addSeed = [&seeds](octi::OctiGameMode mode,
-                            octi::OctiGameBases bases,
-                            const std::string &label) {
-        octi::OctiBoard board(mode, false, false, bases);
+    for (const auto &spec : allVariantSpecs()) {
+        if (!specMatchesConfig(spec, cfg)) {
+            continue;
+        }
+        octi::OctiBoard board(spec.mode, spec.superProngs, spec.edgeless, spec.bases);
         board.suppressBoardUpdateNotification(true);
         octi::OctiGame *game = board.getGame();
         if (!game) {
-            return;
+            continue;
         }
         game->start(octi::PLAYER_A);
 
@@ -348,23 +483,10 @@ std::vector<FrontierNode> buildInitialSeeds(const std::string &modeFilter)
         node.canonicalKey = octi::OctiBotEngine::computeCanonicalOpeningHash(
             board, &node.mirrored);
         node.ply = 0;
-        node.variantLabel = label;
+        node.variantLabel = spec.label;
         node.positionStr = board.toPositionString();
         node.moveHistoryDesc = "initial";
         seeds.push_back(node);
-    };
-
-    if (m == "ALL" || m == "2P" || m == "2P_3B" || m == "2P_ALL") {
-        addSeed(octi::GAME_MODE_2, octi::GAME_BASES_3, "2P 3-Base");
-    }
-    if (m == "ALL" || m == "2P_1B" || m == "2P_ALL") {
-        addSeed(octi::GAME_MODE_2, octi::GAME_BASES_1, "2P 1-Base");
-    }
-    if (m == "ALL" || m == "OFK") {
-        addSeed(octi::GAME_MODE_OFK, octi::GAME_BASES_1, "OFK");
-    }
-    if (m == "ALL" || m == "4P") {
-        addSeed(octi::GAME_MODE_4, octi::GAME_BASES_3, "4P");
     }
 
     return seeds;
@@ -851,6 +973,18 @@ bool loadJsonFile(const std::string &path,
         e.variantLabel = item.value("variant", std::string(""));
         e.moveHistoryDesc = item.value("history", std::string(""));
         e.positionStr = item.value("position", std::string(""));
+        if (!e.positionStr.empty()) {
+            try {
+                octi::OctiBoard b;
+                b.suppressBoardUpdateNotification(true);
+                b.fromPositionString(e.positionStr);
+                if (b.getGame()) {
+                    e.canonicalKey =
+                        octi::OctiBotEngine::computeCanonicalOpeningHash(b);
+                }
+            } catch (...) {
+            }
+        }
         if (item.contains("candidates") && item["candidates"].is_array()) {
             for (const auto &cj : item["candidates"]) {
                 if (!cj.is_object() || !cj.contains("move")) {
@@ -956,7 +1090,7 @@ int main(int argc, char **argv)
               << "====================================================================\n"
               << std::flush;
 
-    std::vector<FrontierNode> frontier = buildInitialSeeds(cfg.mode);
+    std::vector<FrontierNode> frontier = buildInitialSeeds(cfg);
     if (frontier.empty()) {
         std::cerr << "Error: No initial board positions seeded for mode '"
                   << cfg.mode << "'\n";
@@ -975,7 +1109,7 @@ int main(int argc, char **argv)
         for (const auto &kv : bookMap) {
             const GeneratedBookEntry &e = kv.second;
             if (e.ply == ply && !e.positionStr.empty() &&
-                variantMatchesMode(e.variantLabel, cfg.mode)) {
+                variantMatchesConfig(e.variantLabel, cfg)) {
                 if (visitedKeys.find(e.canonicalKey) == visitedKeys.end()) {
                     visitedKeys.insert(e.canonicalKey);
                     FrontierNode node;
@@ -990,7 +1124,8 @@ int main(int argc, char **argv)
         }
 
         for (const auto &node : frontier) {
-            if (visitedKeys.find(node.canonicalKey) == visitedKeys.end()) {
+            if (!cfg.reSearchOnly &&
+                visitedKeys.find(node.canonicalKey) == visitedKeys.end()) {
                 visitedKeys.insert(node.canonicalKey);
                 currentFrontier.push_back(node);
             }
@@ -1002,9 +1137,10 @@ int main(int argc, char **argv)
             break;
         }
 
-        bool expandChildren = (ply + 1 < cfg.maxPly);
+        bool isNonLeafPly = (ply + 1 < cfg.maxPly);
+        bool expandChildren = isNonLeafPly && !cfg.reSearchOnly;
         std::size_t storeCount = static_cast<std::size_t>(std::min(3, cfg.botBranch));
-        std::size_t expandCount = expandChildren
+        std::size_t expandCount = isNonLeafPly
             ? static_cast<std::size_t>(std::max(cfg.botBranch, cfg.oppBranch))
             : storeCount;
         std::size_t searchTopK = std::max(storeCount, expandCount);
@@ -1016,7 +1152,11 @@ int main(int argc, char **argv)
 
         for (const auto &node : currentFrontier) {
             auto it = bookMap.find(node.canonicalKey);
-            if (it != bookMap.end() && !it->second.candidates.empty()) {
+            bool forceReSearch = !cfg.reSearchKeys.empty()
+                ? (cfg.reSearchKeys.find(node.canonicalKey) != cfg.reSearchKeys.end())
+                : cfg.reSearchOnly;
+            if (!forceReSearch && it != bookMap.end() &&
+                !it->second.candidates.empty()) {
                 cachedNodes.push_back(node);
             } else {
                 pendingNodes.push_back(node);
@@ -1051,8 +1191,8 @@ int main(int argc, char **argv)
         // single-thread stragglers from starving the other worker threads.
         auto variantCostRank = [](const std::string &v) -> int {
             if (v == "OFK") return 0;
-            if (v == "2P 1-Base") return 1;
-            if (v == "2P 3-Base") return 2;
+            if (v.find("2P_1B") != std::string::npos || v == "2P 1-Base") return 1;
+            if (v.find("2P_3B") != std::string::npos || v == "2P 3-Base") return 2;
             return 3;
         };
         std::stable_sort(pendingNodes.begin(), pendingNodes.end(),
@@ -1095,6 +1235,7 @@ int main(int argc, char **argv)
             octi::BotTuningProfile prof = bot.tuningProfile();
             prof.useOpeningBook = false;
             prof.rootScoreJitter = 0;
+            prof.bookSelectionWindow = 0;
             prof.lazySmpThreads = smpPerWorker + (workerId < extraSmpWorkers ? 1 : 0);
             prof.maxSearchDepth = cfg.searchDepth;
             prof.timeBudgetMs = cfg.timeBudgetMs;

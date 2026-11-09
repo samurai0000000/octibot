@@ -884,6 +884,18 @@ struct OctiNetworkClient::Impl {
     SseRunner lobbyStream;
     SseRunner gameStream;
 
+    struct PooledRestClient {
+        std::unique_ptr<httplib::Client> client;
+        std::string endpoint;
+        int timeoutSec = 10;
+        std::uint64_t generation = 0;
+    };
+
+    static constexpr std::size_t kMaxIdleRestClients = 8;
+    mutable std::mutex _restPoolMutex;
+    mutable std::uint64_t _restPoolGeneration = 0;
+    mutable std::vector<PooledRestClient> _idleRestClients;
+
     Impl(const std::string &h, int p)
         : auth(std::make_shared<AuthState>(h, p)),
           host(h),
@@ -900,6 +912,8 @@ struct OctiNetworkClient::Impl {
     {
         lobbyStream.stop();
         gameStream.stop();
+        std::lock_guard<std::mutex> poolLock(_restPoolMutex);
+        _idleRestClients.clear();
     }
 
     void syncAuthStateLocked()
@@ -953,11 +967,16 @@ struct OctiNetworkClient::Impl {
 
     std::unique_ptr<httplib::Client> makeClient(int readTimeoutSec = 10) const
     {
-        if (port == 443) {
+        std::string curHost;
+        int curPort = 0;
+        auth->getEndpoint(curHost, curPort);
+
+        if (curPort == 443) {
 #ifdef CPPHTTPLIB_SSL_ENABLED
             try {
                 std::unique_ptr<httplib::Client> cli(
-                    new httplib::Client("https://" + host));
+                    new httplib::Client("https://" + curHost));
+                cli->set_keep_alive(true);
                 cli->set_connection_timeout(5, 0);
                 cli->set_read_timeout(readTimeoutSec, 0);
                 cli->set_write_timeout(10, 0);
@@ -972,7 +991,8 @@ struct OctiNetworkClient::Impl {
 
         try {
             std::unique_ptr<httplib::Client> cli(
-                new httplib::Client(host, port));
+                new httplib::Client(curHost, curPort));
+            cli->set_keep_alive(true);
             cli->set_connection_timeout(5, 0);
             cli->set_read_timeout(readTimeoutSec, 0);
             cli->set_write_timeout(10, 0);
@@ -980,6 +1000,61 @@ struct OctiNetworkClient::Impl {
         } catch (...) {
             return nullptr;
         }
+    }
+
+    std::unique_ptr<httplib::Client> acquireRestClient(
+        int timeoutSec,
+        std::string &outEndpoint,
+        std::uint64_t &outGen) const
+    {
+        std::string curHost;
+        int curPort = 0;
+        auth->getEndpoint(curHost, curPort);
+        outEndpoint = (curPort == 443)
+            ? ("https://" + curHost)
+            : ("http://" + curHost + ":" + std::to_string(curPort));
+
+        {
+            std::lock_guard<std::mutex> lock(_restPoolMutex);
+            outGen = _restPoolGeneration;
+            for (std::size_t i = _idleRestClients.size(); i > 0; --i) {
+                std::size_t idx = i - 1;
+                if (_idleRestClients[idx].endpoint == outEndpoint &&
+                    _idleRestClients[idx].timeoutSec == timeoutSec &&
+                    _idleRestClients[idx].generation == outGen) {
+                    std::unique_ptr<httplib::Client> cli =
+                        std::move(_idleRestClients[idx].client);
+                    _idleRestClients.erase(
+                        _idleRestClients.begin() +
+                        static_cast<std::ptrdiff_t>(idx));
+                    return cli;
+                }
+            }
+        }
+
+        return makeClient(timeoutSec);
+    }
+
+    void releaseRestClient(
+        std::unique_ptr<httplib::Client> cli,
+        const std::string &endpoint,
+        int timeoutSec,
+        std::uint64_t gen) const
+    {
+        if (!cli) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(_restPoolMutex);
+        if (gen != _restPoolGeneration ||
+            _idleRestClients.size() >= kMaxIdleRestClients) {
+            return;
+        }
+        PooledRestClient item;
+        item.client = std::move(cli);
+        item.endpoint = endpoint;
+        item.timeoutSec = timeoutSec;
+        item.generation = gen;
+        _idleRestClients.push_back(std::move(item));
     }
 
     static RawResponse wrapResult(const httplib::Result &res)
@@ -1273,12 +1348,33 @@ struct OctiNetworkClient::Impl {
 #endif
 
             for (int attempt = 1; attempt <= 5; ++attempt) {
-                std::unique_ptr<httplib::Client> cli = makeClient();
+                std::string usedEndpoint;
+                std::uint64_t usedGen = 0;
+                std::unique_ptr<httplib::Client> cli =
+                    acquireRestClient(10, usedEndpoint, usedGen);
                 if (cli) {
                     res = executeHttplib(
                         cli.get(), verb, path, headers, body, contentType);
                     if (res) {
+                        releaseRestClient(
+                            std::move(cli), usedEndpoint, 10, usedGen);
                         return wrapResult(res);
+                    }
+                    cli.reset();
+                    if (attempt == 1) {
+                        std::unique_ptr<httplib::Client> freshCli =
+                            makeClient(10);
+                        if (freshCli) {
+                            res = executeHttplib(
+                                freshCli.get(), verb, path, headers, body,
+                                contentType);
+                            if (res) {
+                                releaseRestClient(
+                                    std::move(freshCli), usedEndpoint, 10,
+                                    usedGen);
+                                return wrapResult(res);
+                            }
+                        }
                     }
                 } else {
                     res = httplib::Result(nullptr, httplib::Error::Connection);
@@ -1824,10 +1920,17 @@ void OctiNetworkClient::setEndpoint(const std::string &host, int port)
 {
     _host = host;
     _port = port;
-    std::lock_guard<std::mutex> lock(_impl->tokenMutex);
-    _impl->host = host;
-    _impl->port = port;
-    _impl->syncAuthStateLocked();
+    {
+        std::lock_guard<std::mutex> lock(_impl->tokenMutex);
+        _impl->host = host;
+        _impl->port = port;
+        _impl->syncAuthStateLocked();
+    }
+    {
+        std::lock_guard<std::mutex> poolLock(_impl->_restPoolMutex);
+        ++_impl->_restPoolGeneration;
+        _impl->_idleRestClients.clear();
+    }
 }
 
 std::string OctiNetworkClient::buildUrl(const std::string &path) const
