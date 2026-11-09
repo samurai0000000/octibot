@@ -101,6 +101,7 @@ struct BookGenConfig {
     int botBranch = 3;
     int oppBranch = 6;
     int threads = detectDefaultThreads();
+    int threadsPerWorker = 0;
     int checkpointInterval = 10;
     bool noResume = false;
     std::string outHeader = ".book/OctiOpeningBookData.hxx";
@@ -109,6 +110,7 @@ struct BookGenConfig {
     std::vector<std::string> outJs;
     std::string fromJson;
     std::set<std::uint64_t> reSearchKeys;
+    std::vector<std::uint64_t> reSearchKeyOrder;
     bool reSearchOnly = false;
     bool explicitMode = false;
     bool explicitSuperProngs = false;
@@ -204,6 +206,7 @@ void printUsage(const char *progName)
         << "  --bot-branch <int>         Top candidate moves stored per book entry (default: 3)\n"
         << "  --opp-branch <int>         Top replies expanded into next ply frontier (default: 6)\n"
         << "  --threads <int>            Total CPU worker threads (default: from MAKEFLAGS -jN or nproc)\n"
+        << "  --threads-per-worker <N>   Fixed Lazy SMP threads per worker, 0=auto-split (default: 0)\n"
         << "  --checkpoint-interval <N>  Intra-ply checkpoint interval in nodes (default: 10)\n"
         << "  --resume                   Resume from existing --out-json checkpoint if present (default)\n"
         << "  --no-resume, --fresh       Ignore existing --out-json and start fresh from ply 0\n"
@@ -271,6 +274,8 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
             cfg.explicitOppBranch = true;
         } else if (arg == "--threads" && i + 1 < argc) {
             cfg.threads = std::atoi(argv[++i]);
+        } else if (arg == "--threads-per-worker" && i + 1 < argc) {
+            cfg.threadsPerWorker = std::atoi(argv[++i]);
         } else if (arg == "--checkpoint-interval" && i + 1 < argc) {
             cfg.checkpointInterval = std::atoi(argv[++i]);
         } else if (arg == "--resume") {
@@ -294,7 +299,9 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
             std::string kStr = argv[++i];
             try {
                 std::uint64_t k = std::stoull(kStr, nullptr, 16);
-                cfg.reSearchKeys.insert(k);
+                if (cfg.reSearchKeys.insert(k).second) {
+                    cfg.reSearchKeyOrder.push_back(k);
+                }
             } catch (...) {
                 std::cerr << "Error: Invalid hex key for --re-search-key: '" << kStr << "'\n";
                 return false;
@@ -312,7 +319,10 @@ bool parseArgs(int argc, char **argv, BookGenConfig &cfg, bool &helpRequested)
                 std::string tok;
                 if (iss >> tok && !tok.empty() && tok[0] != '#') {
                     try {
-                        cfg.reSearchKeys.insert(std::stoull(tok, nullptr, 16));
+                        std::uint64_t k = std::stoull(tok, nullptr, 16);
+                        if (cfg.reSearchKeys.insert(k).second) {
+                            cfg.reSearchKeyOrder.push_back(k);
+                        }
                     } catch (...) {
                         std::cerr << "Error: Invalid hex key in '" << fPath << "': '" << tok << "'\n";
                         return false;
@@ -1195,18 +1205,43 @@ int main(int argc, char **argv)
             if (v.find("2P_3B") != std::string::npos || v == "2P 3-Base") return 2;
             return 3;
         };
-        std::stable_sort(pendingNodes.begin(), pendingNodes.end(),
-                         [&](const FrontierNode &a, const FrontierNode &b) {
-                             return variantCostRank(a.variantLabel) <
-                                    variantCostRank(b.variantLabel);
-                         });
+        if (!cfg.reSearchKeyOrder.empty()) {
+            std::map<std::uint64_t, std::size_t> keyOrderIdx;
+            for (std::size_t i = 0; i < cfg.reSearchKeyOrder.size(); ++i) {
+                keyOrderIdx[cfg.reSearchKeyOrder[i]] = i;
+            }
+            std::stable_sort(pendingNodes.begin(), pendingNodes.end(),
+                             [&](const FrontierNode &a, const FrontierNode &b) {
+                                 auto itA = keyOrderIdx.find(a.canonicalKey);
+                                 auto itB = keyOrderIdx.find(b.canonicalKey);
+                                 std::size_t idxA = (itA != keyOrderIdx.end()) ? itA->second : cfg.reSearchKeyOrder.size();
+                                 std::size_t idxB = (itB != keyOrderIdx.end()) ? itB->second : cfg.reSearchKeyOrder.size();
+                                 return idxA < idxB;
+                             });
+        } else {
+            std::stable_sort(pendingNodes.begin(), pendingNodes.end(),
+                             [&](const FrontierNode &a, const FrontierNode &b) {
+                                 return variantCostRank(a.variantLabel) <
+                                        variantCostRank(b.variantLabel);
+                             });
+        }
 
         long plyStartMs = steadyClockMs();
         long lastCheckpointMs = plyStartMs;
         std::size_t numNodes = pendingNodes.size();
-        int numWorkers = std::min<int>(cfg.threads, static_cast<int>(numNodes));
-        int smpPerWorker = std::max(1, cfg.threads / numWorkers);
-        int extraSmpWorkers = (numWorkers > 0) ? (cfg.threads % numWorkers) : 0;
+        int numWorkers = 1;
+        int smpPerWorker = 1;
+        int extraSmpWorkers = 0;
+        if (cfg.threadsPerWorker > 0) {
+            int maxWorkers = std::max(1, cfg.threads / cfg.threadsPerWorker);
+            numWorkers = std::min<int>(maxWorkers, static_cast<int>(numNodes));
+            smpPerWorker = cfg.threadsPerWorker;
+            extraSmpWorkers = 0;
+        } else {
+            numWorkers = std::min<int>(cfg.threads, static_cast<int>(numNodes));
+            smpPerWorker = std::max(1, cfg.threads / numWorkers);
+            extraSmpWorkers = (numWorkers > 0) ? (cfg.threads % numWorkers) : 0;
+        }
 
         if (!cachedNodes.empty()) {
             std::cout << "[Ply " << ply << "/" << cfg.maxPly << "] Resumed "
@@ -1230,16 +1265,8 @@ int main(int argc, char **argv)
         std::mutex ioMutex;
 
         auto workerFn = [&](int workerId) {
-            octi::OctiBotEngine bot(octi::BotDifficulty::MASTER,
-                                    0x5EED2026ULL + static_cast<std::uint64_t>(workerId) * 0x9E3779B9ULL);
-            octi::BotTuningProfile prof = bot.tuningProfile();
-            prof.useOpeningBook = false;
-            prof.rootScoreJitter = 0;
-            prof.bookSelectionWindow = 0;
-            prof.lazySmpThreads = smpPerWorker + (workerId < extraSmpWorkers ? 1 : 0);
-            prof.maxSearchDepth = cfg.searchDepth;
-            prof.timeBudgetMs = cfg.timeBudgetMs;
-            bot.setTuningProfile(prof);
+            const int workerSmpThreads =
+                smpPerWorker + (workerId < extraSmpWorkers ? 1 : 0);
 
             while (true) {
                 std::size_t idx = nextIdx.fetch_add(1);
@@ -1255,6 +1282,16 @@ int main(int argc, char **argv)
                 if (!game || game->isGameOver()) {
                     continue;
                 }
+
+                octi::OctiBotEngine bot(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+                octi::BotTuningProfile prof = bot.tuningProfile();
+                prof.useOpeningBook = false;
+                prof.rootScoreJitter = 0;
+                prof.bookSelectionWindow = 0;
+                prof.lazySmpThreads = workerSmpThreads;
+                prof.maxSearchDepth = cfg.searchDepth;
+                prof.timeBudgetMs = cfg.timeBudgetMs;
+                bot.setTuningProfile(prof);
 
                 bool isMirrored = false;
                 std::uint64_t verifyKey =
