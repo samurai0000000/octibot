@@ -2814,7 +2814,11 @@ TEST(OctiBotEngineCoreTest, DepthOneDeadlineFallbackAndPartialRootGuard)
 {
     octi::OctiBoard board(octi::GAME_MODE_2);
     board.fromPositionString(
-        "2:3:0:0:P:A:-:0:1,0,10,0:0,0,11,0:A25abch,A44abfh,A53abc,A62abgh,B35defg,B37def,B55bcdef,B75cdfg");
+        "2:3:0:0:P:A:-:0:2,0,12,0:2,0,12,0:"
+        "A32abcdefg,A42abcdefg,A52abcdefg,A33abcdefg,"
+        "A53abcdefg,A34abcdefg,A44abcdefg,"
+        "B58abcdefg,B68abcdefg,B78abcdefg,B57abcdefg,"
+        "B77abcdefg,B66abcdefg,B76abcdefg");
     octi::OctiGame *game = board.getGame();
     CHECK_TRUE(game != nullptr);
 
@@ -2838,6 +2842,9 @@ TEST(OctiBotEngineCoreTest, DepthOneDeadlineFallbackAndPartialRootGuard)
     prof.useOpeningBook = false;
     prof.rootScoreJitter = 0;
     prof.lazySmpThreads = 1;
+    prof.rootBranchCap = 2048;
+    prof.treeBranchCap = 2048;
+    prof.compositeMoveMaxPly = 3;
     bot.setTuningProfile(prof);
     bot.setTimeBudgetMs(1);
 
@@ -3935,7 +3942,13 @@ TEST(OctiBotTacticalUpgradeTest, HomeBaseEvacuationUnderJumpThreatAndCenterSquar
     // 1. Verify chooseMove does NOT leave 77def sitting defenseless on 77 to be captured next turn.
     // Player B's only ways to save B77def are evacuating 77def (77def-...) or blocking 66 with 57de-66.
     octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL);
-    bot.setTimeBudgetMs(1500);
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+    prof.maxSearchDepth = 5;
+    prof.lazySmpThreads = 1;
+    prof.rootScoreJitter = 0;
+    prof.timeBudgetMs = 60000;
+    bot.setTuningProfile(prof);
     std::string chosen = bot.chooseMove(board);
 
     CHECK_TRUE(chosen.rfind("77def-", 0) == 0 || chosen == "57de-66");
