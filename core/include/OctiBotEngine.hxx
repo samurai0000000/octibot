@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include "OctiBoard.hxx"
 #include "OctiDefs.hxx"
@@ -172,14 +173,27 @@ public:
     static int rootCapForDifficulty(BotDifficulty d);
     static int branchCapForDifficulty(BotDifficulty d);
 
+    std::uint64_t lookupTranspositionBestMoveKey(const OctiBoard &board) const;
+
 private:
     struct TranspositionEntry {
         std::uint64_t key = 0;
-        int depth = -1;
-        int score = 0;
-        int flag = 0; // 0 = exact, 1 = lowerbound, 2 = upperbound
-        std::string bestMove;
+        std::uint64_t bestMoveKey = 0;
+        std::int32_t score = 0;
+        std::int16_t depth = -1;
+        std::int8_t flag = 0; // 0 = exact, 1 = lowerbound, 2 = upperbound
+        std::uint8_t pad = 0;
     };
+    static_assert(std::is_trivially_copyable<TranspositionEntry>::value,
+                  "TranspositionEntry must be trivially copyable");
+
+public:
+    static constexpr std::size_t transpositionEntrySize() noexcept
+    {
+        return sizeof(TranspositionEntry);
+    }
+
+private:
 
     std::uint64_t nextRandom();
     std::uint64_t computePositionHash(const OctiBoard &board) const;

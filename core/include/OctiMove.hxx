@@ -8,6 +8,7 @@
 #define OCTI_MOVE_HXX
 
 #include <cstddef>
+#include <cstdint>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -71,10 +72,31 @@ public:
     explicit OctiMove(const std::string &str);
     explicit OctiMove(const char *str);
     explicit OctiMove(const std::vector<OctiMoveOp> &ops);
+    explicit OctiMove(std::vector<OctiMoveOp> &&ops);
 
-    const std::vector<OctiMoveOp> &getOps() const;
-    std::size_t size() const;
-    bool isEmpty() const;
+    static OctiMove fromValidatedSingleOp(OctiMoveOp &&op);
+    static OctiMove fromValidatedOps(std::vector<OctiMoveOp> &&ops);
+
+    const std::vector<OctiMoveOp> &getOps() const
+    {
+        return _ops;
+    }
+
+    std::size_t size() const
+    {
+        return _ops.size();
+    }
+
+    bool isEmpty() const
+    {
+        return _ops.empty();
+    }
+
+    std::uint64_t structuralKey() const
+    {
+        return _key;
+    }
+
     std::string asString() const;
 
     bool operator==(const OctiMove &other) const;
@@ -85,10 +107,17 @@ public:
     static void parseMoveString(const std::string &str,
                                 std::vector<OctiMoveOp> &outOps);
     static std::string formatOps(const std::vector<OctiMoveOp> &ops);
+    static std::uint64_t computeStructuralKey(const OctiMoveOp &op);
+    static std::uint64_t computeStructuralKey(const std::vector<OctiMoveOp> &ops);
 
 private:
+    struct ValidatedTag {};
+    OctiMove(ValidatedTag, OctiMoveOp &&op);
+    OctiMove(ValidatedTag, std::vector<OctiMoveOp> &&ops);
+    void validateOpsOrThrow() const;
+
     std::vector<OctiMoveOp> _ops;
-    std::string _str;
+    std::uint64_t _key = 0;
 };
 
 } // namespace octi

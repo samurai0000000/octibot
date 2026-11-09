@@ -413,14 +413,144 @@ std::string OctiMove::formatOps(const std::vector<OctiMoveOp> &ops)
     return result;
 }
 
-OctiMove::OctiMove()
+namespace {
+
+inline std::uint64_t mixMoveKey64(std::uint64_t z)
 {
+    z += 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+
+} // namespace
+
+std::uint64_t OctiMove::computeStructuralKey(const OctiMoveOp &op)
+{
+    if (!op.isSuperProngBonusMove && op.hops.size() <= 4 &&
+        op.x0 >= 0 && op.x0 <= 8 && op.y0 >= 0 && op.y0 <= 8) {
+        std::uint64_t packed = static_cast<std::uint64_t>(op.x0 & 0xF) |
+                               (static_cast<std::uint64_t>(op.y0 & 0xF) << 4);
+        std::uint64_t podBits = static_cast<std::uint64_t>(op.pod.rawConfig() & 0xFFFFu);
+        if (op.addPod) {
+            packed |= (1ULL << 8) | ((op.liberate ? 1ULL : 0ULL) << 11);
+            return packed;
+        }
+        if (op.addProngDir != DIR_UNDEF && op.rmProngDir != DIR_UNDEF) {
+            packed |= (2ULL << 8) |
+                      (podBits << 11) |
+                      ((static_cast<std::uint64_t>(op.addProngDir) & 0x7ULL) << 27) |
+                      ((static_cast<std::uint64_t>(op.rmProngDir) & 0x7ULL) << 30);
+            return packed;
+        }
+        if (op.addProngDir != DIR_UNDEF) {
+            packed |= (3ULL << 8) |
+                      (podBits << 11) |
+                      ((static_cast<std::uint64_t>(op.addProngDir) & 0x7ULL) << 27) |
+                      ((op.superProng ? 1ULL : 0ULL) << 30);
+            return packed;
+        }
+        if (!op.hops.empty()) {
+            std::uint64_t subtag = 3ULL + static_cast<std::uint64_t>(op.hops.size());
+            packed |= (subtag << 8) | (podBits << 11);
+            for (std::size_t hIdx = 0; hIdx < op.hops.size(); ++hIdx) {
+                const OctiHop &h = op.hops[hIdx];
+                std::uint64_t hVal = static_cast<std::uint64_t>(h.x & 0xF) |
+                                     (static_cast<std::uint64_t>(h.y & 0xF) << 4) |
+                                     ((h.capture ? 1ULL : 0ULL) << 8);
+                packed |= (hVal << (27 + hIdx * 9));
+            }
+            return packed;
+        }
+    }
+
+    std::uint64_t h = mixMoveKey64(1ULL);
+    h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.x0 & 0xFF));
+    h = mixMoveKey64(h ^ (static_cast<std::uint64_t>(op.y0 & 0xFF) << 8));
+    if (op.addPod) {
+        h = mixMoveKey64(h ^ (0x100ULL | (op.liberate ? 1ULL : 0ULL)));
+    } else {
+        h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.pod.rawConfig() & 0xFFFFu));
+        h = mixMoveKey64(h ^ ((static_cast<std::uint64_t>(op.addProngDir) & 0xFFULL) |
+                              ((static_cast<std::uint64_t>(op.rmProngDir) & 0xFFULL) << 8) |
+                              ((op.superProng ? 1ULL : 0ULL) << 16) |
+                              ((op.isSuperProngBonusMove ? 1ULL : 0ULL) << 17)));
+        h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.hops.size()));
+        for (const auto &hop : op.hops) {
+            std::uint64_t hv = static_cast<std::uint64_t>(hop.x & 0xFF) |
+                               (static_cast<std::uint64_t>(hop.y & 0xFF) << 8) |
+                               ((hop.capture ? 1ULL : 0ULL) << 16);
+            h = mixMoveKey64(h ^ hv);
+        }
+    }
+    return 0x8000000000000000ULL | (h & 0x7FFFFFFFFFFFFFFFULL);
+}
+
+std::uint64_t OctiMove::computeStructuralKey(const std::vector<OctiMoveOp> &ops)
+{
+    if (ops.empty()) {
+        return 0ULL;
+    }
+    if (ops.size() == 1) {
+        return computeStructuralKey(ops[0]);
+    }
+
+    std::uint64_t h = mixMoveKey64(static_cast<std::uint64_t>(ops.size()));
+    for (const auto &op : ops) {
+        h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.x0 & 0xFF));
+        h = mixMoveKey64(h ^ (static_cast<std::uint64_t>(op.y0 & 0xFF) << 8));
+        if (op.addPod) {
+            h = mixMoveKey64(h ^ (0x100ULL | (op.liberate ? 1ULL : 0ULL)));
+        } else {
+            h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.pod.rawConfig() & 0xFFFFu));
+            h = mixMoveKey64(h ^ ((static_cast<std::uint64_t>(op.addProngDir) & 0xFFULL) |
+                                  ((static_cast<std::uint64_t>(op.rmProngDir) & 0xFFULL) << 8) |
+                                  ((op.superProng ? 1ULL : 0ULL) << 16) |
+                                  ((op.isSuperProngBonusMove ? 1ULL : 0ULL) << 17)));
+            h = mixMoveKey64(h ^ static_cast<std::uint64_t>(op.hops.size()));
+            for (const auto &hop : op.hops) {
+                std::uint64_t hv = static_cast<std::uint64_t>(hop.x & 0xFF) |
+                                   (static_cast<std::uint64_t>(hop.y & 0xFF) << 8) |
+                                   ((hop.capture ? 1ULL : 0ULL) << 16);
+                h = mixMoveKey64(h ^ hv);
+            }
+        }
+    }
+    return 0x8000000000000000ULL | (h & 0x7FFFFFFFFFFFFFFFULL);
+}
+
+OctiMove::OctiMove()
+    : _key(0ULL)
+{
+}
+
+OctiMove::OctiMove(ValidatedTag, OctiMoveOp &&op)
+{
+    _key = computeStructuralKey(op);
+    _ops.reserve(1);
+    _ops.push_back(std::move(op));
+}
+
+OctiMove::OctiMove(ValidatedTag, std::vector<OctiMoveOp> &&ops)
+    : _ops(std::move(ops))
+{
+    _key = computeStructuralKey(_ops);
+}
+
+OctiMove OctiMove::fromValidatedSingleOp(OctiMoveOp &&op)
+{
+    return OctiMove(ValidatedTag{}, std::move(op));
+}
+
+OctiMove OctiMove::fromValidatedOps(std::vector<OctiMoveOp> &&ops)
+{
+    return OctiMove(ValidatedTag{}, std::move(ops));
 }
 
 OctiMove::OctiMove(const std::string &str)
 {
     parseMoveString(str, _ops);
-    _str = formatOps(_ops);
+    _key = computeStructuralKey(_ops);
 }
 
 OctiMove::OctiMove(const char *str)
@@ -429,17 +559,33 @@ OctiMove::OctiMove(const char *str)
         throw IllegalMoveSyntaxException("null move string");
     }
     parseMoveString(std::string(str), _ops);
-    _str = formatOps(_ops);
+    _key = computeStructuralKey(_ops);
 }
 
 OctiMove::OctiMove(const std::vector<OctiMoveOp> &ops)
     : _ops(ops)
 {
     if (_ops.empty()) {
-        _str = "";
+        _key = 0ULL;
         return;
     }
+    validateOpsOrThrow();
+    _key = computeStructuralKey(_ops);
+}
 
+OctiMove::OctiMove(std::vector<OctiMoveOp> &&ops)
+    : _ops(std::move(ops))
+{
+    if (_ops.empty()) {
+        _key = 0ULL;
+        return;
+    }
+    validateOpsOrThrow();
+    _key = computeStructuralKey(_ops);
+}
+
+void OctiMove::validateOpsOrThrow() const
+{
     // Validate ops
     bool seenRegular = false;
     int bonusCount = 0;
@@ -527,28 +673,11 @@ OctiMove::OctiMove(const std::vector<OctiMoveOp> &ops)
     if (regularCount == 0 && bonusCount > 0) {
         throw IllegalMoveSyntaxException("superprong prelude without regular move");
     }
-
-    _str = formatOps(_ops);
-}
-
-const std::vector<OctiMoveOp> &OctiMove::getOps() const
-{
-    return _ops;
-}
-
-std::size_t OctiMove::size() const
-{
-    return _ops.size();
-}
-
-bool OctiMove::isEmpty() const
-{
-    return _ops.empty();
 }
 
 std::string OctiMove::asString() const
 {
-    return _str;
+    return formatOps(_ops);
 }
 
 bool OctiMove::operator==(const OctiMove &other) const
@@ -563,7 +692,7 @@ bool OctiMove::operator!=(const OctiMove &other) const
 
 std::ostream &operator<<(std::ostream &os, const OctiMove &move)
 {
-    os << move._str;
+    os << move.asString();
     return os;
 }
 
