@@ -580,6 +580,8 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.oneStepBaseThreatBonus = config.getInt("one_step_base_threat_bonus", profile.oneStepBaseThreatBonus);
     profile.oneJumpBaseThreatBonus = config.getInt("one_jump_base_threat_bonus", profile.oneJumpBaseThreatBonus);
     profile.twoPlyBaseThreatWeight = config.getInt("two_ply_base_threat_weight", profile.twoPlyBaseThreatWeight);
+    profile.contestedEnemyBaseThreatScalePct = config.getInt(
+        "contested_enemy_base_threat_scale_pct", profile.contestedEnemyBaseThreatScalePct);
 
     profile.podZeroProngVal = config.getInt("pod_zero_prong_val", profile.podZeroProngVal);
     profile.podOneProngVal = config.getInt("pod_one_prong_val", profile.podOneProngVal);
@@ -593,7 +595,17 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.secondArmedPodBonus = config.getInt("second_armed_pod_bonus", profile.secondArmedPodBonus);
     profile.thirdArmedPodBonus = config.getInt("third_armed_pod_bonus", profile.thirdArmedPodBonus);
     profile.singlePodMonopolyPenalty = config.getInt("single_pod_monopoly_penalty", profile.singlePodMonopolyPenalty);
+    profile.ofkSinglePodMonopolyPenalty = config.getInt(
+        "ofk_single_pod_monopoly_penalty", profile.ofkSinglePodMonopolyPenalty);
     profile.loneOneProngRushPenalty = config.getInt("lone_one_prong_rush_penalty", profile.loneOneProngRushPenalty);
+    profile.enemyHeavyPodThreatPenalty = config.getInt(
+        "enemy_heavy_pod_threat_penalty", profile.enemyHeavyPodThreatPenalty);
+    profile.unarmedHomePodPenalty = config.getInt(
+        "unarmed_home_pod_penalty", profile.unarmedHomePodPenalty);
+    profile.canLiberateBonus = config.getInt("can_liberate_bonus", profile.canLiberateBonus);
+    profile.reserveFreePodVal = config.getInt("reserve_free_pod_val", profile.reserveFreePodVal);
+    profile.capturedPodPenalty = config.getInt("captured_pod_penalty", profile.capturedPodPenalty);
+    profile.reserveFreeProngVal = config.getInt("reserve_free_prong_val", profile.reserveFreeProngVal);
 
     profile.leapfrogBatteryWeight = config.getInt("leapfrog_battery_weight", profile.leapfrogBatteryWeight);
     profile.leapfrogForwardBonus = config.getInt("leapfrog_forward_bonus", profile.leapfrogForwardBonus);

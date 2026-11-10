@@ -261,6 +261,7 @@ second_closest_pod_dist_weight = 160
 one_step_base_threat_bonus = 9000
 one_jump_base_threat_bonus = 13000
 two_ply_base_threat_weight = 2600
+contested_enemy_base_threat_scale_pct = 65
 pod_zero_prong_val = 330
 pod_one_prong_val = 1400
 pod_two_prong_val = 2200
@@ -273,7 +274,14 @@ first_armed_pod_bonus = 650
 second_armed_pod_bonus = 1150
 third_armed_pod_bonus = 750
 single_pod_monopoly_penalty = 1100
+ofk_single_pod_monopoly_penalty = 250
 lone_one_prong_rush_penalty = 600
+enemy_heavy_pod_threat_penalty = 520
+unarmed_home_pod_penalty = 850
+can_liberate_bonus = 500
+reserve_free_pod_val = 470
+captured_pod_penalty = 3900
+reserve_free_prong_val = 150
 leapfrog_battery_weight = 580
 leapfrog_forward_bonus = 420
 jump_reachable_square_weight = 140
@@ -329,6 +337,7 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(9000, profile.oneStepBaseThreatBonus);
     CHECK_EQUAL(13000, profile.oneJumpBaseThreatBonus);
     CHECK_EQUAL(2600, profile.twoPlyBaseThreatWeight);
+    CHECK_EQUAL(65, profile.contestedEnemyBaseThreatScalePct);
     CHECK_EQUAL(330, profile.podZeroProngVal);
     CHECK_EQUAL(1400, profile.podOneProngVal);
     CHECK_EQUAL(2200, profile.podTwoProngVal);
@@ -341,7 +350,14 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(1150, profile.secondArmedPodBonus);
     CHECK_EQUAL(750, profile.thirdArmedPodBonus);
     CHECK_EQUAL(1100, profile.singlePodMonopolyPenalty);
+    CHECK_EQUAL(250, profile.ofkSinglePodMonopolyPenalty);
     CHECK_EQUAL(600, profile.loneOneProngRushPenalty);
+    CHECK_EQUAL(520, profile.enemyHeavyPodThreatPenalty);
+    CHECK_EQUAL(850, profile.unarmedHomePodPenalty);
+    CHECK_EQUAL(500, profile.canLiberateBonus);
+    CHECK_EQUAL(470, profile.reserveFreePodVal);
+    CHECK_EQUAL(3900, profile.capturedPodPenalty);
+    CHECK_EQUAL(150, profile.reserveFreeProngVal);
     CHECK_EQUAL(580, profile.leapfrogBatteryWeight);
     CHECK_EQUAL(420, profile.leapfrogForwardBonus);
     CHECK_EQUAL(140, profile.jumpReachableSquareWeight);
