@@ -26,8 +26,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0022DF42CE7BA038ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 53+b 57+d 73+a)
     { 0x0031D16AD6868FD3ULL, 8, 3, { { "77+e", -2752 }, { "57f+e", -2752 }, { "37+d", -2752 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+b)
+    { 0x003B3818A560E34BULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 53+d)
+    { 0x003F888795CDDB70ULL, 8, 3, { { "57+e", -2069 }, { "37+e", -2069 }, { "57+f", -2069 } } },
     // OFK ply 2 (after 32+b 46+f)
     { 0x004C97ACE487F4A2ULL, 8, 3, { { "42+a", -740 }, { "52+h", -740 }, { "42+h", -740 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 53+h)
+    { 0x005B4032AB3A197DULL, 8, 3, { { "77+f", -2302 }, { "57+b", -2302 }, { "77+h", -2302 } } },
     // 4P ply 4 (after 33+c 37+f 77+f 73+b)
     { 0x005F4BDCFDDBA714ULL, 8, 3, { { "33c+b", 280 }, { "33c+a", 280 }, { "33c+d", 140 } } },
     // 4P ply 2 (after 33+f 37+c)
@@ -44,14 +50,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x00A6C5C0D9F8CECAULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
     // 2P 3-Base ply 3 (after 53+b 57+d 53b+a)
     { 0x00B2F0FB509B2CCEULL, 8, 3, { { "77+e", -2752 }, { "37+d", -2752 }, { "77+f", -2752 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+h)
+    { 0x00B8740076C9FCE9ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+d 77+h 73+f)
     { 0x00BBA4EDBC1016EBULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+d 33+h)
+    { 0x00C21E62F9753E23ULL, 8, 3, { { "77+f", -2980 }, { "37+e", -2980 }, { "37+d", -3100 } } },
     // 2P 1-Base ply 3 (after 53+b 57+d 33+b)
     { 0x00E070DC835A080BULL, 8, 3, { { "77+f", -4020 }, { "57d+f", -4020 }, { "37+e", -4020 } } },
     // 4P ply 3 (after 33+d 37+f 77+e)
     { 0x00E91E90FE78514BULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+b 46+f 22+a 56+f)
     { 0x00EF1FB7B57A32BEULL, 8, 3, { { "22+b", -620 }, { "32+a", -620 }, { "42h-33", -900 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+d 73+a)
+    { 0x00F06597F487E6BCULL, 8, 3, { { "37+d", -2453 }, { "57+e", -2453 }, { "37+e", -2721 } } },
     // 2P 3-Base ply 4 (after 53+b 37+e 33+b 57+f)
     { 0x00F5D335026032DAULL, 8, 3, { { "53h+a", -155 }, { "33+a", -155 }, { "33+b", -275 } } },
     // OFK ply 3 (after 22+b 26+d 32+b)
@@ -70,8 +82,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0120B090FBB8397EULL, 8, 3, { { "33+b", -90 }, { "53a+h", -90 }, { "53a+b", -440 } } },
     // OFK ply 4 (after 32+a 46+f 22+c 46f+d)
     { 0x0133151A7F82671EULL, 8, 3, { { "32+a", -793 }, { "42a+h", -793 }, { "22+b", -793 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+e 33+h)
+    { 0x0136BFAF5B676DFEULL, 8, 3, { { "77+f", -2360 }, { "57+d", -2910 }, { "37e+d", -3100 } } },
     // OFK ply 4 (after 22+b 46+f 32+h 36+e)
     { 0x0142B434DDB7971AULL, 8, 3, { { "32h+b", -1248 }, { "52+h", -1410 }, { "42+h", -3273 } } },
+    // 4P_ED ply 2 (after 33+b 37+d)
+    { 0x014A4A4773128C15ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+b 37+b 77+f 73+b)
     { 0x0158B87311544E68ULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
     // 4P ply 2 (after 33+h 37+d)
@@ -80,6 +96,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0171CA1316C3E58DULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+h 77+f)
     { 0x01A391017DA59A63ULL, 8, 3, { { "53+b", -440 }, { "53+a", -440 }, { "73h+b", -1020 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+e 53+f)
+    { 0x01B9F8F25A2B306EULL, 8, 3, { { "37+e", -1949 }, { "57+e", -1949 }, { "37+d", -1949 } } },
     // 4P ply 4 (after 33+h 37+c 77+h 73+f)
     { 0x01BE3125DFFFD28EULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+h 77e+f)
@@ -92,6 +110,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x01EB6EE77A363AE5ULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "33b+a", 0 } } },
     // 4P ply 4 (after 33+a 37+f 77+e 73+d)
     { 0x01EC41E7E42CF2BFULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+e 53+b)
+    { 0x01F4A78458836AC0ULL, 8, 3, { { "37+d", -2601 }, { "37+b", -2601 }, { "57+h", -2601 } } },
     // 4P ply 4 (after 33+d 37+h 77+f 73+g)
     { 0x0221B839C3EC5F2BULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
     // 2P 3-Base ply 4 (after 53+b 77+e 53b-64 57+g)
@@ -112,6 +132,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x026B3EAB0B8B014FULL, 8, 3, { { "33b+a", -260 }, { "33b+c", -260 }, { "33b+d", -520 } } },
     // 2P 1-Base ply 4 (after 33+a 77+f 73+b 57+d)
     { 0x028059315824BDE1ULL, 8, 3, { { "53+b", -1350 }, { "73b+h", -1540 }, { "53+h", -1660 } } },
+    // 2P_1B_ED ply 2 (after 33+a 77+e)
+    { 0x02861AABAC48872AULL, 8, 3, { { "53+h", 0 }, { "33+b", 0 }, { "53+a", -620 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+a 57e+d)
     { 0x0286CF68034C3671ULL, 8, 3, { { "33a+b", 0 }, { "73+h", -120 }, { "53a+b", -163 } } },
     // OFK ply 4 (after 32+b 46+f 32b+a 46f-35)
@@ -146,8 +168,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x035CFE37B2BF8FDEULL, 8, 3, { { "53+a", -1020 }, { "53+b", -1020 }, { "73b+h", -1020 } } },
     // 4P ply 4 (after 33+c 37+b 77+b 73+a)
     { 0x036CCD04E704E833ULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+d 73+a)
+    { 0x037787C121F84454ULL, 8, 3, { { "37+d", -2632 }, { "37+e", -2632 }, { "57d+e", -2632 } } },
     // 4P ply 4 (after 33+b 37+e 77+f 73+g)
     { 0x0381892007762996ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 2P_3B_SP ply 1 (after 33+b)
+    { 0x039206205B696EE6ULL, 8, 3, { { "37+e!", -1832 }, { "77+e!", -1865 }, { "77+g", -2213 } } },
     // OFK ply 4 (after 32+a 56+f 52+b 36+e)
     { 0x0399CE55327C6F0DULL, 8, 3, { { "42a+h", -1199 }, { "52+h", -1248 }, { "32+b", -1248 } } },
     // 4P ply 4 (after 33+c 37+e 77+b 73+h)
@@ -198,6 +224,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x04B7ECA3EE733C69ULL, 8, 3, { { "53+b", -155 }, { "73a+h", -155 }, { "53+h", -155 } } },
     // 4P ply 3 (after 33+c 37+d 77+f)
     { 0x04B87745D3B634EAULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+g)
+    { 0x04C248E742221750ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+e 53+d)
+    { 0x04C8BF6BED3D7CF0ULL, 8, 3, { { "37+e", -1949 }, { "77+e", -1949 }, { "37+d", -1949 } } },
     // 4P ply 3 (after 33+b 37+f 77+g)
     { 0x04E02659380D2178ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 2 (after 53+b 57+f)
@@ -218,6 +248,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x055DB35A8E9A3783ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // OFK ply 4 (after 22+b 26+d 52+h 46+e)
     { 0x0563A6AAC438D681ULL, 8, 3, { { "32+a", -228 }, { "42+h", -740 }, { "42+a", -1248 } } },
+    // 2P_3B_ED ply 2 (after 33+a 37+d)
+    { 0x057EB1A2A6BCB47BULL, 8, 3, { { "73+h", -268 }, { "53+a", -299 }, { "53+b", -299 } } },
     // OFK ply 4 (after 32+b 56+f 32b+a 36+e)
     { 0x0582CFE4A41FDE04ULL, 8, 3, { { "32+a", -179 }, { "22+b", -179 }, { "42ah-33", -195 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 73+h 57+f)
@@ -230,6 +262,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x05E1AE9791B694D0ULL, 8, 3, { { "33+b", 30 }, { "53h+a", 30 }, { "53h-44", 30 } } },
     // 4P ply 3 (after 33+c 37+b 77+g)
     { 0x05E7D5F6D482C804ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 2P_1B_ED ply 2 (after 53+b 37+e)
+    { 0x05F4549033E22EFDULL, 8, 3, { { "33+b", -620 }, { "53h-44", -620 }, { "73+a", -620 } } },
+    // 2P_3B_ED ply 2 (after 53+a 37+d)
+    { 0x05FD903320A11766ULL, 8, 3, { { "73+h", 0 }, { "33+b", -120 }, { "33+a", -299 } } },
     // 4P ply 4 (after 33+f 37+h 77+g 73+b)
     { 0x0601F290020E84FDULL, 8, 3, { { "33f+a", 140 }, { "33f+c", 140 }, { "33f+b", 20 } } },
     // 4P ply 4 (after 33+h 37+e 77+b 73+f)
@@ -246,6 +282,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x06698A2572F524DBULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 53+b 37+f)
     { 0x067C3300909BB27BULL, 8, 3, { { "53b+a", 120 }, { "73+a", 120 }, { "73+h", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+f 73+b)
+    { 0x0689E483F9438482ULL, 8, 3, { { "77+e", -2213 }, { "57+e", -2213 }, { "57+f", -2213 } } },
     // OFK ply 4 (after 32+b 46+f 42+h 36+e)
     { 0x069784FA988CDB58ULL, 8, 3, { { "32b+a", -1319 }, { "42h-33", -1319 }, { "22+b", -1319 } } },
     // OFK ply 4 (after 32+a 46+f 22+a 46f+d)
@@ -274,6 +312,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x06F4422F931C3433ULL, 8, 3, { { "32+b", -641 }, { "42+a", -641 }, { "42+h", -854 } } },
     // OFK ply 4 (after 22+b 46+e 52+b 56+f)
     { 0x06F4F352889905BDULL, 8, 3, { { "42+h", -1248 }, { "42+b", -2348 }, { "32+b", -3740 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+b)
+    { 0x0703CC64C3D5640EULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 53+h 77+c)
     { 0x07157BFC1015E412ULL, 8, 3, { { "73+a", -139 }, { "33h+a", -139 }, { "73+b", -139 } } },
     // 4P ply 4 (after 33+d 37+e 77+h 73+f)
@@ -286,6 +326,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0737549DF3DA24F0ULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "73h+a", 0 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 73+h 77+f)
     { 0x0739CA56284FA71AULL, 8, 3, { { "53h+a", 30 }, { "73+a", 30 }, { "53h-44", 30 } } },
+    // 4P_ED ply 2 (after 33+f 37+h)
+    { 0x074CA217677CBA6EULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+a 37+h 77+e 73+f)
     { 0x0755F06E8F4EB8FCULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
     // 4P ply 4 (after 33+a 37+c 77+f 73+b)
@@ -304,6 +346,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x07D3D4B66322C1C6ULL, 8, 3, { { "53h+a", -977 }, { "73+h", -977 }, { "53h+b", -977 } } },
     // OFK ply 3 (after 32+b 36+e 22+a)
     { 0x07D51010C410D079ULL, 8, 3, { { "36+d", -3622 }, { "56+f", -3622 }, { "46e+f", -3943 } } },
+    // 2P_1B_ED ply 3 (after 33+b 57+d 53+h)
+    { 0x07E419E19837CD3FULL, 8, 3, { { "77+f", -4020 }, { "37+d", -4020 }, { "57f+d", -4020 } } },
     // OFK ply 4 (after 32+b 26+d 32b+c 46+a)
     { 0x07E4FD430454197EULL, 8, 3, { { "42+a", -240 }, { "32bc-43", -240 }, { "52+h", -240 } } },
     // OFK ply 4 (after 32+b 36+d 32b-43 46+d)
@@ -314,14 +358,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0800DCAB8E29F26CULL, 8, 3, { { "37+d", -4020 }, { "77+e", -4020 }, { "77+f", -4020 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 53+h 37+e)
     { 0x08157F420F13C8BDULL, 8, 3, { { "33+a", 0 }, { "53b+a", 0 }, { "53b-64", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 33b+a)
+    { 0x084249C72A35381EULL, 8, 3, { { "37+e", -2980 }, { "57+d", -2980 }, { "57+e", -2980 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 73+h 37+d)
     { 0x084E3BC6CF91D5E3ULL, 8, 3, { { "53+b", -163 }, { "53+a", -163 }, { "53+h", -283 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+f)
+    { 0x08589CE99006DC86ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+a 37+c 77+h 73+a)
     { 0x0889BB2052A6440AULL, 8, 3, { { "33a+b", -140 }, { "33a+c", -140 }, { "33a+d", -280 } } },
     // 4P ply 4 (after 33+d 37+b 77+d 73+g)
     { 0x0898C5E75B8A00BBULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 4 (after 33+d 37+e 77+g 73+d)
     { 0x08BC44C1CE685F2EULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 53+a)
+    { 0x08C16856AC289B03ULL, 8, 3, { { "57+d", -3060 }, { "37+e", -3060 }, { "57+e", -3100 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 73+h)
+    { 0x08C7FE0FF7401093ULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
     // 2P 3-Base ply 3 (after 33+a 57+d 53+b)
     { 0x08D17D1DDBF575B4ULL, 8, 3, { { "37+e", -2752 }, { "77+f", -2752 }, { "37+d", -2872 } } },
     // OFK ply 2 (after 32+b 36+d)
@@ -330,12 +382,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x08F06C9E7A14E9F4ULL, 8, 3, { { "33+b", 0 }, { "53h-44", 0 }, { "53h+a", 0 } } },
     // 4P ply 3 (after 33+f 37+f 77+d)
     { 0x09001164B331B47DULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+g)
+    { 0x09073E5A97322068ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+h 77+c)
     { 0x0917A437432C974FULL, 8, 3, { { "33+a", 400 }, { "73a+h", 400 }, { "53b+a", 400 } } },
     // 4P ply 4 (after 33+b 37+h 77+g 73+d)
     { 0x091C75D80AF22993ULL, 8, 3, { { "33b+a", 800 }, { "33b+c", 800 }, { "33b+d", 540 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 73+a 57+e)
     { 0x093020FF8E9CE926ULL, 8, 3, { { "53+h", -530 }, { "33a+b", -530 }, { "53+a", -700 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+e 53b+a)
+    { 0x09468BD48631B462ULL, 8, 3, { { "37+d", -3180 }, { "57+d", -3200 }, { "77e+f", -3200 } } },
     // 2P 3-Base ply 4 (after 53+a 37+d 33+b 77+d)
     { 0x095942B7A484E447ULL, 8, 3, { { "33+a", 0 }, { "53a+b", 0 }, { "73h+a", 0 } } },
     // 4P ply 4 (after 33+b 37+c 77+e 73+a)
@@ -350,6 +406,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x09B404C0B61605D4ULL, 8, 3, { { "33+b", 43 }, { "53b+a", 43 }, { "53b+h", 0 } } },
     // 4P ply 3 (after 33+a 37+e 77+g)
     { 0x09B91BB6D43CFCDAULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 53+b)
+    { 0x09C5AA45002C177FULL, 8, 3, { { "37+d", -3100 }, { "57+f", -3170 }, { "37+e", -3170 } } },
     // 4P ply 4 (after 33+b 37+c 77+b 73+h)
     { 0x09C781068B5FFB71ULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 73+h 77+f)
@@ -384,8 +442,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0AD17CC92493F83DULL, 8, 3, { { "57+f", -2752 }, { "37+d", -2752 }, { "57+e", -2752 } } },
     // 2P 1-Base ply 3 (after 33+a 77+f 53+b)
     { 0x0AD8B86A37D0C1A6ULL, 8, 3, { { "77+f", -3090 }, { "57+e", -3090 }, { "77+e", -3220 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+h)
+    { 0x0AD9BD93FC4DA60EULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+a 37+c 77+b 73+d)
     { 0x0AE678BF9A312F96ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+e 73+h)
+    { 0x0AF5DBE87395B01BULL, 8, 3, { { "57+d", -4020 }, { "77+f", -4020 }, { "57+f", -4020 } } },
     // 4P ply 3 (after 33+h 37+c 77+h)
     { 0x0AFBD32D86629026ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+h 37+b 77+g 73+h)
@@ -394,10 +456,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0B025ADE7C08BC30ULL, 8, 3, { { "53+b", -441 }, { "73+h", -441 }, { "53+a", -539 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 53+b 57+f)
     { 0x0B250EEF7CAA6FD9ULL, 8, 3, { { "73+h", -155 }, { "73+a", -155 }, { "53b+a", -163 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+e)
+    { 0x0B310140DB7D3E62ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 53+h 57+f)
     { 0x0B36B7722A92EF3FULL, 8, 3, { { "53b+h", -977 }, { "33+b", -977 }, { "53b+a", -977 } } },
     // 2P 1-Base ply 1 (after 33+b)
     { 0x0B45FE3410182A4DULL, 8, 3, { { "77+e", -3100 }, { "57+f", -3100 }, { "37+d", -3100 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 73+a)
+    { 0x0B468A00795739EBULL, 8, 3, { { "37+e", -3100 }, { "77+f", -3100 }, { "77+e", -3100 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 33a+b 77+f)
     { 0x0B4AF8019CF3D416ULL, 8, 3, { { "33+a", -318 }, { "53+b", -318 }, { "53+h", -438 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+h 37+f)
@@ -412,6 +478,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0B682AEF8970D534ULL, 8, 3, { { "42a+h", -740 }, { "32+a", -1747 }, { "32+b", -1980 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 73+h 77+f)
     { 0x0B6DF3F6EA10F261ULL, 8, 3, { { "53+a", -283 }, { "53+h", -283 }, { "33b+a", -438 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 73+b)
+    { 0x0B756202915A250BULL, 8, 3, { { "57+e", -2333 }, { "57+f", -2333 }, { "37+d", -2333 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 53+a 57+e)
     { 0x0B817B4FFA151F2DULL, 8, 3, { { "73+h", -120 }, { "53a+b", -120 }, { "73+a", -120 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+c 37+f)
@@ -438,6 +506,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0BFBD718BD817E6AULL, 8, 3, { { "52+h", 0 }, { "32+b", 0 }, { "32+a", -59 } } },
     // 4P ply 3 (after 33+f 37+d 77+h)
     { 0x0BFE46E5E58D5443ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+e)
+    { 0x0C09F53CBDC8B927ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 3 (after 33+a 37+h 77+e)
     { 0x0C101266D6D3FA54ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 73+a 57+g)
@@ -462,14 +532,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0CB253089607E747ULL, 8, 3, { { "53+b", -90 }, { "53+a", -90 }, { "53+h", -560 } } },
     // 4P ply 4 (after 33+b 37+e 77+e 73+d)
     { 0x0CB57C08081D2F1DULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+b)
+    { 0x0CC234EE8DCB4854ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+b 37+b 77+b 73+d)
     { 0x0CD97F6C100B41AFULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 2P 1-Base ply 4 (after 33+a 57+d 53+h 77+f)
     { 0x0CDDA5E6765E5C88ULL, 8, 3, { { "73a+h", -630 }, { "73", -750 }, { "33+b", -1230 } } },
     // 4P ply 4 (after 33+h 37+c 77+d 73+b)
     { 0x0CE2B835FEB3E3E6ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+h)
+    { 0x0CE6BA407677C837ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 53+h 37+d)
     { 0x0D0102E09CC56EB7ULL, 8, 3, { { "53b+h", -1230 }, { "33+b", -1230 }, { "73a+h", -1350 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+e)
+    { 0x0D0E06935147505BULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 1-Base ply 3 (after 53+b 37+d 53b-64)
     { 0x0D10451319016960ULL, 8, 3, { { "57+f", -2480 }, { "77+e", -2480 }, { "57+e", -2480 } } },
     // 4P ply 4 (after 33+d 37+h 77+e 73+d)
@@ -486,8 +562,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0D4E9355B835EA57ULL, 8, 3, { { "32+a", -120 }, { "42h-33", -120 }, { "42h+a", -120 } } },
     // 4P ply 4 (after 33+c 37+d 77+d 73+a)
     { 0x0D4F18DD62AF2371ULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_1B_ED ply 2 (after 33+b 37+d)
+    { 0x0D4FBC63FE13C9C4ULL, 8, 3, { { "53+a", -610 }, { "73+h", -610 }, { "53+b", -620 } } },
     // 4P ply 4 (after 33+a 37+e 77+h 73+d)
     { 0x0D5DC0DB2F2DB771ULL, 8, 3, { { "33a+b", 260 }, { "33a+c", 260 }, { "33a+d", 120 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+b)
+    { 0x0D6205F749513EE9ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+d 37+c 77+g 73+a)
     { 0x0D683F3AB3E3AC55ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+b 57+e)
@@ -496,6 +576,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0D985CB0CE8A49E9ULL, 8, 3, { { "53h+a", 120 }, { "33+b", 120 }, { "53h-44", 120 } } },
     // 2P 3-Base ply 3 (after 53+a 37+e 53a+h)
     { 0x0DA332F2BB3951EAULL, 8, 3, { { "57+e", -2577 }, { "57+d", -2577 }, { "77+f", -2577 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+h)
+    { 0x0DDAC00B8BCC5410ULL, 8, 3, { { "73+a", -1697 }, { "73+g", -1697 }, { "73+h", -1697 } } },
     // 4P ply 4 (after 33+c 37+f 77+b 73+d)
     { 0x0DDE8CC3FC84A8D3ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+f 37+d 77+d 73+b)
@@ -544,6 +626,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0EEC621BDEC9C24AULL, 8, 3, { { "53c+h", -610 }, { "73+a", -610 }, { "73+h", -730 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+a 77e+f)
     { 0x0F01033463A3E33EULL, 8, 3, { { "73+h", 0 }, { "53a+b", 0 }, { "33a+b", -610 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+f 33+b)
+    { 0x0F04B59695443758ULL, 8, 3, { { "37+d", -4020 }, { "77+f", -4020 }, { "57d+f", -4020 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 53+h 77+f)
     { 0x0F08C79770E0DAA5ULL, 8, 3, { { "73+a", -318 }, { "33a+b", -318 }, { "53h+a", -318 } } },
     // 4P ply 4 (after 33+f 37+f 77+h 73+b)
@@ -558,12 +642,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0F3378C16E513BA1ULL, 8, 3, { { "73+h", -120 }, { "53b-64", -120 }, { "53b+a", -120 } } },
     // 4P ply 4 (after 33+a 37+b 77+e 73+a)
     { 0x0F5E0020FFACB25FULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 53+a)
+    { 0x0F70ADB1D599F195ULL, 8, 3, { { "57+f", -2632 }, { "37+d", -2632 }, { "57+e", -2632 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 53+a 57+e)
     { 0x0F84B4FCBED6CBB3ULL, 8, 3, { { "33+b", -120 }, { "53a+h", -120 }, { "33+a", -120 } } },
     // 2P 3-Base ply 4 (after 53+a 37+d 53a+b 77+f)
     { 0x0F8BE606F6FD79B8ULL, 8, 3, { { "73+a", -43 }, { "33+b", -43 }, { "53ah-44", -43 } } },
     // 4P ply 4 (after 33+a 37+e 77+e 73+h)
     { 0x0F9485B11973FBFAULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_1B_ED ply 2 (after 33+a 57+d)
+    { 0x0F97D8A247EAFA0EULL, 8, 3, { { "73a+h", -620 }, { "53+h", -630 }, { "33+b", -630 } } },
     // 4P ply 4 (after 33+b 37+f 77+g 73+f)
     { 0x0FA5C451619063D0ULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
     // 4P ply 4 (after 33+c 37+f 77+h 73+a)
@@ -572,16 +660,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x0FCF76297695261DULL, 8, 3, { { "33+a", -280 }, { "53g+b", -280 }, { "73h+a", -280 } } },
     // 4P ply 4 (after 33+d 37+h 77+h 73+h)
     { 0x0FDC087BFAD9152BULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 73+a)
+    { 0x0FF38C2053845288ULL, 8, 3, { { "57+f", -2632 }, { "37+d", -2632 }, { "57+e", -2632 } } },
     // 4P ply 4 (after 33+a 37+b 77+b 73+h)
     { 0x0FF886D501659548ULL, 8, 3, { { "33a+b", -260 }, { "33a+c", -260 }, { "33a+d", -400 } } },
     // 4P ply 4 (after 33+c 37+d 77+f 73+f)
     { 0x0FFD954D8A2B7642ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+f)
+    { 0x0FFE45A040F29C40ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+c 37+c 77+b 73+a)
     { 0x1011C97CE415D530ULL, 8, 3, { { "33c+b", -400 }, { "33c+a", -400 }, { "33c+d", -540 } } },
     // 2P 3-Base ply 2 (after 33+h 37+d)
     { 0x101EDCB755B8D169ULL, 8, 3, { { "53+a", -299 }, { "53+b", -299 }, { "73+h", -299 } } },
     // 4P ply 4 (after 33+c 37+h 77+d 73+g)
     { 0x10243915168511E2ULL, 8, 3, { { "33c+b", 260 }, { "33c+a", 260 }, { "33c+d", 120 } } },
+    // 2P_3B_ED ply 2 (after 33+b 37+d)
+    { 0x103CB2092F97E741ULL, 8, 3, { { "53+a", -120 }, { "73+h", -120 }, { "53+b", -299 } } },
     // 2P 1-Base ply 3 (after 33+a 37+e 53+h)
     { 0x10531D09ECA0DC72ULL, 8, 3, { { "77+f", -3100 }, { "77+e", -3170 }, { "57+f", -3170 } } },
     // OFK ply 4 (after 32+a 36+e 52+a 56+e)
@@ -614,6 +708,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x113A05F7EAA023E3ULL, 8, 3, { { "22+b", -2441 }, { "42b+h", -2528 }, { "32+b", -3273 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 73+h 77+f)
     { 0x11427CF3C19E6ADFULL, 8, 3, { { "33+a", -120 }, { "73h+a", -120 }, { "33+b", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+f 33b+d)
+    { 0x11454D2A166F474DULL, 8, 3, { { "77+e", -1949 }, { "57f+e", -1949 }, { "37+d", -1949 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 53+b)
+    { 0x115473CC61413E5FULL, 8, 3, { { "77+e", -2632 }, { "37+d", -2632 }, { "77+f", -2752 } } },
     // 2P 1-Base ply 2 (after 53+b 57+f)
     { 0x117321D534CC98D4ULL, 8, 3, { { "33+a", -630 }, { "73+h", -630 }, { "73+a", -630 } } },
     // OFK ply 3 (after 22+b 36+e 42+h)
@@ -626,6 +724,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x11A225F2B1267242ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 4 (after 33+a 57+d 53+h 77+f)
     { 0x11AEAB8CA7DA720DULL, 8, 3, { { "33+b", -318 }, { "33+a", -318 }, { "73a+h", -318 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+g)
+    { 0x11BBC2A8DA3D3131ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 4 (after 33+h 37+d 77+b 73+b)
     { 0x11BC6994780915A7ULL, 8, 3, { { "33h+a", -400 }, { "33h+c", -400 }, { "33h+b", -520 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+h 77+f)
@@ -646,6 +746,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1260854B514907F8ULL, 8, 3, { { "42+a", -799 }, { "52a+h", -799 }, { "32b-43", -1203 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 73+a 37e+d)
     { 0x12720D5EB227CDBBULL, 8, 3, { { "73+h", 0 }, { "53a+b", 0 }, { "73+a", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+f 53+b)
+    { 0x1277BBFC44C019DDULL, 8, 3, { { "37+d", -2651 }, { "77+e", -2651 }, { "77+f", -2654 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+h 77+f)
     { 0x127BC9FDA164F420ULL, 8, 3, { { "73+h", -1230 }, { "53h+b", -1230 }, { "33a+b", -1350 } } },
     // 4P ply 4 (after 33+c 37+c 77+h 73+d)
@@ -660,6 +762,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x12C3355DDCEEEF8DULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 53+h 77+e)
     { 0x12D928FBED9A327AULL, 8, 3, { { "73+h", -419 }, { "73+a", -419 }, { "33h+a", -419 } } },
+    // 2P_3B_ED ply 2 (after 33+a 57+d)
+    { 0x12E4D6C8966ED48BULL, 8, 3, { { "33+b", -388 }, { "53+f", -388 }, { "33+d", -388 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 53b+a 77+f)
     { 0x12F8E86C2779573DULL, 8, 3, { { "33+b", 30 }, { "53ah-44", 30 }, { "73+a", 30 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 73+b 77+c)
@@ -706,6 +810,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x13EF911D4C6C6699ULL, 8, 3, { { "53h+a", 120 }, { "73+a", 120 }, { "53h-44", 120 } } },
     // 4P ply 4 (after 33+a 37+h 77+h 73+f)
     { 0x13FF4F16215573AAULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
+    // 4P_ED ply 2 (after 33+a 37+d)
+    { 0x140849ECFA39DF2FULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+h 37+d)
     { 0x140B8C4ABFE3AF85ULL, 8, 3, { { "53+a", -120 }, { "53+b", -120 }, { "73h+a", -120 } } },
     // 4P ply 4 (after 33+f 37+d 77+e 73+f)
@@ -714,22 +820,30 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1411229F00B3D2C1ULL, 8, 3, { { "77+e", -3100 }, { "57+f", -3100 }, { "37e+d", -3100 } } },
     // OFK ply 4 (after 22+b 26+d 42+h 46+e)
     { 0x1411FE4A1382D52FULL, 8, 3, { { "32+a", -179 }, { "42h+a", -179 }, { "32+b", -407 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+e)
+    { 0x1412CB78D8D237BFULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 53+b 77+f 33+b 37+c)
     { 0x141645D64A7B723AULL, 8, 3, { { "33+a", 245 }, { "53h+a", 245 }, { "33+b", 125 } } },
     // 4P ply 4 (after 33+a 37+b 77+f 73+b)
     { 0x141ABBD8987F1D52ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
     // OFK ply 4 (after 32+b 46+f 32b+a 36+e)
     { 0x1432FD45812CFA41ULL, 8, 3, { { "42+a", -195 }, { "32ab-43", -195 }, { "52+h", -1127 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 53a+h)
+    { 0x143585BE57B59AE7ULL, 8, 3, { { "57+e", -2577 }, { "57+f", -2577 }, { "37+d", -2577 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+b 77+d)
     { 0x1442BD62BAE703DCULL, 8, 3, { { "53b+a", 120 }, { "73+h", 120 }, { "53b-64", 120 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 73+a 57+e)
     { 0x14432E955F18C7A3ULL, 8, 3, { { "53+h", 0 }, { "33a+b", 0 }, { "53+a", 0 } } },
     // 4P ply 3 (after 33+d 37+f 77+h)
     { 0x1443A1E850639A1DULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+b)
+    { 0x147EC81CC0C4590DULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 4 (after 33+b 37+d 77+d 73+h)
     { 0x149950A70DE50D30ULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
     // 4P ply 4 (after 33+b 37+f 77+e 73+d)
     { 0x14AE424C6D07A185ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+a 77+e 53+b)
+    { 0x14B6A42FD1A839FAULL, 8, 3, { { "37+d", -2601 }, { "57+f", -2608 }, { "37+b", -2721 } } },
     // OFK ply 4 (after 32+b 26+d 32b+g 46+a)
     { 0x14BC5CDFDE83253DULL, 8, 3, { { "32+a", -240 }, { "42ch-33", -240 }, { "22+b", -240 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+a 37+d)
@@ -748,6 +862,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x152152E68C6CF82CULL, 8, 3, { { "77+f", -3200 }, { "37+e", -3200 }, { "77+e", -3200 } } },
     // 4P ply 4 (after 33+h 37+h 77+f 73+b)
     { 0x1526C19365C48175ULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+e 33b+d)
+    { 0x1535CBE5AF6A0FD2ULL, 8, 3, { { "77+e", -1949 }, { "57+e", -1949 }, { "77+f", -1949 } } },
     // 2P 3-Base ply 3 (after 33+a 37+f 53+h)
     { 0x153B2D27583E7C6FULL, 8, 3, { { "57+d", -2774 }, { "77+f", -2774 }, { "57+f", -3473 } } },
     // OFK ply 4 (after 32+b 26+d 32b+g 36+e)
@@ -764,10 +880,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x155B550D56648659ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 4 (after 53+b 77+e 33+c 77e+f)
     { 0x156FB9009477FC97ULL, 8, 3, { { "33+b", -400 }, { "53h-44", -400 }, { "53h+a", -400 } } },
+    // 2P_1B_ED ply 2 (after 33+b 37+f)
+    { 0x157218D8993C986AULL, 8, 3, { { "33+a", 120 }, { "53+b", 120 }, { "53+a", 120 } } },
     // 2P 3-Base ply 3 (after 33+b 57+f 53+h)
     { 0x1573D2C15FADDCE9ULL, 8, 3, { { "77+e", -2752 }, { "37+d", -2752 }, { "77+d", -2872 } } },
     // OFK ply 4 (after 32+a 36+d 52+a 46+e)
     { 0x157828A4654D3907ULL, 8, 3, { { "32+b", -2141 }, { "32+a", -3059 }, { "42a+h", -3059 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+b)
+    { 0x15793BB32C4BB071ULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // OFK ply 4 (after 32+a 26+d 42+a 46+f)
     { 0x1581B8D802FAD802ULL, 8, 3, { { "32a+b", 299 }, { "52+h", -1127 }, { "32a+g", -1307 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 53+b 37+d)
@@ -782,16 +902,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x15AB5B9BFF69CC5DULL, 8, 3, { { "52+h", -179 }, { "32b-43", -195 }, { "52+b", -1079 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 73+a 37f+e)
     { 0x15AB66C072309BADULL, 8, 3, { { "53+b", 0 }, { "73a+h", 0 }, { "53+a", 0 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+d 73+h)
+    { 0x15B2663C7DACB586ULL, 8, 3, { { "57+e", -2333 }, { "37+d", -2453 }, { "37+e", -2601 } } },
     // 2P 3-Base ply 3 (after 53+a 37+f 53a+h)
     { 0x15B80CB6DE23DF72ULL, 8, 3, { { "57+e", -2697 }, { "57+d", -2697 }, { "77+f", -2697 } } },
     // 4P ply 4 (after 33+c 37+e 77+b 73+d)
     { 0x15C5B287999E264BULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+f 37+b 77+h 73+g)
     { 0x15DB756BB8D82EDBULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 33+a 77+e 73+f)
+    { 0x1605BA48DCD3A8B6ULL, 8, 3, { { "37+d", -2213 }, { "37+e", -2232 }, { "57+e", -2232 } } },
     // 4P ply 4 (after 33+d 37+h 77+g 73+f)
     { 0x161ECB0CC0109BF5ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
     // OFK ply 4 (after 32+b 36+d 52+h 26+e)
     { 0x16312ED0DA627A43ULL, 8, 3, { { "32+a", 299 }, { "42h-33", 299 }, { "22b+c", 80 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+d 73+a)
+    { 0x1635846AA8D3176EULL, 8, 3, { { "37+e", -2752 }, { "57d+e", -2752 }, { "77+f", -2752 } } },
     // 2P 3-Base ply 1 (after 33+b)
     { 0x1636F05EC19C04C8ULL, 8, 3, { { "77+e", -2752 }, { "57+f", -2752 }, { "37+d", -2752 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 73+h 77+d)
@@ -810,6 +936,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1694F3C63E69DD5EULL, 8, 3, { { "42+a", -217 }, { "22+b", -217 }, { "42+h", -217 } } },
     // 4P ply 3 (after 33+c 37+c 77+g)
     { 0x169AD18ED793F507ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 73+a)
+    { 0x16B6A5FB2ECEB473ULL, 8, 3, { { "37+e", -2654 }, { "77+f", -2654 }, { "57d-66", -2654 } } },
     // 4P ply 3 (after 33+d 37+d 77+d)
     { 0x16BDF66906DF7A23ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+a 37+e 77+f 73+g)
@@ -846,6 +974,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1760F489B7D60472ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // OFK ply 4 (after 32+b 56+f 32b-43 36+e)
     { 0x17777441EA4E4395ULL, 8, 3, { { "32+a", -195 }, { "33h+a", -195 }, { "52+h", -633 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+e 73+h)
+    { 0x1786D582A2119E9EULL, 8, 3, { { "77+f", -2721 }, { "57+b", -2721 }, { "77+h", -2721 } } },
     // 4P ply 4 (after 33+a 37+f 77+e 73+h)
     { 0x178FBBF57C697562ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 1-Base ply 3 (after 33+a 37+e 53+a)
@@ -864,14 +994,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x17C4CCC38A67654BULL, 8, 3, { { "73+a", 0 }, { "33b+a", 0 }, { "73+h", -120 } } },
     // OFK ply 4 (after 32+a 36+d 52+a 46+f)
     { 0x17DE2627DA081E18ULL, 8, 3, { { "32+b", -721 }, { "32+a", -1238 }, { "22a+b", -1740 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+f)
+    { 0x17E57BE425E812D8ULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // OFK ply 4 (after 22+b 36+e 42+h 46+f)
     { 0x17E5DC1A4F36D8F6ULL, 8, 3, { { "42+a", 0 }, { "32b-43", 0 }, { "32b+h", -1079 } } },
+    // 2P_1B_ED ply 2 (after 33+a 37+d)
+    { 0x180DBFC877389AFEULL, 8, 3, { { "53+b", -500 }, { "73+h", -500 }, { "53+a", -500 } } },
     // 4P ply 4 (after 33+b 37+e 77+h 73+d)
     { 0x181FC370A606E44BULL, 8, 3, { { "33b+a", 260 }, { "33b+c", 260 }, { "33b+d", 0 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+b)
+    { 0x1820065CC07A6DD3ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+f 37+b 77+f 73+h)
     { 0x1826C52981ED64DBULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 53+h)
+    { 0x18407E76CE2097E5ULL, 8, 3, { { "77+f", -2072 }, { "37e+d", -2072 }, { "57+b", -2182 } } },
     // 4P ply 4 (after 33+c 37+e 77+f 73+b)
     { 0x1844759898C1298CULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+e)
+    { 0x184C0538D86C0361ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P_1B_ED ply 0 (initial)
     { 0x18591BCD3AB3BA6CULL, 8, 3, { { "33+a", 0 }, { "73+a", 0 }, { "33+b", 0 } } },
     // 2P 3-Base ply 3 (after 33+b 37+e 53+h)
@@ -880,12 +1020,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1877B32135359B1CULL, 8, 3, { { "53b-64", 0 }, { "33+a", 0 }, { "53b+a", 0 } } },
     // 4P ply 4 (after 33+h 37+c 77+g 73+h)
     { 0x187CF252E5365C50ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_3B_ED ply 2 (after 53+b 37+e)
+    { 0x18875AFAE2660078ULL, 8, 3, { { "33+b", -419 }, { "73+a", -419 }, { "33+a", -419 } } },
     // OFK ply 4 (after 22+b 36+e 22b-33 56+f)
     { 0x1890159DD4DF64F9ULL, 8, 3, { { "32+a", -1022 }, { "33b+a", -1022 }, { "32+b", -1022 } } },
     // 2P 3-Base ply 4 (after 33+a 57+d 53+b 37+d)
     { 0x1892A0FD4032BA55ULL, 8, 3, { { "33+b", -43 }, { "53h+a", -43 }, { "53h-44", -43 } } },
     // 4P ply 3 (after 33+d 37+b 77+b)
     { 0x189E23B08374B161ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+h)
+    { 0x18A34A4413D37271ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+h 77+b 73+d)
     { 0x18A7068C649B8EB2ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // OFK ply 4 (after 22+b 46+f 22b+c 26+d)
@@ -902,6 +1046,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x18F220D49B62DFD3ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 1-Base ply 3 (after 33+a 57+d 33a+b)
     { 0x1900E096EB11AFE5ULL, 8, 3, { { "77+e", -2980 }, { "37+d", -2980 }, { "57f-46", -2980 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 53+a)
+    { 0x19031386BCB5342AULL, 8, 3, { { "77+e", -2213 }, { "37+d", -2213 }, { "57e+f", -2213 } } },
     // 4P ply 4 (after 33+f 37+f 77+b 73+g)
     { 0x1906F7336BCF05A7ULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
     // 2P 3-Base ply 3 (after 53+a 57+e 33+b)
@@ -914,12 +1060,18 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x194E07FBAAA9886AULL, 8, 3, { { "53h+a", -163 }, { "33+b", -163 }, { "33+a", -318 } } },
     // 4P ply 3 (after 33+b 37+h 77+e)
     { 0x195211CD5FF8A96EULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+e)
+    { 0x19707F7325D79F46ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+f 37+d 77+g 73+h)
     { 0x1979679A86D99835ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 33h+a)
+    { 0x198032173AA89737ULL, 8, 3, { { "77+e", -2213 }, { "37+d", -2213 }, { "57e+f", -2213 } } },
     // 4P ply 3 (after 33+h 37+b 77+h)
     { 0x1986D7558573AD25ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+a 37+b 77+b 73+d)
     { 0x199B7CC799201295ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+h)
+    { 0x19A4B9EBFF5C9B0DULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+d 37+h 77+h 73+d)
     { 0x19BFF269629C92F6ULL, 8, 3, { { "33d+a", 520 }, { "33d+c", 520 }, { "33d+b", 400 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+a 57+d)
@@ -942,24 +1094,34 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1A4AC43CF9CB899FULL, 8, 3, { { "73+a", -43 }, { "53h+a", -43 }, { "53h-44", -43 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 53b-64 57+e)
     { 0x1A5ACBBE133781CDULL, 8, 3, { { "33+b", 0 }, { "73+a", 0 }, { "44h+a", 0 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+d)
+    { 0x1A5D1DC5456F924FULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+e 77+d 73+f)
     { 0x1A5ECD288FB6784DULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // OFK ply 2 (after 22+b 26+d)
     { 0x1A68E6B60A1C7541ULL, 8, 3, { { "32+a", -461 }, { "42+h", -461 }, { "42+a", -581 } } },
     // 4P ply 4 (after 33+b 37+e 77+b 73+a)
     { 0x1A7000EF6E918FD7ULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+g)
+    { 0x1A7A3A2294231D6BULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+d 53+h)
+    { 0x1A97178B49B3E3BAULL, 8, 3, { { "77+f", -2651 }, { "77+e", -2651 }, { "37+d", -2651 } } },
     // OFK ply 1 (after 32+b)
     { 0x1A9B50BEC8C890F5ULL, 8, 3, { { "46+e", -3343 }, { "36+d", -3343 }, { "56+f", -3343 } } },
     // 4P ply 4 (after 33+c 37+b 77+f 73+g)
     { 0x1A9D44CB8EE34E72ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 53+a 57+f)
     { 0x1AA91E7FA1E5D6D8ULL, 8, 3, { { "73+h", -163 }, { "53a+b", -163 }, { "53a+h", -977 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 73+h)
+    { 0x1AB18F8BDAAF01B2ULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // OFK ply 4 (after 32+b 56+f 32b-43 26+e)
     { 0x1AB80D041CB388BAULL, 8, 3, { { "42+a", 441 }, { "52+h", 441 }, { "52+g", -99 } } },
     // 4P ply 4 (after 33+b 37+b 77+b 73+h)
     { 0x1ABA857E884EC672ULL, 8, 3, { { "33b+a", -260 }, { "33b+c", -260 }, { "33b+d", -520 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 33a+b 77e+f)
     { 0x1AC0210E6C951319ULL, 8, 3, { { "73+a", -440 }, { "53+h", -440 }, { "73+b", -560 } } },
+    // 2P_1B_SPED ply 1 (after 33+h)
+    { 0x1AC6A947B401A2D5ULL, 8, 3, { { "57+f", -4360 }, { "77+f", -5080 }, { "57+d", -6510 } } },
     // 4P ply 4 (after 33+h 37+h 77+h 73+a)
     { 0x1AC8C513AC0CE52EULL, 8, 3, { { "33h+a", 120 }, { "33h+c", 120 }, { "33h+b", 0 } } },
     // 4P ply 4 (after 33+b 37+e 77+e 73+h)
@@ -976,6 +1138,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1B0F3F95D036A1C0ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "33b+a", -810 } } },
     // 4P ply 4 (after 33+c 37+f 77+e 73+a)
     { 0x1B1BF0249A080819ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 33h+a)
+    { 0x1B37FFFE1549EAACULL, 8, 3, { { "37+d", -2601 }, { "57+h", -2601 }, { "37+b", -2601 } } },
     // 4P ply 4 (after 33+a 37+e 77+h 73+h)
     { 0x1B3E3AC9B76830ACULL, 8, 3, { { "33a+b", -140 }, { "33a+c", -140 }, { "33a+d", -280 } } },
     // OFK ply 3 (after 32+b 46+e 22+a)
@@ -996,6 +1160,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1BB3C50465FB0CEBULL, 8, 3, { { "33f+a", -120 }, { "33f+c", -120 }, { "33f+b", -240 } } },
     // 4P ply 4 (after 33+c 37+f 77+b 73+h)
     { 0x1BBD76D164C12F0EULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+f 53+f)
+    { 0x1BC169FF2ED66F45ULL, 8, 3, { { "77+e", -1949 }, { "57+e", -1949 }, { "37d+e", -1949 } } },
     // 4P ply 4 (after 33+c 37+d 77+g 73+g)
     { 0x1BC2E67889D7B29CULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+a 57+c)
@@ -1014,6 +1180,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1BF4BF5851B77909ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 33h+a 77+f)
     { 0x1BF698E8CD6347FAULL, 8, 3, { { "53+b", -539 }, { "73+h", -539 }, { "53+h", -539 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 73+b)
+    { 0x1BFAEAE928C7AA07ULL, 8, 3, { { "57+f", -2360 }, { "57+e", -2360 }, { "77+e", -2360 } } },
     // 4P ply 4 (after 33+a 37+c 77+e 73+a)
     { 0x1C230458FCBD8F5CULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // OFK ply 4 (after 22+b 36+e 42+h 56+e)
@@ -1022,6 +1190,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1C3DAE8B79561A60ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // OFK ply 4 (after 22+b 36+e 32+b 46+d)
     { 0x1C4072ADC1DFE37DULL, 8, 3, { { "32b+a", 210 }, { "52+h", 179 }, { "42+a", 179 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 53+b)
+    { 0x1C45B1C58AE3437BULL, 8, 3, { { "57+e", -2213 }, { "77+f", -2213 }, { "57+d", -2213 } } },
     // 2P 3-Base ply 4 (after 53+a 37+d 33+b 57+d)
     { 0x1C53BEFA2A3C17FBULL, 8, 3, { { "33+b", -163 }, { "53a+h", -163 }, { "33+a", -163 } } },
     // 4P ply 4 (after 33+a 37+h 77+g 73+d)
@@ -1032,6 +1202,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1C72235407B7BA1CULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "53+g", -400 } } },
     // 4P ply 4 (after 33+a 37+c 77+b 73+h)
     { 0x1C8582AD0274A84BULL, 8, 3, { { "33a+b", -400 }, { "33a+c", -400 }, { "33a+d", -540 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+e 33+b)
+    { 0x1C87A9EE89074445ULL, 8, 3, { { "37+d", -4020 }, { "57+f", -4020 }, { "57+d", -4020 } } },
     // OFK ply 4 (after 32+b 36+d 32b+a 36d+e)
     { 0x1C90F6EFE4B975D5ULL, 8, 3, { { "42+a", -108 }, { "32ab-43", -182 }, { "52+h", -217 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 73+h 37+f)
@@ -1044,6 +1216,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1CD09F6BAC21B4E6ULL, 8, 3, { { "53+a", -163 }, { "53+b", -163 }, { "53+h", -318 } } },
     // OFK ply 4 (after 22+b 46+e 32+a 26+e)
     { 0x1CD442B76095DA4DULL, 8, 3, { { "32+a", -140 }, { "42a+h", -140 }, { "22+b", -140 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+g)
+    { 0x1CD976A3273899C8ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+h 57+g)
     { 0x1CF6E7F795DA1727ULL, 8, 3, { { "53+a", 280 }, { "53+b", 280 }, { "73h+a", 280 } } },
     // 4P ply 3 (after 33+b 37+e 77+g)
@@ -1072,6 +1246,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1D5B2904998DD95DULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+h 37+b 77+g 73+d)
     { 0x1D620C387E62E68EULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 73+a)
+    { 0x1D85FDA47E6B43A9ULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
     // 2P 3-Base ply 4 (after 53+a 57+d 73+h 37+d)
     { 0x1D8F19FCC0A725C4ULL, 8, 3, { { "33+a", -43 }, { "53a+b", -43 }, { "33+h", -163 } } },
     // 2P 3-Base ply 3 (after 53+b 57+d 33+b)
@@ -1094,6 +1270,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1DF337304209C13EULL, 8, 3, { { "52+h", 760 }, { "32+b", 760 }, { "32+a", 740 } } },
     // 4P ply 4 (after 33+d 37+d 77+d 73+f)
     { 0x1DF814615F42388BULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 73+h)
+    { 0x1E0489ABF07C6AD1ULL, 8, 3, { { "77+f", -2980 }, { "37+e", -2980 }, { "57d+e", -2980 } } },
     // 2P 3-Base ply 3 (after 53+a 37+f 73+a)
     { 0x1E150F17625E4019ULL, 8, 3, { { "57+e", -2752 }, { "57+f", -2752 }, { "37+d", -2752 } } },
     // 4P ply 4 (after 33+d 37+b 77+g 73+a)
@@ -1118,6 +1296,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1E6FAC4117A245E6ULL, 8, 3, { { "32b-43", 0 }, { "22+b", -140 }, { "32b+a", -140 } } },
     // OFK ply 4 (after 22+b 46+f 32+a 26+e)
     { 0x1E724C34DFD0FD52ULL, 8, 3, { { "32+b", 561 }, { "32+c", 161 }, { "32+a", 0 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+e)
+    { 0x1E7302EB52566D58ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 33+a 37+d 53+h)
     { 0x1E97BD7101BC277BULL, 8, 3, { { "57+e", -2453 }, { "37+d", -2453 }, { "57+f", -2616 } } },
     // 4P ply 4 (after 33+a 37+h 77+d 73+b)
@@ -1130,12 +1310,18 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1ECF68103C4BB3CFULL, 8, 3, { { "42+a", -1128 }, { "32b-43", -1128 }, { "52+h", -1128 } } },
     // 4P ply 4 (after 33+d 37+e 77+g 73+h)
     { 0x1EDFBED3562DD8F3ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_1B_SP ply 1 (after 33+b)
+    { 0x1EE1084A8AED4063ULL, 8, 3, { { "77+e!", 90 }, { "37+a", -2760 }, { "37+h", -3110 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 73+f)
+    { 0x1F020E6F258A81EAULL, 8, 3, { { "37+e", -1829 }, { "77+e", -1829 }, { "57d+e", -1829 } } },
     // 4P ply 4 (after 33+d 37+f 77+h 73+f)
     { 0x1F0643E009FED8B5ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // OFK ply 4 (after 32+a 26+d 52+h 46+d)
     { 0x1F0D7C3C6C40A774ULL, 8, 3, { { "32+a", 860 }, { "42a+h", 860 }, { "32+b", 561 } } },
     // 2P 3-Base ply 3 (after 33+a 37+e 73+h)
     { 0x1F105EF32BA5081AULL, 8, 3, { { "57+f", -2752 }, { "37+d", -2752 }, { "37+e", -2752 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 73+a)
+    { 0x1F32304D518A3E32ULL, 8, 3, { { "37+d", -2213 }, { "57+f", -2213 }, { "57+e", -2213 } } },
     // OFK ply 4 (after 32+b 26+d 32b+g 46+f)
     { 0x1F3F93AF9960AD34ULL, 8, 3, { { "42+a", -1287 }, { "32bg-43", -1287 }, { "32bg+a", -1307 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 53b-64 57+g)
@@ -1160,6 +1346,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1F85BDF1D82A7089ULL, 8, 3, { { "32a+b", 120 }, { "52+h", -1127 }, { "32a+h", -1805 } } },
     // OFK ply 4 (after 22+b 46+e 52+a 26+d)
     { 0x1F94A48FB087A238ULL, 8, 3, { { "32+b", -620 }, { "42+a", -620 }, { "32+h", -1481 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+h)
+    { 0x1F9BBE387566F534ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 33b+a 77+d)
     { 0x1F9CA34AF8D01595ULL, 8, 3, { { "53+b", 120 }, { "33+a", 120 }, { "53+a", 0 } } },
     // 4P ply 4 (after 33+h 37+b 77+d 73+b)
@@ -1174,12 +1362,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x1FEC15720C67AFF1ULL, 8, 3, { { "22+b", 760 }, { "32+a", 760 }, { "42h-33", 740 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 73+a 57+f)
     { 0x1FF3575B89A09364ULL, 8, 3, { { "53+h", -438 }, { "33a+b", -438 }, { "53+b", -1140 } } },
+    // 2P_3B_ED ply 2 (after 33+a 77+e)
+    { 0x1FF514C17DCCA9AFULL, 8, 3, { { "53+h", 0 }, { "33+b", 0 }, { "53+f", -388 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+a 77+e)
     { 0x20068D8108C7B8E8ULL, 8, 3, { { "33a+b", 0 }, { "53a+h", 0 }, { "73+h", 0 } } },
+    // 2P_1B_SPED ply 1 (after 73+h)
+    { 0x200693918B3B82B4ULL, 8, 3, { { "77+e!", -3630 }, { "57+g", -3760 }, { "57+e!", -3850 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+h 57+e)
     { 0x200F49221B848173ULL, 8, 3, { { "33a+b", -630 }, { "53h+a", -720 }, { "73+a", -720 } } },
+    // 2P_1B_SP ply 1 (after 73+b)
+    { 0x2024FD2FF114B49CULL, 8, 3, { { "57+d", -3990 }, { "57+a", -4360 }, { "77+a", -4530 } } },
     // OFK ply 4 (after 32+a 36+e 52+h 46+e)
     { 0x2037E5690753889EULL, 8, 3, { { "32+a", -228 }, { "32+b", -407 }, { "52+h", -561 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+d 53+d)
+    { 0x203D79DC02C2BF02ULL, 8, 3, { { "57+e", -1949 }, { "37+e", -1949 }, { "77f+e", -1949 } } },
     // OFK ply 4 (after 32+a 26+d 32a+b 36+e)
     { 0x203E0525686EB3AFULL, 8, 3, { { "32+a", 120 }, { "42ah-33", 120 }, { "22+b", -1127 } } },
     // 4P ply 4 (after 33+a 37+e 77+g 73+a)
@@ -1188,6 +1384,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x205DBA876AD4C366ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+f 37+d 77+b 73+d)
     { 0x20641BB90B0C4C36ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 73+a)
+    { 0x207026AA006AE5ACULL, 8, 3, { { "57+e", -2453 }, { "37+d", -2453 }, { "57+f", -2616 } } },
     // 4P ply 4 (after 33+d 37+c 77+h 73+d)
     { 0x20797A946EE49417ULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
     // 4P ply 4 (after 33+a 37+b 77+g 73+h)
@@ -1206,6 +1404,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x20A2F8218E78C81CULL, 8, 3, { { "73+h", -275 }, { "73+a", -275 }, { "53b+a", -283 } } },
     // OFK ply 4 (after 22+b 36+e 52+a 46+d)
     { 0x20AE3DDADB948DD2ULL, 8, 3, { { "42+h", -1861 }, { "32+a", -1861 }, { "42+a", -2118 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+e)
+    { 0x20B6F78E29AF99A7ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 73+b)
+    { 0x20C17CCE8B859E2EULL, 8, 3, { { "77+f", -2980 }, { "37+e", -2980 }, { "57d+e", -2980 } } },
     // OFK ply 4 (after 22+b 36+e 32+b 46+e)
     { 0x20D68C276774801BULL, 8, 3, { { "32+a", -407 }, { "42h+a", -407 }, { "32+b", -968 } } },
     // 4P ply 4 (after 33+b 37+f 77+b 73+f)
@@ -1214,6 +1416,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x20DF6C6B0849BB2AULL, 8, 3, { { "32+a", -1248 }, { "42+h", -1248 }, { "42+b", -2348 } } },
     // 2P 1-Base ply 3 (after 33+a 57+f 73+h)
     { 0x20E31270F1AAA806ULL, 8, 3, { { "77+f", -2980 }, { "37+e", -2980 }, { "57d+e", -2980 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 73+a)
+    { 0x20F294CC638882CEULL, 8, 3, { { "57+e", -2752 }, { "57+f", -2752 }, { "37+d", -2752 } } },
     // 2P 3-Base ply 3 (after 33+b 77+f 53+c)
     { 0x20F4918F47FC1719ULL, 8, 3, { { "57+e", -1933 }, { "77+f", -2053 }, { "77+e", -2232 } } },
     // 4P ply 4 (after 33+f 37+f 77+d 73+a)
@@ -1248,6 +1452,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x21AE43B77916BE82ULL, 8, 3, { { "42+h", 120 }, { "42+a", -20 }, { "52+h", -38 } } },
     // 4P ply 4 (after 33+c 37+e 77+e 73+f)
     { 0x21B0B2AB8099B7C0ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+e)
+    { 0x21B362464A405DC2ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+h 37+h 77+g 73+h)
     { 0x21BA7AAFE94E5AB1ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 53a+h 77+e)
@@ -1260,6 +1466,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x21DCB1CF988FD972ULL, 8, 3, { { "33c+b", -120 }, { "33c+a", -120 }, { "33c+d", -260 } } },
     // 2P 3-Base ply 4 (after 33+b 37+e 53+c 57+e)
     { 0x21EBECAEB5AD999CULL, 8, 3, { { "73+a", -400 }, { "53c+h", -400 }, { "33b+a", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+e 73+h)
+    { 0x21F7C5282A73CACDULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 2P 3-Base ply 4 (after 53+b 57+d 73+a 57d+e)
     { 0x22068C55F7A13561ULL, 8, 3, { { "33+a", -244 }, { "73a+h", -244 }, { "53b+a", -244 } } },
     // 4P ply 4 (after 33+f 37+d 77+h 73+a)
@@ -1268,6 +1476,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x220BFEB988E602A4ULL, 8, 3, { { "57+e", -1813 }, { "37+e", -1813 }, { "57+d", -1813 } } },
     // 4P ply 4 (after 33+d 37+c 77+b 73+a)
     { 0x2216B90BA673FF8BULL, 8, 3, { { "33d+a", -540 }, { "33d+c", -540 }, { "33d+b", -660 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+g)
+    { 0x221C83C65CC16D37ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+d 37+h 77+d 73+g)
     { 0x2223496254E33B59ULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
     // 4P ply 3 (after 33+h 37+e 77+g)
@@ -1304,22 +1514,34 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x230E4DEEA074E3CFULL, 8, 3, { { "33h+a", -280 }, { "33h+c", -280 }, { "33h+b", -400 } } },
     // 2P 1-Base ply 4 (after 33+a 57+d 73+h 77+e)
     { 0x2317618256F5B26BULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "73a+h", -610 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+d 53b+a)
+    { 0x2326654A80C9C09CULL, 8, 3, { { "37+d", -3200 }, { "77+e", -3200 }, { "37+e", -3200 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+b 77+e)
     { 0x2336FC2C7B7E1F8CULL, 8, 3, { { "33+a", 0 }, { "53a+b", 0 }, { "73h+a", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+d 53+f)
+    { 0x2339BA1B51A0BEF7ULL, 8, 3, { { "37+e", -1949 }, { "77+e", -1949 }, { "57d+e", -1949 } } },
     // OFK ply 4 (after 22+b 46+e 52+b 26+d)
     { 0x2348399344E86816ULL, 8, 3, { { "42+h", -740 }, { "32+a", -740 }, { "42+b", -1601 } } },
     // 2P 3-Base ply 3 (after 33+h 57+d 53+b)
     { 0x23568BD32927D271ULL, 8, 3, { { "37+e", -2632 }, { "77+f", -2632 }, { "37+d", -2752 } } },
     // 2P 3-Base ply 3 (after 33+h 57+e 73+a)
     { 0x2362667F7FBD817EULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+d 33+b)
+    { 0x2374E56D5308E459ULL, 8, 3, { { "37+e", -2651 }, { "77+f", -2651 }, { "37+d", -2771 } } },
     // 4P ply 4 (after 33+b 37+e 77+d 73+g)
     { 0x2383787B90794DE4ULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 53+h)
+    { 0x23A544DB06D46381ULL, 8, 3, { { "37+d", -3170 }, { "77+e", -3170 }, { "37+e", -3170 } } },
     // 4P ply 4 (after 33+b 37+b 77+g 73+d)
     { 0x23A7F95D059B1271ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 33a+b 57+c)
     { 0x23B562E721C508C6ULL, 8, 3, { { "33+a", 520 }, { "53+b", 520 }, { "53+a", 520 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+g)
+    { 0x23BCB2DF985B1B8AULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 2P 3-Base ply 3 (after 33+h 57+e 53+a)
     { 0x23E147EEF9A02263ULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 53+h)
+    { 0x23EDBB3D0147C307ULL, 8, 3, { { "57+d", -4140 }, { "77+f", -4140 }, { "57+f", -4140 } } },
     // 4P ply 4 (after 33+b 37+h 77+h 73+a)
     { 0x240D3076D7F511D1ULL, 8, 3, { { "33b+a", 260 }, { "33b+c", 260 }, { "33b+d", 0 } } },
     // 4P ply 4 (after 33+h 37+e 77+e 73+h)
@@ -1342,6 +1564,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x24708C504865216DULL, 8, 3, { { "77+f", -2651 }, { "77+e", -2651 }, { "37+d", -2651 } } },
     // OFK ply 3 (after 22+b 36+d 52+b)
     { 0x2472363435828AD1ULL, 8, 3, { { "36d+e", -2782 }, { "46+e", -3382 }, { "56+f", -3382 } } },
+    // 2P_3B_SPED ply 1 (after 53+e!)
+    { 0x24797DEA674229EBULL, 8, 3, { { "77+a", -1425 }, { "37+e!", -1425 }, { "37+a!", -1425 } } },
     // 4P ply 4 (after 33+h 37+b 77+b 73+h)
     { 0x247F701BF3B7328DULL, 8, 3, { { "33h+a", -400 }, { "33h+c", -400 }, { "33h+b", -520 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 53+c 57+e)
@@ -1374,6 +1598,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2507DFE796411594ULL, 8, 3, { { "33+a", 0 }, { "53+b", 0 }, { "53+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 57+d 33a+b 77+f)
     { 0x25336D8DB69AB305ULL, 8, 3, { { "73+a", -318 }, { "53+h", -318 }, { "73+h", -438 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 73+h)
+    { 0x253F1F8C533E5EF8ULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "77+e", -4020 } } },
     // 4P ply 4 (after 33+a 37+h 77+b 73+h)
     { 0x25430A500E0CAEAAULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // OFK ply 3 (after 22+b 56+f 32+b)
@@ -1402,14 +1628,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x25E35FCC06B9F0A2ULL, 8, 3, { { "33+b", 30 }, { "53h+a", 30 }, { "53h-44", 30 } } },
     // 4P ply 4 (after 33+a 37+h 77+e 73+a)
     { 0x25E58CA5F0C589BDULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+e)
+    { 0x2615BB0F9AB41D04ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 32+a 36+e 52+b 26+d)
     { 0x26250494FE0D02A6ULL, 8, 3, { { "42a+h", -3067 }, { "32+b", -3179 }, { "32+a", -3179 } } },
     // OFK ply 4 (after 32+b 26+d 32b+c 46+e)
     { 0x2634321427E67EF8ULL, 8, 3, { { "32+a", -1635 }, { "42gh-33", -1635 }, { "22+b", -1635 } } },
     // 4P ply 3 (after 33+c 37+f 77+h)
     { 0x2644D19F1205B0A6ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+h)
+    { 0x265D36C5791EF3D5ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+b 37+h 77+b 73+d)
     { 0x2662F3E91F627A4DULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+b)
+    { 0x2679B86B82A273B6ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+e 53+h)
+    { 0x26858B13B5D9631AULL, 8, 3, { { "57+d", -2651 }, { "77+f", -2651 }, { "77+h", -2721 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 73+h 57d+e)
     { 0x269512754E6EBC0AULL, 8, 3, { { "53+h", -210 }, { "53+b", -210 }, { "53+a", -210 } } },
     // 2P 1-Base ply 4 (after 33+a 77+f 73+b 37+c)
@@ -1446,10 +1680,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x27432230FE8A59DAULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+c 37+d)
     { 0x275E368C12A3312AULL, 8, 3, { { "33+b", -400 }, { "53g+h", -400 }, { "33+a", -400 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+h)
+    { 0x27614C8E84A56FF2ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+a 37+c 77+d 73+b)
     { 0x27654EFB0C614423ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P 3-Base ply 3 (after 33+h 57+e 33h+a)
     { 0x2767A9CC3B7E55E0ULL, 8, 3, { { "77+e", -2213 }, { "37+d", -2213 }, { "57e+f", -2213 } } },
+    // 2P_1B_ED ply 2 (after 53+b 57+f)
+    { 0x277416793869A064ULL, 8, 3, { { "73+a", -630 }, { "33+b", -630 }, { "33+a", -630 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 53+h 77+e)
     { 0x2784FFA2EF3A3B00ULL, 8, 3, { { "33+a", -155 }, { "73h+a", -155 }, { "53b+a", -163 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 73+h 77+c)
@@ -1460,8 +1698,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x279A94C58F600FE9ULL, 8, 3, { { "42+a", -2260 }, { "32b+a", -2260 }, { "42+h", -2260 } } },
     // 4P ply 4 (after 33+d 37+b 77+e 73+d)
     { 0x27AEC194C3EE6242ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+e)
+    { 0x27B58A165E2E6BB9ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 4 (after 33+d 37+e 77+b 73+d)
     { 0x27C2C2F0DBF80CF0ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+e 33+b)
+    { 0x27C6E6E3C74CC0D5ULL, 8, 3, { { "77+f", -2333 }, { "37+d", -2453 }, { "37+e", -2632 } } },
+    // 2P_1B_ED ply 3 (after 33+b 57+d 33b+a)
+    { 0x27E77B4DEAC76D32ULL, 8, 3, { { "77+e", -2980 }, { "37+d", -2980 }, { "57f-46", -2980 } } },
     // OFK ply 4 (after 32+b 46+e 22+a 26+d)
     { 0x27F5DBF5C64E780AULL, 8, 3, { { "42h-33", -1128 }, { "32+a", -1128 }, { "22+b", -1128 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 53+b 57+e)
@@ -1476,8 +1720,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x28425456830B327BULL, 8, 3, { { "73+h", -539 }, { "73+a", -539 }, { "33h+a", -539 } } },
     // 2P 3-Base ply 3 (after 53+a 57+d 73+a)
     { 0x28513E202F1876A4ULL, 8, 3, { { "37+e", -2654 }, { "77+f", -2654 }, { "57d-66", -2654 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+d)
+    { 0x285A6DB20709B8F4ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 53+b 57+c)
     { 0x28779557ECC8115CULL, 8, 3, { { "53h+a", 280 }, { "33+b", 280 }, { "33+a", 280 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+g)
+    { 0x287D4A55D64537D0ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+b 26+d 52+h 46+d)
     { 0x288700C0B529B649ULL, 8, 3, { { "32b-43", 912 }, { "42+a", 912 }, { "22+a", 880 } } },
     // 4P ply 4 (after 33+d 37+b 77+f 73+g)
@@ -1485,7 +1733,7 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     // 4P ply 4 (after 33+h 37+f 77+h 73+h)
     { 0x28A2F24320A019F1ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P_3B_ED ply 1 (after 33+b)
-    { 0x28D16B85C04AC61FULL, 8, 3, { { "77+e", -2752 }, { "37+d", -2752 }, { "57+f", -2752 } } },
+    { 0x28D16B85C04AC61FULL, 8, 3, { { "77+e", -2752 }, { "57+f", -2752 }, { "37+d", -2752 } } },
     // 2P 3-Base ply 3 (after 33+a 57+d 73+a)
     { 0x28D21FB1A905D5B9ULL, 8, 3, { { "37+e", -2752 }, { "57d+e", -2752 }, { "77+f", -2752 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 53+a 57d+e)
@@ -1502,6 +1750,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x292FABCB735646F8ULL, 8, 3, { { "33+b", 0 }, { "53h-44", 0 }, { "53h+a", 0 } } },
     // 2P 1-Base ply 4 (after 33+a 77+f 53+b 57+e)
     { 0x29334253FC6C492BULL, 8, 3, { { "73+h", -300 }, { "53b-64", -300 }, { "53b+a", -510 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+e 53+a)
+    { 0x2945E978F4C1146FULL, 8, 3, { { "57+f", -3100 }, { "37+d", -3100 }, { "57+e", -3100 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 33+a)
+    { 0x294C2DDBE7822DF4ULL, 8, 3, { { "77+f", -2453 }, { "57+e", -2453 }, { "57+d", -2608 } } },
     // 2P 3-Base ply 3 (after 33+b 77+e 53+h)
     { 0x29614E59A3C75C49ULL, 8, 3, { { "77+f", -2752 }, { "57+d", -2752 }, { "57+f", -2752 } } },
     // 4P ply 4 (after 33+c 37+h 77+e 73+h)
@@ -1520,6 +1772,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x29BA06A626A705B5ULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
     // 4P ply 4 (after 33+d 37+d 77+g 73+g)
     { 0x29C5960FCBB19827ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 73+a)
+    { 0x29C6C8E972DCB772ULL, 8, 3, { { "37+d", -3100 }, { "57+f", -3100 }, { "37+e", -3100 } } },
     // 4P ply 4 (after 33+c 37+h 77+b 73+a)
     { 0x29D74181E86DD3D1ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 73+h 77+d)
@@ -1544,6 +1798,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2A6BB72916FE557AULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
     // 4P ply 3 (after 33+c 37+b 77+b)
     { 0x2A9953C7C1129BDAULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+h)
+    { 0x2AA43A3351B558CAULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 73+h 57+f)
     { 0x2AB3A5AB9784A42CULL, 8, 3, { { "53+h", 0 }, { "53+b", 0 }, { "33b+a", 0 } } },
     // OFK ply 4 (after 22+b 36+e 32+b 36e+d)
@@ -1554,8 +1810,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2AEFD237FBEF1DF8ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 3 (after 33+c 37+e 77+e)
     { 0x2AF550A3D904F568ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 33a+b)
+    { 0x2AF6B94401651016ULL, 8, 3, { { "77+e", -3100 }, { "57+f", -3100 }, { "37e+d", -3100 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 33h+a 57+f)
     { 0x2B35D5DE58624F32ULL, 8, 3, { { "53+h", -441 }, { "33+b", -441 }, { "53+b", -1140 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+d 33+a)
+    { 0x2B45E8AC0BA799E6ULL, 8, 3, { { "77+f", -3930 }, { "37+e", -3930 }, { "37+d", -3930 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 33a+b 77+f)
     { 0x2B48095A0BFCB064ULL, 8, 3, { { "33+a", 120 }, { "53+b", 120 }, { "53+a", 120 } } },
     // OFK ply 4 (after 22+b 26+d 22b+a 56+f)
@@ -1564,8 +1824,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2B59300A15F33DAAULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // OFK ply 4 (after 32+b 56+f 52+a 46+e)
     { 0x2B5A36AEAB4CCC3DULL, 8, 3, { { "32+a", -3059 }, { "42h+a", -3059 }, { "32+b", -3059 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 53a+h)
+    { 0x2B5F976DDFF51DA5ULL, 8, 3, { { "57+e", -2697 }, { "57+d", -2697 }, { "77+f", -2697 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 73+h 77e+d)
     { 0x2B6E93A509C96F52ULL, 8, 3, { { "53+h", 120 }, { "53+a", 120 }, { "33b+a", 120 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+d 73+h)
+    { 0x2B94491A5E7B1E3EULL, 8, 3, { { "77+e", -2752 }, { "37+d", -2752 }, { "77+f", -2872 } } },
     // 2P 1-Base ply 2 (after 33+b 37+f)
     { 0x2B95830398EA5ABDULL, 8, 3, { { "33+a", 120 }, { "53+b", 120 }, { "53+a", 120 } } },
     // 4P ply 3 (after 33+b 37+f 77+b)
@@ -1574,6 +1838,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2BA54DD288476CC9ULL, 8, 3, { { "33+b", 0 }, { "53a+h", 0 }, { "73a+h", 0 } } },
     // 4P ply 4 (after 33+c 37+h 77+h 73+d)
     { 0x2BB8821E20FAB84DULL, 8, 3, { { "33c+b", 660 }, { "33c+a", 660 }, { "33c+d", 520 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+b)
+    { 0x2BBCCED657B2448EULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+f 37+h 77+e 73+g)
     { 0x2BCA469619AADE6FULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 4P ply 4 (after 33+b 37+c 77+e 73+f)
@@ -1628,12 +1894,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2D0133974B98F20EULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 53+a 57e+f)
     { 0x2D04F615B55D452AULL, 8, 3, { { "33+b", -283 }, { "53a+h", -283 }, { "33+a", -364 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+f 73+a)
+    { 0x2D0E124D0B912347ULL, 8, 3, { { "57+e", -2333 }, { "77+f", -2453 }, { "77+e", -2601 } } },
     // 4P ply 4 (after 33+b 37+f 77+g 73+a)
     { 0x2D15B89A1E1B5291ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+c 37+d 77+f 73+a)
     { 0x2D4DE986F5A04703ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+a 37+e 77+b 73+f)
     { 0x2D827F8F9831EDACULL, 8, 3, { { "33a+b", -260 }, { "33a+c", -260 }, { "33a+d", -400 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+e 33+b)
+    { 0x2D84F77F9ECFB9C1ULL, 8, 3, { { "57+f", -4020 }, { "37+d", -4020 }, { "57+d", -4020 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 73+a 57e+f)
     { 0x2D87D7843340E637ULL, 8, 3, { { "53+h", -364 }, { "33a+b", -364 }, { "53+a", -364 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 53+b 77+d)
@@ -1644,6 +1914,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2DE5DCA60A5343F1ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 4P ply 4 (after 33+a 37+b 77+e 73+f)
     { 0x2DEE7CEB8027831EULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
+    // 4P_ED ply 2 (after 33+f 37+b)
+    { 0x2DF72E926815818CULL, 8, 3, { { "77+e", -260 }, { "77+g", -260 }, { "77+f", -260 } } },
     // OFK ply 4 (after 22+b 36+e 52+a 46+f)
     { 0x2DF83E9073A3EBB0ULL, 8, 3, { { "42+h", -3438 }, { "32+a", -3438 }, { "42+a", -3438 } } },
     // OFK ply 3 (after 32+b 46+f 22+b)
@@ -1664,16 +1936,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2EA8875922BEC7BBULL, 8, 3, { { "42+a", -108 }, { "32bg-43", -108 }, { "52+h", -108 } } },
     // OFK ply 2 (after 22+b 46+e)
     { 0x2EAF94DB7EEA2075ULL, 8, 3, { { "42+a", -740 }, { "32+b", -740 }, { "42+h", -740 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+e 53+h)
+    { 0x2EB486D2ED761EA5ULL, 8, 3, { { "77+f", -3100 }, { "77+e", -3170 }, { "57+f", -3170 } } },
     // 4P ply 4 (after 33+a 37+f 77+d 73+g)
     { 0x2EDA45947C489046ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_3B_ED ply 2 (after 33+h 37+d)
+    { 0x2EF9476C546E13BEULL, 8, 3, { { "53+a", -299 }, { "53+b", -299 }, { "73+h", -299 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 73+a 77+e)
     { 0x2F301A6D1CA19BACULL, 8, 3, { { "53+b", -275 }, { "73a+h", -275 }, { "53+a", -523 } } },
     // 2P 1-Base ply 4 (after 53+b 37+e 53b-64 77+d)
     { 0x2F3A60BCC3CA2540ULL, 8, 3, { { "73+h", 740 }, { "64b+a", 740 }, { "33+b", 620 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+g)
+    { 0x2F45BE29B0F0B095ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 3 (after 33+c 37+h 77+g)
     { 0x2F5C5973DBEBF3E6ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 2P 3-Base ply 4 (after 33+b 77+e 53+b 57+d)
     { 0x2F6453D5E249C167ULL, 8, 3, { { "33+b", -120 }, { "53h-44", -120 }, { "53h+a", -120 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+d 33+h)
+    { 0x2F725CEA429695E7ULL, 8, 3, { { "57+e", -2213 }, { "37+e", -2213 }, { "57+d", -2213 } } },
     // 4P ply 4 (after 33+b 37+d 77+b 73+b)
     { 0x2F799CF103F0E158ULL, 8, 3, { { "33b+a", -260 }, { "33b+c", -260 }, { "33b+d", -520 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+h 37d+e)
@@ -1682,6 +1962,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x2F89175D61F21DCAULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "73+h", 0 } } },
     // 4P ply 4 (after 33+d 37+c 77+g 73+f)
     { 0x2FD843F1CC689D14ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+d 73+a)
+    { 0x2FF17D7BC48B36FAULL, 8, 3, { { "57+d", -2213 }, { "37+e", -2213 }, { "57+e", -2213 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+d)
+    { 0x2FFCB4FBD7FDF832ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+c 37+d 77+d 73+f)
     { 0x2FFF64161D241230ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+b 37+h 77+b 73+h)
@@ -1700,6 +1984,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3070FDD1DA4E2440ULL, 8, 3, { { "73a+h", 539 }, { "33+a", 539 }, { "53b+a", 539 } } },
     // 4P ply 4 (after 33+h 37+b 77+h 73+a)
     { 0x30734996A365DECCULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 73+a)
+    { 0x307D1C27DA150DC2ULL, 8, 3, { { "57+f", -2980 }, { "57+e", -2980 }, { "77+e", -2980 } } },
     // 4P ply 4 (after 33+b 37+h 77+e 73+a)
     { 0x30A78F0E79EEDA87ULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
     // 4P ply 4 (after 33+h 37+e 77+h 73+h)
@@ -1708,6 +1994,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x30DAFD25068A2F72ULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
     // 2P 3-Base ply 4 (after 53+a 37+d 73+a 57+f)
     { 0x30F24FB7B9AC4322ULL, 8, 3, { { "73+h", -163 }, { "53a+b", -163 }, { "53a+h", -318 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+e 33+b)
+    { 0x30F7F9154F4B9744ULL, 8, 3, { { "37+b", -2601 }, { "57+h", -2601 }, { "57+f", -2651 } } },
     // 4P ply 4 (after 33+d 37+e 77+e 73+a)
     { 0x3107BE17BD74AC3AULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 3-Base ply 3 (after 33+h 37+f 73+a)
@@ -1776,20 +2064,32 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3273F5987ED4A102ULL, 8, 3, { { "42+a", -217 }, { "42+h", -217 }, { "32a+b", -241 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+h 77+d)
     { 0x327938A6366B9052ULL, 8, 3, { { "33a+b", 120 }, { "73+a", -430 }, { "73+h", -430 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+f 73+b)
+    { 0x32827311150F187FULL, 8, 3, { { "37+e", -2360 }, { "57+d", -2360 }, { "57+e", -2360 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+e 33+a)
+    { 0x3284E5484E6793EFULL, 8, 3, { { "37+d", -2453 }, { "77+f", -2453 }, { "37+e", -2752 } } },
     // 4P ply 4 (after 33+f 37+h 77+f 73+h)
     { 0x329D49AC8E845F39ULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 4P ply 4 (after 33+c 37+c 77+b 73+f)
     { 0x32A1B5B79B9EE471ULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+h)
+    { 0x32BF047734AFD652ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 2P 1-Base ply 3 (after 53+b 57+d 33+h)
     { 0x32C0E67DB113D20DULL, 8, 3, { { "37+d", -2980 }, { "77+e", -2980 }, { "77+f", -3100 } } },
     // OFK ply 4 (after 32+b 26+d 32b-43 36+e)
     { 0x32CBBE80263F2E3EULL, 8, 3, { { "32+a", 120 }, { "33h+a", 120 }, { "22+b", -265 } } },
+    // 2P_3B_ED ply 2 (after 53+b 57+f)
+    { 0x32E7B464E49E7486ULL, 8, 3, { { "73+h", -81 }, { "33+a", -81 }, { "53b+a", -81 } } },
     // 4P ply 3 (after 33+c 37+f 77+e)
     { 0x32EE6EE7BC1E7BF0ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 53+h 37d+e)
     { 0x32F24E6346CACEABULL, 8, 3, { { "33+a", -155 }, { "73a+h", -155 }, { "53b+a", -155 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+e)
+    { 0x32F789BDD7053883ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 4 (after 33+d 37+b 77+h 73+d)
     { 0x33047EEC6DF5A914ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+h)
+    { 0x331F356EF035A0EFULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+a 37+h 77+b 73+d)
     { 0x3320F04296492977ULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 73+a 57+f)
@@ -1800,10 +2100,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x33859E2C4887FC3EULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 73+h 57+e)
     { 0x339FEE38C0D64FB6ULL, 8, 3, { { "53+h", 0 }, { "53+b", 0 }, { "53+a", 0 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+b)
+    { 0x33A7F09232A8CA16ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+e)
+    { 0x33CBF3F62ABEA4A4ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+h 57f+e)
     { 0x33D711DEC745EF30ULL, 8, 3, { { "53+b", -90 }, { "53+a", -90 }, { "33a+b", -700 } } },
     // 4P ply 3 (after 33+b 37+b 77+e)
     { 0x33E99D485091928CULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+d 53b-64)
+    { 0x33F7DEC818D7ABB7ULL, 8, 3, { { "57+f", -2480 }, { "77+e", -2480 }, { "57+e", -2480 } } },
     // 4P ply 4 (after 33+a 37+c 77+g 73+h)
     { 0x33FB049C17E4FB95ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+a 37e+d)
@@ -1812,10 +2118,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x34124033724372CCULL, 8, 3, { { "57+d", -4020 }, { "77+f", -4020 }, { "57+f", -4020 } } },
     // 4P ply 4 (after 33+a 37+b 77+d 73+b)
     { 0x34184A830F707920ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+h)
+    { 0x341C48F687B452F1ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // OFK ply 4 (after 22+b 26+d 22b+a 46+f)
     { 0x34218D96AEB15CBBULL, 8, 3, { { "42+a", -3203 }, { "32+b", -3203 }, { "32+a", -3382 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 33+a)
+    { 0x3436E71225453AEAULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 4P ply 3 (after 33+b 37+c 77+h)
     { 0x343E2648FD9B64D9ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+f 33+a)
+    { 0x343F23B136060371ULL, 8, 3, { { "57+e", -3090 }, { "77+f", -3090 }, { "77+e", -3220 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 53b-64 57+a)
     { 0x344027DDF975C7D3ULL, 8, 3, { { "73+h", 520 }, { "33+a", 520 }, { "64b+a", 520 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+b 77+f)
@@ -1824,6 +2136,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3441DFCEC817A3D1ULL, 8, 3, { { "53+h", 120 }, { "33a+b", 120 }, { "53+b", 120 } } },
     // 2P 3-Base ply 4 (after 53+b 57+f 33+h 77+d)
     { 0x345CA5A1A2D2687DULL, 8, 3, { { "53h+a", 0 }, { "33+b", 0 }, { "53h-44", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+d 73+f)
+    { 0x3485F8A1D758262FULL, 8, 3, { { "37+e", -1949 }, { "57d+e", -1949 }, { "77+f", -1949 } } },
     // OFK ply 4 (after 22+b 46+f 32+h 56+f)
     { 0x3486CF3626D14E48ULL, 8, 3, { { "32+b", -640 }, { "42b+a", -640 }, { "22+b", -1678 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 33a+b 37d+e)
@@ -1834,6 +2148,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x34A9EF053C86CAA6ULL, 8, 3, { { "73+h", -400 }, { "53c+b", -400 }, { "73+a", -400 } } },
     // 4P ply 4 (after 33+d 37+h 77+g 73+a)
     { 0x34AEB7C7BF9BAAB4ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 2P_3B_ED ply 3 (after 33+a 77+e 73+a)
+    { 0x34B5C683A35899F7ULL, 8, 3, { { "37+d", -2721 }, { "37+b", -2721 }, { "57+h", -2721 } } },
     // 4P ply 4 (after 33+c 37+d 77+b 73+g)
     { 0x34BC60499C47E142ULL, 8, 3, { { "33c+b", -400 }, { "33c+a", -400 }, { "33c+d", -540 } } },
     // OFK ply 4 (after 32+b 26+d 32b-43 56+f)
@@ -1850,8 +2166,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x34E363F16381AD2BULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "73h+a", 0 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+h 57+c)
     { 0x35049B3D3D4C3FD9ULL, 8, 3, { { "33+b", 280 }, { "53h-44", 280 }, { "53h+a", 280 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+b)
+    { 0x3504BC1381B34EB5ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+b 37+e 77+g 73+a)
     { 0x350E86DE7B01DC09ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+h)
+    { 0x3519DD3EE45B9694ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+c 37+e 77+h 73+f)
     { 0x351A0DD32E827C96ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+h 37+h 77+d 73+b)
@@ -1874,6 +2194,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x359941CBFD2B6334ULL, 8, 3, { { "33a+b", -120 }, { "33a+c", -120 }, { "33a+d", -260 } } },
     // 2P 1-Base ply 3 (after 33+a 57+f 73+a)
     { 0x35A111DB7881FB3CULL, 8, 3, { { "37+e", -3100 }, { "77+f", -3100 }, { "57d+e", -3100 } } },
+    // 2P_1B_ED ply 1 (after 33+b)
+    { 0x35A265EF11CEE89AULL, 8, 3, { { "77+e", -3100 }, { "57+f", -3100 }, { "37+d", -3100 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 73+h)
+    { 0x35B09767EAA3D1F4ULL, 8, 3, { { "57+f", -2752 }, { "37+d", -2752 }, { "57+e", -2752 } } },
     // 4P ply 4 (after 33+b 37+b 77+g 73+h)
     { 0x35C4034F9DDE95ACULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 3 (after 33+a 37+c 77+e)
@@ -1892,6 +2216,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x362065D4F696D244ULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
     // OFK ply 4 (after 32+a 46+e 52+a 26+e)
     { 0x36365E3A52B05F3CULL, 8, 3, { { "42+a", -199 }, { "32a+b", -561 }, { "42+h", -740 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+d 53+b)
+    { 0x3636E6C6DA23B763ULL, 8, 3, { { "37+e", -2752 }, { "77+f", -2752 }, { "37+d", -2872 } } },
     // 2P 1-Base ply 4 (after 33+a 77+f 33a+b 37+f)
     { 0x363B0730DA789EE1ULL, 8, 3, { { "53+b", 120 }, { "53+a", 120 }, { "33+a", 120 } } },
     // 4P ply 4 (after 33+f 37+f 77+g 73+g)
@@ -1904,6 +2230,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x36A1675E6D80ECFCULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 1-Base ply 3 (after 33+a 77+f 33a+b)
     { 0x36A5D21C2BE3FAC9ULL, 8, 3, { { "37+e", -2980 }, { "57+d", -2980 }, { "57+e", -2980 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+d 53b+a)
+    { 0x36B5C7575C3E147EULL, 8, 3, { { "37+e", -2752 }, { "77+f", -2752 }, { "37+d", -2752 } } },
     // 4P ply 3 (after 33+d 37+d 77+f)
     { 0x36BF073291D01E51ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+a 37+e 77+d 73+g)
@@ -1912,6 +2240,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x36D643B859C3424CULL, 8, 3, { { "33+b", 0 }, { "53a+h", 0 }, { "73a+h", -610 } } },
     // 4P ply 4 (after 33+a 37+b 77+g 73+d)
     { 0x36E5FAF68CB0414BULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+d 73+h)
+    { 0x36E747708FFF30BBULL, 8, 3, { { "37+d", -4020 }, { "77+e", -4020 }, { "77+f", -4020 } } },
     // 2P 3-Base ply 4 (after 33+b 37+e 73+h 57+e)
     { 0x36F7DE167448EFABULL, 8, 3, { { "53+b", -120 }, { "53+h", -120 }, { "53+a", -120 } } },
     // 4P ply 4 (after 33+h 37+c 77+b 73+h)
@@ -1922,6 +2252,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x372D9EFD42724331ULL, 8, 3, { { "46+e", -6141 }, { "56+f", -6141 }, { "26+e", -6141 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 73+b 37+d)
     { 0x375769A55EF31323ULL, 8, 3, { { "53+a", -283 }, { "53+b", -283 }, { "73h+a", -438 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+g)
+    { 0x375E806DD5EA3E0DULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 22+b 36+e 22b-33 46+e)
     { 0x37798C9E4E9979F6ULL, 8, 3, { { "32+a", -3891 }, { "22+b", -3891 }, { "42+a", -3902 } } },
     // 4P ply 4 (after 33+h 37+c 77+e 73+a)
@@ -1932,6 +2264,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x37D980BD710BDD6CULL, 8, 3, { { "33h+a", 660 }, { "33h+c", 660 }, { "33h+b", 540 } } },
     // 4P ply 3 (after 33+d 37+b 77+g)
     { 0x37E0A58196E4E2BFULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+d)
+    { 0x37E78ABFB2E776AAULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+f 37+b 77+d 73+h)
     { 0x3824347216E200A9ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // OFK ply 4 (after 32+b 36+e 42+a 56+e)
@@ -1942,6 +2276,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x384063E7671E9D80ULL, 8, 3, { { "53+h", -630 }, { "33", -750 }, { "33ab-44", -750 } } },
     // 4P ply 4 (after 33+c 37+e 77+d 73+b)
     { 0x384684C30FCE4DFEULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
+    // 2P_3B_ED ply 3 (after 33+b 77+f 73+h)
+    { 0x384C11E682BA707DULL, 8, 3, { { "77+e", -2601 }, { "57+h", -2601 }, { "37d+b", -2601 } } },
     // 4P ply 4 (after 33+a 37+f 77+g 73+a)
     { 0x3857BB31973001ABULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 33a+b 37+e)
@@ -1998,6 +2334,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x39E457BFC203A6D9ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 73+h 77+d)
     { 0x39F2A1F88823D00FULL, 8, 3, { { "53+b", 0 }, { "53+h", 0 }, { "53+a", 0 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+g)
+    { 0x3A07BD8239DBE3AFULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 73+b 57d-66)
     { 0x3A0ADBFEA6FDD03EULL, 8, 3, { { "53+a", -120 }, { "53+b", -120 }, { "73h+a", -120 } } },
     // 4P ply 3 (after 33+h 37+f 77+g)
@@ -2014,6 +2352,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3A4835676EC4EDEDULL, 8, 3, { { "73+a", 120 }, { "33b+a", 120 }, { "73+h", 0 } } },
     // 4P ply 4 (after 33+f 37+e 77+f 73+f)
     { 0x3A5C3C7318B91C3FULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+f)
+    { 0x3A5FEC9ED260F63DULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+b 36+e 52+h 56+e)
     { 0x3A69C3513738313FULL, 8, 3, { { "32+a", -299 }, { "42h+a", -299 }, { "32+b", -299 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+b 57+e)
@@ -2026,6 +2366,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3A9FB59019EC2A00ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+c 37+e 77+g 73+d)
     { 0x3ABB34B68C0E7595ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+g)
+    { 0x3B004E2DD5540AD3ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 2 (after 53+a 37+d)
     { 0x3B1A0BE82177D5B1ULL, 8, 3, { { "73+h", 0 }, { "33+b", -120 }, { "33+a", -299 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 73+h 57+e)
@@ -2046,6 +2388,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3BCE4512A12206F3ULL, 8, 3, { { "33+a", -155 }, { "33+b", -155 }, { "53h+a", -163 } } },
     // 4P ply 4 (after 33+d 37+c 77+f 73+g)
     { 0x3BE730C4CF9459CAULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+e 73+h)
+    { 0x3BF68579645D4D9FULL, 8, 3, { { "77+f", -4020 }, { "57+d", -4020 }, { "57+f", -4020 } } },
     // 4P ply 4 (after 33+h 37+f 77+e 73+h)
     { 0x3C084D3B8EBBD2A7ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 2P 1-Base ply 4 (after 53+b 57+d 33+h 57d+f)
@@ -2060,6 +2404,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3C618170AD9E45FDULL, 8, 3, { { "53+h", 0 }, { "33+b", 0 }, { "53+a", -620 } } },
     // 2P 1-Base ply 4 (after 53+b 77+f 33+b 57+e)
     { 0x3C7141F875471A11ULL, 8, 3, { { "73+h", -210 }, { "53b+a", -210 }, { "53b-64", -210 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+e 73+h)
+    { 0x3C84CB42FBF7E448ULL, 8, 3, { { "37+e", -3100 }, { "57+d", -3100 }, { "77e+f", -3100 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+c 57+e)
     { 0x3C98E2C46429B719ULL, 8, 3, { { "53c+h", -400 }, { "33b+a", -400 }, { "73+a", -400 } } },
     // OFK ply 4 (after 32+b 26+d 32b+g 46+g)
@@ -2074,6 +2420,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3CBC09D6AFA1921AULL, 8, 3, { { "53b+a", 0 }, { "33+a", -43 }, { "33+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 73+a 37+f)
     { 0x3CD26E303B2ED094ULL, 8, 3, { { "53+a", 120 }, { "53+b", 120 }, { "73h+a", 120 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+d 53+h)
+    { 0x3D0328C0D1EECB29ULL, 8, 3, { { "57+e", -3090 }, { "37+d", -3090 }, { "57+d", -3170 } } },
     // OFK ply 4 (after 22+b 46+f 22b+c 56+f)
     { 0x3D10D031550F7664ULL, 8, 3, { { "42+h", -99 }, { "32+a", -99 }, { "32+b", -1520 } } },
     // OFK ply 4 (after 22+b 36+e 22b-33 26+d)
@@ -2094,6 +2442,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3D901C1A202E8683ULL, 8, 3, { { "37+d", -2632 }, { "37+e", -2632 }, { "57d+e", -2632 } } },
     // OFK ply 4 (after 32+a 26+d 22+a 56+e)
     { 0x3DABFDCDF625C1ABULL, 8, 3, { { "32+a", -59 }, { "42a+h", -179 }, { "32+b", -323 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 73+a)
+    { 0x3DB272A45A01B0ABULL, 8, 3, { { "77+f", -2632 }, { "37+e", -2632 }, { "57d+e", -2632 } } },
     // 4P ply 4 (after 33+d 37+f 77+h 73+a)
     { 0x3DB63F2B7675E9F4ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 1-Base ply 4 (after 53+b 57+f 33+h 37+e)
@@ -2108,6 +2458,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3DFAE53AC84D5CF9ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 53+a 77+c)
     { 0x3DFBD347ADE7133FULL, 8, 3, { { "53a+h", 1140 }, { "73+a", 520 }, { "33b+a", 520 } } },
+    // 2P_1B_ED ply 3 (after 33+b 57+d 53+b)
+    { 0x3E07EB07828CCADCULL, 8, 3, { { "77+f", -4020 }, { "37+e", -4020 }, { "37+d", -4020 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+e)
+    { 0x3E0E854BFFAE939CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 53+a 37+d 73+a)
     { 0x3E17FE4CF551246BULL, 8, 3, { { "37+d", -2453 }, { "57+e", -2453 }, { "37+e", -2752 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 73+a 37f+e)
@@ -2120,6 +2474,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3E646FE887719CEEULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "73a+h", -120 } } },
     // OFK ply 1 (after 22+b)
     { 0x3E7C56E08875ECA9ULL, 8, 3, { { "46+e", -3343 }, { "36+e", -3343 }, { "56+f", -3343 } } },
+    // 4P_ED ply 2 (after 33+f 37+c)
+    { 0x3E8A2AEA6B04BC8FULL, 8, 3, { { "77+e", -400 }, { "77+g", -400 }, { "77+f", -400 } } },
     // 4P ply 4 (after 33+a 37+c 77+e 73+f)
     { 0x3E9378938336BE1DULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 73+c 57+e)
@@ -2136,8 +2492,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3EC2EFA56D994679ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // OFK ply 3 (after 32+a 46+f 22+a)
     { 0x3EC540B6C3860FE3ULL, 8, 3, { { "36+e", -3622 }, { "26+d", -3622 }, { "36+d", -3800 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+b)
+    { 0x3EC54499CFAD62EFULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+a 46+f 22+a 36+d)
     { 0x3ECD01BD7B7BC784ULL, 8, 3, { { "32+b", -620 }, { "52a+h", -620 }, { "42a+h", -1120 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+d 73+a)
+    { 0x3ED64AB1D7504D04ULL, 8, 3, { { "77+e", -2752 }, { "57f+e", -2752 }, { "37+d", -2752 } } },
     // 4P ply 3 (after 33+a 37+f 77+b)
     { 0x3EDCA3C3A4B6219CULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // OFK ply 4 (after 22+b 46+f 22b+c 36+e)
@@ -2164,6 +2524,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x3F8C7A844D310840ULL, 8, 3, { { "53+a", 0 }, { "53+b", 0 }, { "73h+a", 0 } } },
     // OFK ply 3 (after 32+b 46+f 42+a)
     { 0x3F8F955727E7CCA5ULL, 8, 3, { { "36+e", -4585 }, { "46f-35", -4585 }, { "46f+e", -6335 } } },
+    // 4P_ED ply 2 (after 33+h 37+d)
+    { 0x3F8FBF2208EB78EAULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+h 37+b 77+f 73+b)
     { 0x3F9D4D166AADBA97ULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 53+h 77+d)
@@ -2214,6 +2576,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4072193ED03AFDDBULL, 8, 3, { { "73+a", -43 }, { "33+b", -43 }, { "53ah-44", -43 } } },
     // 2P 1-Base ply 4 (after 53+b 57+f 33+h 57f+e)
     { 0x40748F678B52764BULL, 8, 3, { { "33+b", -210 }, { "53h-44", -210 }, { "53h+a", -210 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+e 73+a)
+    { 0x4077AF9C26DD29BDULL, 8, 3, { { "37+d", -2601 }, { "57+e", -2632 }, { "57+f", -2632 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 73+h 77+d)
     { 0x4083B6D14D92139BULL, 8, 3, { { "53+a", 120 }, { "53+b", 120 }, { "73h+a", 120 } } },
     // 4P ply 4 (after 33+f 37+f 77+g 73+b)
@@ -2238,6 +2602,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x40EDD137D91D5115ULL, 8, 3, { { "33+a", -419 }, { "73b+a", -419 }, { "53b+a", -419 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 53+h 77+g)
     { 0x40F117548F71FFECULL, 8, 3, { { "33+a", 245 }, { "73h+a", 245 }, { "53b+a", 237 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 33+b)
+    { 0x40F48E0DA0C08AA0ULL, 8, 3, { { "37+d", -2601 }, { "57+e", -2632 }, { "57+f", -2632 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+f 33+b)
+    { 0x40FD4AAEB383B33BULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "77+e", -4020 } } },
     // 4P ply 4 (after 33+b 37+b 77+g 73+a)
     { 0x41066A50185B25E6ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+c 37+b 77+h 73+f)
@@ -2248,6 +2616,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x41245B0AAFFF5562ULL, 8, 3, { { "73+h", 0 }, { "53a+b", 0 }, { "33a+b", -610 } } },
     // 2P 3-Base ply 4 (after 33+b 77+e 53+b 37+f)
     { 0x4143FAB0B91A1349ULL, 8, 3, { { "33+b", 0 }, { "53h-44", 0 }, { "33+a", 0 } } },
+    // 2P_1B_ED ply 1 (after 33+a)
+    { 0x41600CF0944B58D0ULL, 8, 3, { { "77+e", -3100 }, { "37+e", -3100 }, { "77+f", -3100 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+e)
+    { 0x416053F9FAFFD9E8ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 1-Base ply 3 (after 33+a 57+d 73+h)
     { 0x416378C4FD044B76ULL, 8, 3, { { "77+f", -3930 }, { "37+e", -3930 }, { "37+d", -3930 } } },
     // 2P 3-Base ply 3 (after 33+h 37+f 53+b)
@@ -2262,14 +2634,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x41B4C3067FDA7699ULL, 8, 3, { { "53+h", -810 }, { "33a+b", -810 }, { "53+a", -810 } } },
     // 4P ply 4 (after 33+b 37+e 77+g 73+h)
     { 0x41CCEFC1FE846C43ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 2 (after 33+f 37+f)
+    { 0x41E4FC586E55F6FBULL, 8, 3, { { "77+e", -260 }, { "77+g", -260 }, { "77+f", -260 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 33a+b 37+f)
     { 0x41EF857D2E7156F9ULL, 8, 3, { { "53+h", 270 }, { "33ab-44", 270 }, { "73+a", 120 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+b 57+d)
     { 0x41FC3E1FE960EB21ULL, 8, 3, { { "73+h", -90 }, { "53b+a", -90 }, { "53b-64", -90 } } },
     // 4P ply 4 (after 33+a 37+f 77+e 73+f)
     { 0x41FDAE218667F469ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+d 33+h)
+    { 0x420225987C99A686ULL, 8, 3, { { "57+e", -2360 }, { "37+e", -2360 }, { "37+d", -2480 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+e 53a+b)
+    { 0x4204B3C127F12D16ULL, 8, 3, { { "77+f", -2333 }, { "37+d", -2453 }, { "37+e", -2577 } } },
     // 2P 1-Base ply 3 (after 33+b 37+f 73+b)
     { 0x42084F12DF16CC72ULL, 8, 3, { { "57+d", -2480 }, { "77+f", -2480 }, { "77+e", -3100 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+f)
+    { 0x4209CE50B1843B0CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 53+a 77+e)
     { 0x42142AA7DC46F206ULL, 8, 3, { { "33+a", -90 }, { "53a+b", -90 }, { "33+b", -120 } } },
     // 2P 3-Base ply 2 (after 33+a 37+f)
@@ -2292,10 +2672,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4254EDCB87DC3F75ULL, 8, 3, { { "56+f", -4010 }, { "36+d", -4010 }, { "36+f", -4630 } } },
     // 4P ply 4 (after 33+f 37+d 77+e 73+h)
     { 0x42630E41E8055CB6ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+g)
+    { 0x426A16A84B0B5BC5ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+c 37+d 77+b 73+b)
     { 0x426DBD94E93F7F53ULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+a 77+d)
     { 0x427A4FBED9E08DB6ULL, 8, 3, { { "73+h", 120 }, { "53a+b", 120 }, { "33a+b", 0 } } },
+    // 2P_1B_ED ply 2 (after 33+b 57+d)
+    { 0x42B6435BD8D44DA7ULL, 8, 3, { { "53+a", -610 }, { "73+h", -610 }, { "73+a", -620 } } },
     // 4P ply 4 (after 33+f 37+d 77+b 73+a)
     { 0x42C588B416CC7BA1ULL, 8, 3, { { "33f+a", -800 }, { "33f+c", -800 }, { "33f+b", -920 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 73+c 57+d)
@@ -2314,6 +2698,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x42F7FBED36E9148FULL, 8, 3, { { "37+d", -2752 }, { "57+f", -2752 }, { "37+e", -2808 } } },
     // OFK ply 4 (after 22+b 26+d 22b+a 26d+c)
     { 0x432DDF35FE7B453EULL, 8, 3, { { "32+a", 219 }, { "42+h", 219 }, { "42+a", -684 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+g)
+    { 0x43566CE3B6B0C7E2ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 1-Base ply 4 (after 53+b 57+d 33+b 57d+e)
     { 0x43574757AED351C9ULL, 8, 3, { { "33+b", -210 }, { "53h-44", -210 }, { "53h+a", -210 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+g 37+e)
@@ -2322,6 +2708,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x43669B898BEA98D3ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 3-Base ply 4 (after 33+b 37+e 53+c 57+f)
     { 0x43689DA5264D7AAAULL, 8, 3, { { "33+a", -520 }, { "73h+a", -520 }, { "33+b", -520 } } },
+    // 2P_3B_ED ply 2 (after 33+h 77+e)
+    { 0x4380FABD79221944ULL, 8, 3, { { "53+b", -120 }, { "73+h", -120 }, { "53+a", -419 } } },
     // 2P 3-Base ply 2 (after 33+b 77+e)
     { 0x43A29403030D2F6CULL, 8, 3, { { "53+b", -120 }, { "53+a", -120 }, { "73+h", -120 } } },
     // 4P ply 4 (after 33+h 37+c 77+b 73+a)
@@ -2332,12 +2720,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x43F160C1C2C181C2ULL, 8, 3, { { "42+a", 219 }, { "52a+h", 219 }, { "42+h", -734 } } },
     // 4P ply 4 (after 33+h 37+h 77+d 73+g)
     { 0x43F5ED1587B37B16ULL, 8, 3, { { "33h+a", 120 }, { "33h+c", 120 }, { "33h+b", 0 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+e 53b-64)
+    { 0x43FD6D73E41F8FC8ULL, 8, 3, { { "57+f", -2333 }, { "37+d", -2333 }, { "57+e", -2333 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 33+b 77+e)
     { 0x440494C21CF255F9ULL, 8, 3, { { "73+a", 0 }, { "53a+h", 0 }, { "33b+a", 0 } } },
     // OFK ply 4 (after 32+a 36+e 32a+b 46+d)
     { 0x440D23B350066959ULL, 8, 3, { { "42+a", 299 }, { "52+h", 299 }, { "22+a", 299 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 73+h 77e+f)
     { 0x440D50610FB16C62ULL, 8, 3, { { "53h-44", 0 }, { "73+a", 0 }, { "53h+a", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+e 53+b)
+    { 0x4435900ACACE270EULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 4P ply 3 (after 33+f 37+d 77+g)
     { 0x444E9046254A5B96ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // OFK ply 3 (after 32+b 26+d 32b+c)
@@ -2352,6 +2744,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4489E676CAC513BEULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 4P ply 4 (after 33+h 37+b 77+h 73+h)
     { 0x44B1208926E06E86ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+d 73+a)
+    { 0x44BF75385F90BD88ULL, 8, 3, { { "57+e", -2600 }, { "77+f", -2600 }, { "57+c", -3000 } } },
     // 4P ply 4 (after 33+b 37+h 77+b 73+a)
     { 0x44C360E402A24DDAULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 53+h 77+f)
@@ -2384,6 +2778,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x454E3D917D24CFADULL, 8, 3, { { "53a+h", -120 }, { "53a+b", -120 }, { "73+h", -120 } } },
     // 4P ply 4 (after 33+d 37+e 77+b 73+a)
     { 0x456351FDC6383B67ULL, 8, 3, { { "33d+a", -540 }, { "33d+c", -540 }, { "33d+b", -660 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+g)
+    { 0x45696B303C8AA9DBULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 22+b 26+d 42+a 36+d)
     { 0x456EE26CF6B6DDB2ULL, 8, 3, { { "32+a", -20 }, { "52+h", -38 }, { "32+b", -179 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 53+a 77+e)
@@ -2402,6 +2798,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x45BE662ED3D04B1AULL, 8, 3, { { "52+h", 860 }, { "32a+b", 860 }, { "22+b", 740 } } },
     // 2P 1-Base ply 4 (after 53+b 57+d 33+h 37+c)
     { 0x45BF7CB498B9FF5EULL, 8, 3, { { "33+b", 190 }, { "53h+a", 190 }, { "53h-44", 190 } } },
+    // 2P_1B_SPED ply 1 (after 53+b)
+    { 0x45C4C6B36B866F77ULL, 8, 3, { { "57+d", -4230 }, { "37+a", -4750 }, { "57+e!", -4870 } } },
     // 4P ply 4 (after 33+d 37+e 77+e 73+h)
     { 0x45C5D70838F11C70ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 33a+b 57+e)
@@ -2418,16 +2816,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x464140DFF7511DDEULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+f 37+h 77+f 73+a)
     { 0x465F20B30B01EF73ULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 33a+b)
+    { 0x466711F9E6698E42ULL, 8, 3, { { "37+d", -3170 }, { "77+e", -3170 }, { "37+e", -3170 } } },
     // OFK ply 4 (after 32+b 46+e 42+h 26+d)
     { 0x4672493EA518E3DFULL, 8, 3, { { "52+h", -407 }, { "42h+a", -407 }, { "52+g", -959 } } },
     // 4P ply 4 (after 33+h 37+b 77+e 73+d)
     { 0x467865E310BE220DULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
     // 4P ply 3 (after 33+c 37+f 77+b)
     { 0x468A810DC752ECADULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+b)
+    { 0x46936657AC49AFDEULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+b 36+d 52+a 36d+e)
     { 0x46A13A013F3C1685ULL, 8, 3, { { "22a+b", -620 }, { "32+a", -620 }, { "42h-33", -1203 } } },
     // 4P ply 4 (after 33+b 37+h 77+h 73+d)
     { 0x46ACA37BCA352646ULL, 8, 3, { { "33b+a", 660 }, { "33b+c", 660 }, { "33b+d", 400 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+h)
+    { 0x46B7E8F957F52FBDULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+c 37+c 77+e 73+f)
     { 0x46C55A5DE0D2732CULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+c 37+h 77+f 73+b)
@@ -2452,14 +2856,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x47607F3C6B886C6FULL, 8, 3, { { "57+e", -2213 }, { "77+f", -2213 }, { "57+d", -2213 } } },
     // 2P 1-Base ply 3 (after 53+b 37+e 53b-64)
     { 0x477F2244C95FD636ULL, 8, 3, { { "37+d", -3050 }, { "57+d", -3100 }, { "37+e", -3100 } } },
+    // 2P_3B_ED ply 2 (after 33+h 37+e)
+    { 0x4785350E3DE1CDDAULL, 8, 3, { { "53+a", -419 }, { "33+a", -419 }, { "53+h", -419 } } },
     // 4P ply 3 (after 33+b 37+b 77+b)
     { 0x478D72A22BDD05D1ULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 33h+a 37+d)
     { 0x4790CF099FB577F7ULL, 8, 3, { { "53+h", -438 }, { "33+b", -438 }, { "53+b", -438 } } },
     // 2P 3-Base ply 3 (after 53+a 37+d 53a+b)
     { 0x47ABA3B47B2F52CAULL, 8, 3, { { "57+e", -2333 }, { "77+f", -2453 }, { "77+e", -2577 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+b)
+    { 0x47AF1C1C51F233F9ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // OFK ply 4 (after 32+b 46+f 42+h 26+e)
     { 0x47B2BBCD9703C2EFULL, 8, 3, { { "42h+a", -477 }, { "32b+a", -477 }, { "22+b", -620 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+e)
+    { 0x47C31F7849E45D4BULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 36+e 42+a 26+d)
     { 0x47C8ECEF49F3FAADULL, 8, 3, { { "32+b", -1248 }, { "52+h", -1248 }, { "32+a", -2475 } } },
     // 4P ply 3 (after 33+b 37+e 77+e)
@@ -2472,6 +2882,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4813327818E1D868ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 53+b 57+g)
     { 0x4837EC4462AF0760ULL, 8, 3, { { "53b+a", 280 }, { "73+h", 280 }, { "53b-64", 280 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+e 73+h)
+    { 0x4846A25D7E725402ULL, 8, 3, { { "57+f", -4020 }, { "37+d", -4020 }, { "57+d", -4020 } } },
     // 2P 3-Base ply 4 (after 53+b 77+f 33+b 37+f)
     { 0x48596B3E5CC70427ULL, 8, 3, { { "73+h", 0 }, { "73+a", 0 }, { "53b+a", 0 } } },
     // 2P 1-Base ply 3 (after 33+b 37+e 73+b)
@@ -2480,6 +2892,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x486CA2D1F5F745FAULL, 8, 3, { { "33h+a", -400 }, { "33h+c", -400 }, { "33h+b", -520 } } },
     // 4P ply 4 (after 33+a 37+h 77+f 73+g)
     { 0x4870EA80E26EB8A1ULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+d)
+    { 0x48895C0DB7B63CDEULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 2P 3-Base ply 4 (after 53+a 57+d 53a+h 37+d)
     { 0x4892B549DD4907BCULL, 8, 3, { { "33+a", -163 }, { "73+h", -163 }, { "33+b", -283 } } },
     // 2P 3-Base ply 4 (after 53+a 57+d 33+a 37+f)
@@ -2502,6 +2916,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x491911133D3A8FDAULL, 8, 3, { { "33c+b", 260 }, { "33c+a", 260 }, { "33c+d", 120 } } },
     // 2P 1-Base ply 4 (after 53+b 77+f 73+h 57+d)
     { 0x491C9268E4131146ULL, 8, 3, { { "53h-44", -120 }, { "73+h", -280 }, { "33b-44", -380 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+e 53+g)
+    { 0x4928E2E34505D66BULL, 8, 3, { { "57+f", -2700 }, { "37e+d", -2700 }, { "77+e", -2750 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 33a+b 57+e)
     { 0x4934CB65DADB853AULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "33+a", 0 } } },
     // OFK ply 3 (after 32+b 56+f 52+a)
@@ -2512,16 +2928,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x494E124F37D23583ULL, 8, 3, { { "33+a", -43 }, { "73+h", -43 }, { "53ab-64", -43 } } },
     // 2P 3-Base ply 3 (after 33+b 57+d 73+h)
     { 0x49527505A5AB36C9ULL, 8, 3, { { "37+e", -2651 }, { "77+f", -2651 }, { "37+d", -2771 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 73+h)
+    { 0x49701BBBDF8400E1ULL, 8, 3, { { "37+e", -2632 }, { "77+f", -2632 }, { "37+d", -2752 } } },
     // 4P ply 4 (after 33+d 37+f 77+h 73+h)
     { 0x49745634F3F059BEULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+h 57+f)
     { 0x4985CEC727750B26ULL, 8, 3, { { "53+a", -120 }, { "53+h", -120 }, { "33b+a", -275 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+d)
+    { 0x498CC9C5D459F8BBULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 3 (after 33+b 37+d 77+d)
     { 0x49AEA77BAE76CE93ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+h 77+h 73+b)
     { 0x49B12433C2C98B28ULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // OFK ply 3 (after 32+b 46+e 42+a)
     { 0x49C0AE704C749AD3ULL, 8, 3, { { "46+f", -6141 }, { "26+d", -6141 }, { "56+e", -6141 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+d 53+h)
+    { 0x49C141DF546B7B63ULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "37+e", -4020 } } },
     // OFK ply 3 (after 22+b 56+f 32+a)
     { 0x49C94E3C2349A1E2ULL, 8, 3, { { "36+e", -6261 }, { "46+f", -6261 }, { "26+d", -6261 } } },
     // 2P 3-Base ply 4 (after 53+b 57+f 33+h 77+c)
@@ -2530,16 +2952,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x49F68C88AF7E779AULL, 8, 3, { { "73+h", -539 }, { "73+a", -539 }, { "33h+a", -539 } } },
     // OFK ply 4 (after 32+a 46+f 22+a 46f-35)
     { 0x4A041414F27D453DULL, 8, 3, { { "42+h", -620 }, { "22a+b", -620 }, { "32a+h", -620 } } },
+    // 2P_3B_ED ply 2 (after 53+a 57+d)
+    { 0x4A046F0B06669305ULL, 8, 3, { { "33+b", 0 }, { "73+a", -81 }, { "53a+h", -81 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+a 57+e)
     { 0x4A04BAC8A962225EULL, 8, 3, { { "53+b", 0 }, { "73a+h", 0 }, { "53+h", 0 } } },
     // 2P 3-Base ply 3 (after 33+a 37+d 33a+b)
     { 0x4A56B6C2F6C9373CULL, 8, 3, { { "57+e", -2453 }, { "37+d", -2453 }, { "57+f", -2632 } } },
     // 4P ply 3 (after 33+c 37+b 77+h)
     { 0x4A5703551445C7D1ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+b)
+    { 0x4A6A6AA184E204C1ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 3 (after 33+h 57+d 73+h)
     { 0x4A71BD35802A114BULL, 8, 3, { { "77+e", -2632 }, { "37+d", -2632 }, { "77+f", -2752 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 33h+a 37+d)
     { 0x4A810D0074170AD3ULL, 8, 3, { { "53+a", -419 }, { "53+h", -419 }, { "33+b", -419 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+e)
+    { 0x4AA1AB73B4E1F5B2ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 2P 3-Base ply 4 (after 33+b 37+e 73+h 57+f)
     { 0x4AA606F702F42CA4ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "33b+a", -120 } } },
     // 4P ply 3 (after 33+a 37+f 77+e)
@@ -2558,8 +2986,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4B50F0FAF8CA2EADULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 53+b 57+d 73+a 37+f)
     { 0x4B5DA8F90FA505D2ULL, 8, 3, { { "73a+h", 120 }, { "33+a", 120 }, { "53b+a", 0 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+h)
+    { 0x4B729E4482E51885ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+c 37+h 77+b 73+d)
     { 0x4B76D28CF5ADE446ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+e 33a+b)
+    { 0x4B76D3F00DCBF366ULL, 8, 3, { { "57+d", -2980 }, { "77+f", -2980 }, { "57+e", -2980 } } },
     // 4P ply 4 (after 33+d 37+d 77+d 73+h)
     { 0x4B8A01B5A54CB980ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+h 37+e 77+f 73+b)
@@ -2572,6 +3004,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4BBD135EC5AE1535ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 33+a 77+f)
     { 0x4BCD320A4EA91B17ULL, 8, 3, { { "33+a", 0 }, { "73a+h", 0 }, { "53a+b", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+e 53+a)
+    { 0x4BF5F2618BD6507BULL, 8, 3, { { "57+d", -3060 }, { "77+f", -3060 }, { "57+e", -3150 } } },
     // OFK ply 4 (after 32+b 56+f 32b+a 56f+e)
     { 0x4C05FB79CE054827ULL, 8, 3, { { "32+a", 0 }, { "22+b", 0 }, { "52+h", -120 } } },
     // 4P ply 4 (after 33+f 37+e 77+d 73+h)
@@ -2584,6 +3018,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4C5238B952B86E6DULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "53h+a", 0 } } },
     // OFK ply 4 (after 32+a 26+d 42+h 46+e)
     { 0x4C5CAF54825B5F0BULL, 8, 3, { { "22+b", -179 }, { "42h+a", -179 }, { "42h-33", -195 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+d 73+a)
+    { 0x4C8E78F9073FC037ULL, 8, 3, { { "77+f", -2453 }, { "57+e", -2453 }, { "57+d", -2632 } } },
     // 4P ply 4 (after 33+a 37+f 77+g 73+h)
     { 0x4C95D22E12B5B1E1ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 4 (after 33+b 37+e 77+e 73+f)
@@ -2646,12 +3082,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x4E84C2B330D4DE4DULL, 8, 3, { { "53+b", -275 }, { "73a+h", -275 }, { "53+h", -539 } } },
     // 4P ply 4 (after 33+c 37+e 77+d 73+g)
     { 0x4E97591E7AB6D3EFULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 33+b)
+    { 0x4E9DC24F3F48F066ULL, 8, 3, { { "57+e", -2632 }, { "57+d", -2632 }, { "77+f", -2632 } } },
     // 4P ply 4 (after 33+c 37+b 77+g 73+d)
     { 0x4EB3D838EF548C7AULL, 8, 3, { { "33c+b", 540 }, { "33c+a", 540 }, { "33c+d", 400 } } },
     // OFK ply 4 (after 32+b 46+f 22+b 36+d)
     { 0x4ED9A2D8AFB0577AULL, 8, 3, { { "32b+a", -217 }, { "42+a", -217 }, { "52+h", -561 } } },
     // 4P_ED ply 1 (after 33+f)
     { 0x4F03223E9DC27F4EULL, 8, 3, { { "37+c", -1177 }, { "37+e", -1177 }, { "37+d", -1177 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+g)
+    { 0x4F08A2A3B60EF33CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+d 77+g 73+f)
     { 0x4F0B724E7CD7193EULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 2P 3-Base ply 4 (after 53+b 77+f 33+b 37+e)
@@ -2680,6 +3120,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x500AA863AF671707ULL, 8, 3, { { "53+h", -438 }, { "33a+b", -438 }, { "53+a", -900 } } },
     // 4P ply 4 (after 33+h 37+b 77+e 73+h)
     { 0x501B9FF188FBA5D0ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+g)
+    { 0x502B689BB5A1FAE1ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 73+h 77+e)
     { 0x5043C68DDC224EC0ULL, 8, 3, { { "53+h", 120 }, { "53+a", 120 }, { "33b+a", 120 } } },
     // 2P 3-Base ply 2 (after 33+a 57+e)
@@ -2704,12 +3146,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x50E23CD2AE4297EDULL, 8, 3, { { "32+a", -839 }, { "22c+b", -839 }, { "32+b", -959 } } },
     // OFK ply 4 (after 32+b 56+f 52+g 46+f)
     { 0x50E7CBFEBC729710ULL, 8, 3, { { "42+a", -839 }, { "52g+h", -839 }, { "32b-43", -1119 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+d 73+f)
+    { 0x50FBF157034D0589ULL, 8, 3, { { "57+e", -1829 }, { "77+e", -1829 }, { "37d+e", -1829 } } },
     // 2P 1-Base ply 3 (after 33+b 37+e 53+c)
     { 0x50FE2234BB343366ULL, 8, 3, { { "57+f", -2660 }, { "37+d", -2660 }, { "57+e", -2660 } } },
     // 4P ply 4 (after 33+a 37+h 77+e 73+h)
     { 0x5127E5BA754039F7ULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 73+a 77+e)
     { 0x5146976995D906C3ULL, 8, 3, { { "73+h", 0 }, { "53a+b", 0 }, { "73+a", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+f)
+    { 0x514D25AB2CC15E4DULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+d 37+e 77+h 73+h)
     { 0x516F687096EAD726ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+a 37+h 77+b 73+a)
@@ -2722,14 +3168,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x51CC725B00879C45ULL, 8, 3, { { "33+b", 0 }, { "53ah-44", 0 }, { "73+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 53+b 57e+f)
     { 0x51E2E2C913667637ULL, 8, 3, { { "53b+a", -283 }, { "73+h", -283 }, { "53b-64", -283 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+d 73+a)
+    { 0x51FD7693D6BBEEB2ULL, 8, 3, { { "77+f", -3090 }, { "57+e", -3090 }, { "57+d", -3100 } } },
     // 4P ply 4 (after 33+b 37+h 77+e 73+d)
     { 0x52061C03642EED10ULL, 8, 3, { { "33b+a", 800 }, { "33b+c", 800 }, { "33b+d", 540 } } },
     // 2P 3-Base ply 3 (after 53+b 77+e 33+c)
     { 0x52071D3AB39A361CULL, 8, 3, { { "37+d", -2208 }, { "57+f", -2208 }, { "37+e", -2352 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+e)
+    { 0x521D5781F9EEE4EBULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 33+h)
+    { 0x5248EF300E3694C5ULL, 8, 3, { { "57+e", -2213 }, { "77+e", -2213 }, { "57+f", -2213 } } },
     // 2P 3-Base ply 3 (after 33+b 37+d 53+b)
     { 0x526A818E7419A2EDULL, 8, 3, { { "77+e", -2651 }, { "57+f", -2654 }, { "57+d", -2771 } } },
     // 4P ply 4 (after 33+c 37+c 77+h 73+f)
     { 0x526FE5254EC9B87AULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+b)
+    { 0x527154E5E1F88A59ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+b 37+c 77+g 73+a)
     { 0x527B6E281B4A18E5ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
     // OFK ply 4 (after 32+b 36+d 52+a 46+e)
@@ -2758,6 +3212,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x534BCEBE9DD0A035ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 1-Base ply 3 (after 33+a 77+f 53+h)
     { 0x5367873ECB5E170AULL, 8, 3, { { "57+e", -3090 }, { "37+d", -3090 }, { "37+e", -3100 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+h)
+    { 0x5369A000E7FF961DULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+h 37+f 77+f 73+b)
     { 0x538E9FDC6CEDCDE0ULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // OFK ply 4 (after 32+b 46+f 22+a 46f-35)
@@ -2768,6 +3224,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x53BBBC8BF2FC4EF1ULL, 8, 3, { { "53+b", -120 }, { "73a+h", -120 }, { "53+a", -120 } } },
     // 4P ply 4 (after 33+d 37+b 77+b 73+d)
     { 0x53CA2E7EB8A2F51FULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+b)
+    { 0x53D165FC2562FCE4ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+b 77e+d)
     { 0x53DFC8ED38F0AC14ULL, 8, 3, { { "33+b", 120 }, { "53h-44", 120 }, { "53h+a", 120 } } },
     // 2P 3-Base ply 3 (after 33+h 57+e 53+b)
@@ -2776,6 +3234,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x53E4A6AF4D43B417ULL, 8, 3, { { "37+d", -3180 }, { "37+e", -3180 }, { "57+e", -3180 } } },
     // 4P ply 4 (after 33+a 37+h 77+h 73+d)
     { 0x53EEA0D0431E757CULL, 8, 3, { { "33a+b", 660 }, { "33a+c", 660 }, { "33a+d", 520 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 53+a)
+    { 0x53EECC25EECCDEE3ULL, 8, 3, { { "57+d", -3180 }, { "77+f", -3180 }, { "57+e", -3270 } } },
     // 4P ply 3 (after 33+h 37+h 77+b)
     { 0x53F30B425F4DCACCULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+d 77+e 73+d)
@@ -2788,6 +3248,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x542763E432049F45ULL, 8, 3, { { "33a+b", 857 }, { "73+a", 857 }, { "53h+a", 737 } } },
     // 4P ply 4 (after 33+f 37+f 77+d 73+h)
     { 0x5437E6B810A277DEULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+f 53+f)
+    { 0x543896C70811EB26ULL, 8, 3, { { "37+e", -1949 }, { "57d+e", -1949 }, { "77+f", -1949 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 53b+a 57+d)
     { 0x543D1C25E6561B06ULL, 8, 3, { { "73+h", 30 }, { "33+a", 30 }, { "53ab-64", 30 } } },
     // 4P ply 4 (after 33+a 37+b 77+g 73+a)
@@ -2802,8 +3264,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x547230DB4910BD49ULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
     // 4P ply 4 (after 33+a 37+e 77+g 73+h)
     { 0x548EEC6A77AF3F79ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 73+h)
+    { 0x54B24FB585EF55E6ULL, 8, 3, { { "57+f", -2651 }, { "37+e", -2721 }, { "37+d", -2721 } } },
     // 4P ply 4 (after 33+b 37+f 77+e 73+f)
     { 0x54BFAD8A0F4CA753ULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+b)
+    { 0x54D2186452E30EFAULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // OFK ply 3 (after 22+b 26+d 22b+a)
     { 0x54E48BB7917BCC4FULL, 8, 3, { { "36+d", -3323 }, { "46+e", -3323 }, { "56f+e", -3323 } } },
     // 4P ply 3 (after 33+b 37+c 77+b)
@@ -2820,6 +3286,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x551BCB4896448A32ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P 1-Base ply 4 (after 53+b 77+f 33+b 37+f)
     { 0x552A65548D432AA2ULL, 8, 3, { { "73+h", -90 }, { "53b+a", -90 }, { "53b-64", -90 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+e 73+h)
+    { 0x5535AC37AFF67A87ULL, 8, 3, { { "37+d", -2601 }, { "57+h", -2601 }, { "37+b", -2601 } } },
     // OFK ply 4 (after 32+b 36+d 42+a 36d+e)
     { 0x554E965FC2FDF4DAULL, 8, 3, { { "32b-43", 120 }, { "32b+a", -108 }, { "52+h", -217 } } },
     // 4P ply 4 (after 33+b 37+e 77+d 73+b)
@@ -2828,6 +3296,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x55571159287C3F3FULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+a 77+d)
     { 0x556309456F2F4E5BULL, 8, 3, { { "73a+h", 120 }, { "53+h", -430 }, { "33a+b", -430 } } },
+    // 4P_SP ply 1 (after 33+c!)
+    { 0x5574490AB8258B2EULL, 8, 3, { { "37+c!", -2792 }, { "37+e!", -2930 }, { "37+d!", -7718 } } },
     // 4P ply 4 (after 33+h 37+h 77+g 73+a)
     { 0x557813B06CCBEAFBULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // OFK ply 4 (after 32+b 36+d 52+h 56+f)
@@ -2836,14 +3306,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x55B33B04DF0C0DFCULL, 8, 3, { { "73+a", -43 }, { "53h+a", -43 }, { "53h-44", -43 } } },
     // 4P ply 4 (after 33+c 37+b 77+e 73+f)
     { 0x55B85E25E3C34E2FULL, 8, 3, { { "33c+b", 280 }, { "33c+a", 280 }, { "33c+d", 140 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+h)
+    { 0x55CAEC8154E412BEULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+c 37+e 77+b 73+f)
     { 0x55D45D41FBD5209DULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+b)
+    { 0x55D78DAC310CCA9FULL, 8, 3, { { "73+a", -777 }, { "73+g", -777 }, { "73+h", -777 } } },
     // 2P 1-Base ply 4 (after 53+b 77+f 53b+a 57+f)
     { 0x55E1BB230CCD2939ULL, 8, 3, { { "33+b", -440 }, { "73+h", -440 }, { "33+a", -440 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 53+h 57d+e)
     { 0x55E72D7A57A5A2A9ULL, 8, 3, { { "33+b", -539 }, { "33+a", -539 }, { "73b+a", -539 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+d 33b+d)
+    { 0x560151D28894C4AAULL, 8, 3, { { "57+e", -1949 }, { "37+e", -1949 }, { "57+d", -1949 } } },
     // 4P ply 4 (after 33+d 37+h 77+g 73+d)
     { 0x560F24CAA25B9D23ULL, 8, 3, { { "33d+a", 660 }, { "33d+c", 660 }, { "33d+b", 540 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+g)
+    { 0x56146F483F9B94D8ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 53+h 77+d)
     { 0x562EA693DE212B57ULL, 8, 3, { { "73a+h", 120 }, { "33+a", -430 }, { "33+b", -430 } } },
     // 4P ply 3 (after 33+h 37+b 77+g)
@@ -2880,8 +3358,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x56D4D01423F64FC1ULL, 8, 3, { { "33d+a", -540 }, { "33d+c", -540 }, { "33d+b", -660 } } },
     // 4P ply 3 (after 33+a 37+h 77+g)
     { 0x570A7BBDB80F3ED7ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+g)
+    { 0x57139CE7D3147DA4ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 1-Base ply 3 (after 33+a 37+d 33a+b)
     { 0x5725B8A8274D19B9ULL, 8, 3, { { "37+d", -3090 }, { "57+e", -3090 }, { "57+f", -3100 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+f)
+    { 0x574BCDFB38AF6836ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 3 (after 33+h 37+d 77+f)
     { 0x5769A34542805E1EULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+a 57+e)
@@ -2940,6 +3422,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x58F7C3DE855EAFA5ULL, 8, 3, { { "53+h", 280 }, { "33a+b", 280 }, { "53+a", 280 } } },
     // 4P ply 3 (after 33+c 37+c 77+h)
     { 0x592A072D1754FAD2ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+e 53+b)
+    { 0x59469E601B4A098BULL, 8, 3, { { "77e+f", -3100 }, { "37+e", -3170 }, { "57+d", -3170 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 53b-64 57+e)
     { 0x596E518934C94AB5ULL, 8, 3, { { "33+b", 0 }, { "73+a", 0 }, { "44h+a", 0 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+a 77+e)
@@ -2956,10 +3440,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x59AFFD421AC0F801ULL, 8, 3, { { "53+a", 0 }, { "53+h", -550 }, { "33a+b", -550 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 53+h 57+f)
     { 0x59C19AA48E4FBA8FULL, 8, 3, { { "53b+a", 930 }, { "53b-64", 930 }, { "33+a", 900 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+d 73+a)
+    { 0x59CC7B528E14930DULL, 8, 3, { { "57+e", -2453 }, { "77+f", -2453 }, { "77+e", -2721 } } },
     // 4P ply 4 (after 33+b 37+f 77+g 73+h)
     { 0x59D7D1859B9EE2DBULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+a 37+e 77+e 73+f)
     { 0x59E69065E37D7AF1ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 2 (after 33+f 37+e)
+    { 0x59FFC21C0B4F7863ULL, 8, 3, { { "77+e", -400 }, { "77+g", -400 }, { "77+f", -400 } } },
     // OFK ply 3 (after 32+a 36+d 52+h)
     { 0x5A14F813248BBE62ULL, 8, 3, { { "46+e", -3502 }, { "56+f", -3502 }, { "36d-45", -3782 } } },
     // 4P ply 4 (after 33+h 37+c 77+f 73+g)
@@ -2984,18 +3472,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5B34017B7F2BDDE0ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 3 (after 33+b 77+f 53+h)
     { 0x5B568AFF93F16AB5ULL, 8, 3, { { "37+e", -2651 }, { "57+d", -2651 }, { "37+d", -2771 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 73+h)
+    { 0x5B973E02B1F003DAULL, 8, 3, { { "77+e", -2752 }, { "37+d", -2752 }, { "57f+e", -2752 } } },
     // 2P 1-Base ply 4 (after 33+b 77+e 53+g 37+e)
     { 0x5BAA8A2A03A5FD6CULL, 8, 3, { { "33+a", -400 }, { "53c+b", -400 }, { "73h+a", -400 } } },
     // 2P 3-Base ply 3 (after 53+a 57+d 73+b)
     { 0x5BB550BCCBDF35F2ULL, 8, 3, { { "77+e", -2213 }, { "57f+e", -2213 }, { "37+d", -2213 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 53+a)
+    { 0x5BDFC1E4B663A35CULL, 8, 3, { { "57+d", -2752 }, { "77+f", -2752 }, { "57+e", -2752 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 73+h 77+e)
     { 0x5BF2737299242BE6ULL, 8, 3, { { "53+b", -120 }, { "53+a", -120 }, { "73h+a", -275 } } },
     // 4P ply 3 (after 33+d 37+f 77+g)
     { 0x5BF3774B90A495C8ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+d)
+    { 0x5BF45875B4A701DDULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 3 (after 33+a 57+d 73+h)
     { 0x5C1076AE2C8065F3ULL, 8, 3, { { "37+e", -2752 }, { "77+f", -2752 }, { "37+d", -2872 } } },
     // 2P_3B_ED ply 1 (after 33+a)
-    { 0x5C13029A45CF7655ULL, 8, 3, { { "37+e", -2632 }, { "77+e", -2632 }, { "57+e", -2632 } } },
+    { 0x5C13029A45CF7655ULL, 8, 3, { { "77+e", -2632 }, { "57+e", -2632 }, { "37+e", -2632 } } },
     // 4P ply 4 (after 33+h 37+d 77+f 73+f)
     { 0x5C2C414D1B1D1CB6ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // OFK ply 4 (after 32+a 26+d 42+h 56+e)
@@ -3036,6 +3530,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5D01175401BED35EULL, 8, 3, { { "33+b", 0 }, { "73+a", 0 }, { "53ah-44", 0 } } },
     // OFK ply 4 (after 32+b 46+f 52+h 56+f)
     { 0x5D0414F7A87248FAULL, 8, 3, { { "42+a", -179 }, { "32b+a", -241 }, { "32b+c", -579 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 73+h)
+    { 0x5D04A1F6F7590738ULL, 8, 3, { { "37+d", -2980 }, { "57+f", -2980 }, { "57+e", -2980 } } },
     // 4P ply 4 (after 33+c 37+h 77+b 73+h)
     { 0x5D15289E6DE8639BULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 53+b 77+f)
@@ -3062,6 +3558,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5D73E3FE1C29E058ULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // 4P ply 4 (after 33+d 37+f 77+b 73+a)
     { 0x5D786FB9A322B5FFULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 33+b)
+    { 0x5D8E44C462079DBEULL, 8, 3, { { "57+h", -2601 }, { "37d+b", -2601 }, { "77+e", -2651 } } },
     // 2P 3-Base ply 3 (after 33+a 77+e 53+h)
     { 0x5DA327462642EC03ULL, 8, 3, { { "77+f", -2752 }, { "57+d", -2752 }, { "77+e", -2752 } } },
     // 4P ply 4 (after 33+c 37+h 77+e 73+a)
@@ -3078,6 +3576,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5DE9FBA73D093E5DULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
     // OFK ply 4 (after 32+b 46+f 42+a 36+e)
     { 0x5DEC9DF5A7687B4EULL, 8, 3, { { "32b-43", -195 }, { "32b+a", -195 }, { "52+h", -1020 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+h)
+    { 0x5E0B140B1AFA3EE4ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+h 37+f 77+b 73+d)
     { 0x5E0F58C36DB2C227ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 4P ply 3 (after 33+a 37+f 77+h)
@@ -3086,6 +3586,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5E4BE961B9FDFAD8ULL, 8, 3, { { "33d+a", 140 }, { "33d+c", 140 }, { "33d+b", 20 } } },
     // 2P 3-Base ply 3 (after 33+b 57+d 53+c)
     { 0x5E4E47BD644E40FEULL, 8, 3, { { "37+e", -2232 }, { "57d+e", -2232 }, { "37+d", -2232 } } },
+    // 4P_ED ply 2 (after 33+d 37+d)
+    { 0x5E591B55DBBB38A5ULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+e 53b-64)
+    { 0x5E8E6319359BA14DULL, 8, 3, { { "37+d", -2480 }, { "57+f", -2480 }, { "57+e", -2480 } } },
     // 4P ply 3 (after 33+c 37+e 77+b)
     { 0x5E91BF49A2486235ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+h 37+d 77+d 73+a)
@@ -3112,6 +3616,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5F3AA9D6E069BFD3ULL, 8, 3, { { "53+h", -1020 }, { "33h+b", -1020 }, { "53+b", -1660 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+h 57+e)
     { 0x5F46B96320497164ULL, 8, 3, { { "53+h", 0 }, { "33b+a", 0 }, { "53+a", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+e 53+c)
+    { 0x5F5A90E5BF972235ULL, 8, 3, { { "57+d", -2700 }, { "77e+f", -2700 }, { "37+e", -2750 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 73+h 57+f)
     { 0x5F6724CD0DC2DC83ULL, 8, 3, { { "33+a", 0 }, { "73h+a", 0 }, { "33+b", -120 } } },
     // OFK ply 3 (after 32+b 36+d 52+g)
@@ -3126,16 +3632,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x5FB09F0F8F1CE16CULL, 8, 3, { { "77+e", -2632 }, { "37+e", -2632 }, { "37+d", -2632 } } },
     // 4P ply 4 (after 33+b 37+c 77+b 73+f)
     { 0x5FB594D271517A7AULL, 8, 3, { { "33b+a", -260 }, { "33b+c", -260 }, { "33b+d", -520 } } },
+    // 2P_3B_ED ply 2 (after 33+b 57+d)
+    { 0x5FC54D3109506322ULL, 8, 3, { { "53+a", 0 }, { "53+h", -81 }, { "73+a", -81 } } },
     // OFK ply 4 (after 22+b 36+d 32+a 36d-45)
     { 0x5FCA047EE4ACD819ULL, 8, 3, { { "42+h", -1020 }, { "42+a", -1127 }, { "42+b", -1127 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+e)
+    { 0x5FD8213C2CFED3D3ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 2 (after 33+h 57+d)
     { 0x5FE7238F737F550AULL, 8, 3, { { "53+a", -419 }, { "53+b", -419 }, { "73+h", -419 } } },
     // 4P ply 3 (after 33+b 37+f 77+e)
     { 0x5FFA4F8256D1E5FBULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+a 37+e 77+f 73+b)
     { 0x60125756FB25E4BDULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+e)
+    { 0x601A27F6BB88CE50ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // OFK ply 4 (after 32+b 46+f 22+b 26+d)
     { 0x603341E35AE0B89CULL, 8, 3, { { "32+a", -1248 }, { "42h-33", -1248 }, { "22+b", -1248 } } },
+    // 2P_1B_ED ply 2 (after 33+b 77+e)
+    { 0x603601B2D35FC33EULL, 8, 3, { { "53+b", -120 }, { "53+a", -120 }, { "73+h", -120 } } },
     // OFK ply 4 (after 22+b 36+d 52+h 36d+e)
     { 0x603AA1AF35DD83ADULL, 8, 3, { { "32+b", -561 }, { "42+a", -658 }, { "32+a", -1248 } } },
     // 4P ply 4 (after 33+b 37+d 77+d 73+a)
@@ -3146,6 +3660,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6069F8C2344D639AULL, 8, 3, { { "37+d", -2480 }, { "57+f", -2480 }, { "57+e", -2480 } } },
     // 4P ply 4 (after 33+f 37+d 77+b 73+f)
     { 0x6075F47F69474AE0ULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+b)
+    { 0x60762492A39EA0E2ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 73+h 77+f)
     { 0x6081478ADA9D77E9ULL, 8, 3, { { "53+a", -120 }, { "53+h", -120 }, { "33a+b", -120 } } },
     // 4P ply 2 (after 33+d 37+d)
@@ -3162,16 +3678,28 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x60EC8FD01B2CFC33ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 33h+a 77+d)
     { 0x60EEB39BABEDF118ULL, 8, 3, { { "53+a", 0 }, { "53+h", 0 }, { "33+b", 0 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+h)
+    { 0x60F5688A7037BF40ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 2 (after 33+h 57+d)
+    { 0x6100B85472A997DDULL, 8, 3, { { "53+a", -419 }, { "53+b", -419 }, { "73+h", -419 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+e)
+    { 0x611DD4595707272CULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 3 (after 33+h 37+f 77+e)
     { 0x613FBAE72D281104ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+b 37+d 53+b 77+e)
     { 0x61410BEB2E15773BULL, 8, 3, { { "33+b", -120 }, { "33+a", -120 }, { "53h+a", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 53+a)
+    { 0x615704D48ECA23BBULL, 8, 3, { { "77+e", -2632 }, { "37+e", -2632 }, { "37+d", -2632 } } },
+    // 2P_1B_ED ply 1 (after 53+b)
+    { 0x61636E5CE6BBF8DDULL, 8, 3, { { "37+d", -3100 }, { "77+f", -3220 }, { "37+e", -3350 } } },
     // 4P ply 4 (after 33+h 37+c 77+b 73+f)
     { 0x617061B70AA88E85ULL, 8, 3, { { "33h+a", -400 }, { "33h+c", -400 }, { "33h+b", -520 } } },
     // 2P 3-Base ply 3 (after 33+h 37+d 53+b)
     { 0x6196B029ACCB4AD4ULL, 8, 3, { { "57+e", -2213 }, { "37+e", -2213 }, { "57+d", -2213 } } },
     // 4P ply 4 (after 33+c 37+e 77+e 73+d)
     { 0x61A15D6DE2D2B116ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
+    // 2P_1B_ED ply 2 (after 53+b 77+f)
+    { 0x61B1E230F946EC5FULL, 8, 3, { { "73+h", -630 }, { "33+a", -630 }, { "73+a", -630 } } },
     // 2P 1-Base ply 3 (after 33+b 77+e 53+c)
     { 0x61BD0B3EBE41E0E2ULL, 8, 3, { { "57+d", -2700 }, { "77e+f", -2700 }, { "37+e", -2750 } } },
     // OFK ply 4 (after 32+a 26+d 22+b 56+e)
@@ -3182,6 +3710,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x61D399E5DB82D734ULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+g 57e+f)
     { 0x61DBB55EC1315311ULL, 8, 3, { { "33+b", -400 }, { "73a+h", -520 }, { "53c+b", -644 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+d)
+    { 0x620B3F0B268B5F7EULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 53+b 37+e 33+b 57+e)
     { 0x6236D5A5833DFFECULL, 8, 3, { { "73+h", -120 }, { "73+a", -120 }, { "53b+a", -120 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 53+b 37+d)
@@ -3210,14 +3740,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x62F25BD7DBB17342ULL, 8, 3, { { "73+a", 0 }, { "33+b", 0 }, { "53ah-44", 0 } } },
     // 2P 3-Base ply 1 (after 33+a)
     { 0x62F499414419B482ULL, 8, 3, { { "77+e", -2632 }, { "57+e", -2632 }, { "37+e", -2632 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+d 73+h)
+    { 0x62F7ED752D56A724ULL, 8, 3, { { "37+e", -2752 }, { "77+f", -2752 }, { "37+d", -2872 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 53+a 77+f)
     { 0x62FD092D939AC149ULL, 8, 3, { { "33+b", -283 }, { "53a+h", -283 }, { "33+a", -364 } } },
+    // 2P_3B_ED ply 3 (after 33+a 77+e 53+d)
+    { 0x6309E3EB253C747AULL, 8, 3, { { "77+e", -1949 }, { "57+e", -1949 }, { "77+f", -1949 } } },
     // 4P ply 4 (after 33+f 37+b 77+h 73+b)
     { 0x630AA8B6CDA0B0CAULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 53+c 77+f)
     { 0x6317B07AE2DCE18EULL, 8, 3, { { "33+b", -838 }, { "53g+h", -838 }, { "53g+b", -1257 } } },
     // OFK ply 3 (after 22+b 46+f 32+h)
     { 0x6321BC965D3820F1ULL, 8, 3, { { "36+e", -3203 }, { "26+d", -3203 }, { "26+c", -3803 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+e 73+a)
+    { 0x6344BC9D27942ED4ULL, 8, 3, { { "77+f", -2721 }, { "57+b", -2721 }, { "77+h", -2721 } } },
     // 4P ply 4 (after 33+a 37+f 77+e 73+a)
     { 0x634DD2EAF9ECC528ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 1-Base ply 3 (after 33+b 37+e 53+a)
@@ -3258,12 +3794,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x640854BDE03DB798ULL, 8, 3, { { "33c+b", 800 }, { "33c+a", 800 }, { "33c+d", 660 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+b 77+d)
     { 0x64293BC59A8BD726ULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "53h+a", 0 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+d 53b+a)
+    { 0x643F3605AB7DBE98ULL, 8, 3, { { "77+f", -3180 }, { "57+e", -3180 }, { "37d+e", -3180 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+c 77+e)
     { 0x646AACBB355DFA52ULL, 8, 3, { { "73a+h", -400 }, { "53g+b", -400 }, { "33+b", -400 } } },
     // 4P ply 4 (after 33+c 37+c 77+e 73+a)
     { 0x647526969F59426DULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+d 37+f 77+d 73+g)
     { 0x648B172D5DCA77CCULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+d 53+b)
+    { 0x64BC17942D601D85ULL, 8, 3, { { "77+f", -3090 }, { "57+e", -3090 }, { "37d+e", -3100 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 53+b 57+e)
     { 0x64C3781C368E795AULL, 8, 3, { { "53h+a", 0 }, { "33+b", 0 }, { "33+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 33h+a 77+f)
@@ -3278,18 +3818,26 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x64EF5C78748ADE32ULL, 8, 3, { { "33f+a", 140 }, { "33f+c", 140 }, { "33f+b", 20 } } },
     // 4P ply 4 (after 33+b 37+c 77+f 73+g)
     { 0x64F461D6673DED7AULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+e 73+b)
+    { 0x64F4EA8DBBDA803DULL, 8, 3, { { "57+d", -2360 }, { "77+f", -2360 }, { "77+e", -2980 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 53+b 77+d)
     { 0x6502A78A27F9BDF7ULL, 8, 3, { { "73+h", 120 }, { "53b-64", 120 }, { "53b+a", 120 } } },
     // 4P ply 3 (after 33+f 37+b 77+d)
     { 0x6513C3AEB571C30AULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+g)
+    { 0x6514EC909172571FULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 33+a 37+f 53+a)
     { 0x65385A3FB7B5618BULL, 8, 3, { { "57+d", -2752 }, { "77+f", -2752 }, { "57+e", -2752 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 73+b)
+    { 0x6552CB67CA09F725ULL, 8, 3, { { "77+e", -2213 }, { "57f+e", -2213 }, { "37+d", -2213 } } },
     // OFK ply 4 (after 32+a 46+f 22+c 56+f)
     { 0x655D812FC4D6FC40ULL, 8, 3, { { "42+h", -99 }, { "22c+b", -99 }, { "22c+h", -1499 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 73+a 77+f)
     { 0x658015EC441BDA95ULL, 8, 3, { { "33+b", 0 }, { "53a+h", 0 }, { "33+a", 0 } } },
     // 4P ply 4 (after 33+a 37+c 77+g 73+f)
     { 0x65891148EDEA7A9EULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 73+h)
+    { 0x65B111249227A862ULL, 8, 3, { { "37+e", -2651 }, { "57+d", -2651 }, { "37+d", -2721 } } },
     // OFK ply 4 (after 32+b 46+e 22+a 36+e)
     { 0x65B618B2449F6792ULL, 8, 3, { { "42h+a", -919 }, { "32+b", -919 }, { "42h-33", -1128 } } },
     // 4P ply 4 (after 33+h 37+d 77+e 73+b)
@@ -3298,6 +3846,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x65F38448363B6210ULL, 8, 3, { { "77+e", -2752 }, { "57f+e", -2752 }, { "37+d", -2752 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 73+h 57+d)
     { 0x66144E27C75CF89BULL, 8, 3, { { "33b+a", -275 }, { "53+h", -275 }, { "53+a", -283 } } },
+    // 2P_3B_SP ply 1 (after 53+h)
+    { 0x66505302BBD48325ULL, 8, 3, { { "57+e!", -530 }, { "77+e!", -1491 }, { "77+a", -2853 } } },
     // OFK ply 3 (after 32+b 46+e 42+h)
     { 0x665282DBA7464BACULL, 8, 3, { { "36+d", -3603 }, { "56+f", -4561 }, { "36+e", -4698 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 73+a 77+d)
@@ -3314,6 +3864,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6684D62B1779DB60ULL, 8, 3, { { "73+a", 0 }, { "53a+h", 0 }, { "33b+a", 0 } } },
     // OFK ply 3 (after 22+b 46+f 22b+a)
     { 0x668811A8525F85C7ULL, 8, 3, { { "26+d", -3323 }, { "36+e", -3323 }, { "26+e", -3323 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+f 33+a)
+    { 0x66B5D2E3C145A997ULL, 8, 3, { { "37+d", -2608 }, { "37+e", -2608 }, { "57d+e", -2608 } } },
     // OFK ply 4 (after 32+a 46+e 52+b 46e+f)
     { 0x66C0C950C3993A21ULL, 8, 3, { { "32+b", -841 }, { "32+a", -1814 }, { "42a+h", -1884 } } },
     // 4P ply 4 (after 33+h 37+e 77+h 73+f)
@@ -3350,6 +3902,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x67BF2E52A1A56494ULL, 8, 3, { { "33d+a", 140 }, { "33d+c", 140 }, { "33d+b", 20 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+c 57+c)
     { 0x67C19700FBE2C2E9ULL, 8, 3, { { "73+a", 0 }, { "53c+h", 0 }, { "33b+a", 0 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+h)
+    { 0x67CD9CF616823805ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+d 37+e 77+b 73+f)
     { 0x67D32D36B9B30A26ULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
     // 2P 1-Base ply 4 (after 33+b 77+e 53+g 57+f)
@@ -3360,6 +3914,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x68136583CC5BC0D3ULL, 8, 3, { { "53b+a", 120 }, { "73+h", 120 }, { "53b-64", 120 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+a 57+g)
     { 0x68348EE8105FA76DULL, 8, 3, { { "53+b", 280 }, { "73a+h", 280 }, { "53+a", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 53+a)
+    { 0x6843096E21AB8A01ULL, 8, 3, { { "77+f", -2601 }, { "57+b", -2601 }, { "77+h", -2601 } } },
     // 4P ply 4 (after 33+a 37+c 77+b 73+a)
     { 0x6847EBB287F11801ULL, 8, 3, { { "33a+b", -400 }, { "33a+c", -400 }, { "33a+d", -540 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 73+h 77+d)
@@ -3372,6 +3928,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x68721BDB7561DCD3ULL, 8, 3, { { "33a+b", 260 }, { "33a+c", 260 }, { "33a+d", 120 } } },
     // OFK ply 4 (after 32+b 36+d 32b+a 46+e)
     { 0x6879C34B306F04BCULL, 8, 3, { { "32+b", -1319 }, { "52+h", -1319 }, { "32+a", -2960 } } },
+    // 2P_3B_ED ply 2 (after 53+a 37+e)
+    { 0x68842DE20DED1D9CULL, 8, 3, { { "73+h", 0 }, { "33+b", -120 }, { "73+a", -419 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+f)
+    { 0x688BAD5620B958ACULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // OFK ply 4 (after 22+b 36+d 32+b 26+d)
     { 0x68914A493F753708ULL, 8, 3, { { "42h+a", -179 }, { "32+a", -179 }, { "22+b", -620 } } },
     // 2P 3-Base ply 4 (after 53+a 37+d 33+a 57+d)
@@ -3380,12 +3940,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6898AA0550480C39ULL, 8, 3, { { "42+a", -1248 }, { "32+b", -1248 }, { "32+h", -1410 } } },
     // 2P 1-Base ply 4 (after 33+b 77+f 73+h 57+e)
     { 0x68B04A4B82320A56ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "53+b", -210 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+g)
+    { 0x68D19A2D44626027ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+a 37+c 77+e 73+h)
     { 0x68E16D4779383F16ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P 3-Base ply 3 (after 33+a 37+e 33a+b)
     { 0x68E24641DD991F34ULL, 8, 3, { { "57+d", -2632 }, { "77+f", -2632 }, { "57+e", -2632 } } },
     // 4P ply 3 (after 33+b 37+b 77+g)
     { 0x68F3F4933E4D560FULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 53+h)
+    { 0x6900649E533E29CEULL, 8, 3, { { "37+d", -1914 }, { "77+f", -1914 }, { "77+e", -1980 } } },
     // 4P ply 4 (after 33+b 37+c 77+h 73+h)
     { 0x6909D1945E08A77AULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 73+h 57+e)
@@ -3400,16 +3964,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x696AE0B61D381F61ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+c 57e+d)
     { 0x697B6EB2DEFF8776ULL, 8, 3, { { "73a+h", -400 }, { "33+b", -520 }, { "53g+h", -644 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+f)
+    { 0x698E389E43569CC9ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+b 37+d 77+f)
     { 0x69AC56203979AAE1ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+d 33b+a)
+    { 0x69C22373269BDB6EULL, 8, 3, { { "57+e", -3090 }, { "37+d", -3090 }, { "57+f", -3100 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 53+h 77+d)
     { 0x69DDEA10042E8B4BULL, 8, 3, { { "73a+h", 120 }, { "33+a", 120 }, { "53b+a", 120 } } },
     // OFK ply 4 (after 32+b 26+d 42+a 36+e)
     { 0x69E065954E2A32A0ULL, 8, 3, { { "42h-33", 120 }, { "42h+a", 120 }, { "22+b", -265 } } },
     // OFK ply 4 (after 22+b 36+e 32+a 46+e)
     { 0x69E985D921170991ULL, 8, 3, { { "42+a", -228 }, { "32a+b", -407 }, { "52+h", -561 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+g)
+    { 0x69EDE066B9D9FC00ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 3 (after 33+c 37+f 77+g)
     { 0x69F4073CD2C2BF73ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+b)
+    { 0x6A17ED01291AFA05ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+d 37+e 77+g 73+a)
     { 0x6A1DD7CCD3A868B9ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 4 (after 33+a 37+c 77+h 73+d)
@@ -3430,6 +4002,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6A7A58EF74B553ACULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 53+h 37+d)
     { 0x6A826FAC06E7AADEULL, 8, 3, { { "53b+a", -977 }, { "33+b", -977 }, { "33+a", -1020 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+e 33+c)
+    { 0x6A946C18FF9BDD6AULL, 8, 3, { { "77+f", -2201 }, { "57+d", -2208 }, { "77+h", -2321 } } },
+    // 2P_1B_ED ply 3 (after 33+b 57+d 73+h)
+    { 0x6AC6E0B475F9DA9BULL, 8, 3, { { "77+f", -4020 }, { "37+d", -4020 }, { "57d+f", -4020 } } },
     // 4P ply 4 (after 33+d 37+b 77+g 73+h)
     { 0x6AD7525D3577211CULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 73+h 77+d)
@@ -3440,6 +4016,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6B2D775A5532D069ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 3 (after 33+f 37+d 77+b)
     { 0x6B30167730DA0848ULL, 8, 3, { { "73+a", -777 }, { "73+g", -777 }, { "73+h", -777 } } },
+    // 2P_3B_ED ply 2 (after 33+b 77+e)
+    { 0x6B377DDEF84919E5ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "33+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 53+b 57+c)
     { 0x6B430F60CB36DA24ULL, 8, 3, { { "53h+a", 280 }, { "33+b", 280 }, { "53h-44", 280 } } },
     // OFK ply 4 (after 22+b 36+d 32+a 46+e)
@@ -3448,6 +4026,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6B76CE61A4F5F903ULL, 8, 3, { { "73+h", -539 }, { "73+a", -539 }, { "33h+a", -539 } } },
     // 4P ply 4 (after 33+d 37+d 77+f 73+h)
     { 0x6B88F0EE3243DDF2ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 4P_SPED ply 1 (after 33+c!)
+    { 0x6B93D2D1B9F349F9ULL, 8, 3, { { "37+c!", -2792 }, { "37+e!", -2930 }, { "37+a!", -7101 } } },
     // 4P ply 4 (after 33+h 37+e 77+d 73+b)
     { 0x6B9750C39EF8270AULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+c 37+h 77+h 73+f)
@@ -3464,24 +4044,40 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6BD237ECAE20B850ULL, 8, 3, { { "57+f", -2651 }, { "37+d", -2651 }, { "57+d", -3233 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 53+c 57+c)
     { 0x6BEADBC7C8E5592CULL, 8, 3, { { "33+b", -120 }, { "53g+h", -120 }, { "33+a", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 73+h)
+    { 0x6BF05952D40F8E78ULL, 8, 3, { { "57+e", -2213 }, { "37+d", -2213 }, { "57+f", -2213 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 53+c 57+g)
     { 0x6BF3413BB81C5B9AULL, 8, 3, { { "53g+b", 120 }, { "73h+a", 120 }, { "33+a", 120 } } },
     // OFK ply 2 (after 32+a 36+e)
     { 0x6C04DE9EF3210C59ULL, 8, 3, { { "52+h", -740 }, { "32+b", -740 }, { "42a+h", -760 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+h)
+    { 0x6C0C647C589C145FULL, 8, 3, { { "73+a", -1697 }, { "73+g", -1697 }, { "73+h", -1697 } } },
     // 4P ply 4 (after 33+b 37+b 77+h 73+d)
     { 0x6C172FFEC55C1DA4ULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+b)
+    { 0x6C28EAD2A320943CULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 4 (after 33+f 37+e 77+f 73+h)
     { 0x6C2E29A7E2B79D34ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+e)
+    { 0x6C44E9B6BB36FA8EULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 53+a)
+    { 0x6C46C6DD65685E9FULL, 8, 3, { { "57+e", -2213 }, { "77+f", -2213 }, { "57+d", -2213 } } },
     // 4P ply 4 (after 33+c 37+b 77+f 73+b)
     { 0x6C4C9916FB9BD063ULL, 8, 3, { { "33c+b", 280 }, { "33c+a", 280 }, { "33c+d", 140 } } },
+    // 4P_ED ply 2 (after 33+c 37+d)
+    { 0x6C5E6B2299DD121EULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // OFK ply 3 (after 32+a 26+d 22+b)
     { 0x6C7584FDEF38CC49ULL, 8, 3, { { "36+e", -6141 }, { "46+f", -6141 }, { "56+e", -6141 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 33+b)
+    { 0x6C8D1A5575CF603AULL, 8, 3, { { "77+e", -2601 }, { "57+h", -2601 }, { "37d+b", -2601 } } },
     // 4P ply 3 (after 33+d 37+e 77+b)
     { 0x6C96CF3EE02E488EULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // OFK ply 4 (after 32+b 36+d 52+a 56+g)
     { 0x6C9CF09187E7BB2FULL, 8, 3, { { "42h+a", -734 }, { "32+b", -734 }, { "52+h", -734 } } },
     // 4P ply 4 (after 33+h 37+c 77+g 73+a)
     { 0x6CBE9B4D60B3EC1AULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+d 53+f)
+    { 0x6CC0452377673A94ULL, 8, 3, { { "57+e", -1949 }, { "77+e", -1949 }, { "57+f", -1949 } } },
     // 4P ply 4 (after 33+h 37+h 77+e 73+d)
     { 0x6CC3E9661FD719EFULL, 8, 3, { { "33h+a", 660 }, { "33h+c", 660 }, { "33h+b", 540 } } },
     // 4P ply 4 (after 33+f 37+b 77+f 73+a)
@@ -3492,12 +4088,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6CFACC5AF838263CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+b 77+f 73+b 57+c)
     { 0x6CFC544C69123358ULL, 8, 3, { { "53+b", 280 }, { "53+a", 280 }, { "53+g", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+e 53+b)
+    { 0x6D05AB2D17FDFD50ULL, 8, 3, { { "37+e", -2213 }, { "77+f", -2213 }, { "57e+d", -2213 } } },
     // 2P 1-Base ply 3 (after 33+b 37+f 53+a)
     { 0x6D0957FEEF1A1C34ULL, 8, 3, { { "57+d", -3180 }, { "77+f", -3180 }, { "57+e", -3270 } } },
     // 4P ply 4 (after 33+c 37+f 77+h 73+d)
     { 0x6D10DC5129D3F4D8ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
     // 4P ply 4 (after 33+c 37+d 77+g 73+b)
     { 0x6D133BA5FCAF2C8DULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+b)
+    { 0x6D1490995E9B081BULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+d 37+c 77+d 73+b)
     { 0x6D341C422DE3A3A9ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 3 (after 33+b 37+h 77+b)
@@ -3506,12 +4106,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6D4B6AB91714391FULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
     // 4P ply 4 (after 33+f 37+f 77+e 73+g)
     { 0x6D6218D9108392FAULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+f 53+h)
+    { 0x6D801CE5CA88D5DDULL, 8, 3, { { "57+e", -3090 }, { "37+d", -3090 }, { "37+e", -3100 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+a 57+f)
     { 0x6D85AA473C6F01BBULL, 8, 3, { { "53a+b", 0 }, { "33+a", 0 }, { "33+h", -120 } } },
     // 4P ply 3 (after 33+h 37+e 77+h)
     { 0x6D8E3BDBE62954CAULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+a 37+e 77+b 73+d)
     { 0x6D939049FA7AEB7AULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+h)
+    { 0x6DAC55659C0662E2ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+d 77+g 73+a)
     { 0x6DBB0E85035C287FULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 4 (after 53+b 37+d 73+a 57+e)
@@ -3522,8 +4126,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6E0AAC0C29895564ULL, 8, 3, { { "33h+a", 120 }, { "33h+c", 120 }, { "33h+b", 0 } } },
     // 4P ply 4 (after 33+b 37+e 77+e 73+a)
     { 0x6E14EF0515DD188AULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+d 53+d)
+    { 0x6E1821E2CE9E095EULL, 8, 3, { { "77+e", -1949 }, { "37+e", -1949 }, { "57f+e", -1949 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+e 53+c)
+    { 0x6E19B9EFBAE2F1B1ULL, 8, 3, { { "57+f", -2660 }, { "37+d", -2660 }, { "57+e", -2660 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+b 77+e)
     { 0x6E2543E69FF38524ULL, 8, 3, { { "53+b", -1020 }, { "73b+h", -1020 }, { "53+h", -1570 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+f 73+a)
+    { 0x6E557E94CC3653F0ULL, 8, 3, { { "37+d", -2616 }, { "77+f", -2616 }, { "77+e", -2654 } } },
     // 4P ply 4 (after 33+f 37+b 77+d 73+f)
     { 0x6E5621A6ECEC81A2ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // OFK ply 4 (after 32+a 46+e 52+b 36+d)
@@ -3542,6 +4152,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x6EAFA6D40AAD1FA2ULL, 8, 3, { { "53h+a", -283 }, { "33+b", -283 }, { "33+a", -438 } } },
     // 4P ply 4 (after 33+b 37+e 77+b 73+h)
     { 0x6EB269F0EB143F9DULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
+    // 2P_3B_ED ply 2 (after 33+a 57+e)
+    { 0x6EB50E29E0D21784ULL, 8, 3, { { "53+a", 0 }, { "53+h", 0 }, { "33+b", 0 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+a 57+d)
     { 0x6EB5DBEA4FD6A6DFULL, 8, 3, { { "73+h", -90 }, { "53a+b", -90 }, { "33a+b", -610 } } },
     // 4P ply 3 (after 33+a 37+c 77+g)
@@ -3582,6 +4194,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x701AD59C0196AAC5ULL, 8, 3, { { "42+a", 120 }, { "32b-43", 120 }, { "52h+g", -99 } } },
     // 4P ply 4 (after 33+d 37+d 77+b 73+b)
     { 0x706ACDE3AB5955E8ULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 53b+a)
+    { 0x7070331E9D115845ULL, 8, 3, { { "57+e", -2333 }, { "37+d", -2453 }, { "37+e", -2577 } } },
     // 4P ply 4 (after 33+f 37+c 77+h 73+b)
     { 0x7077ACCECEB18DC9ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 3 (after 53+a 37+f 33+b)
@@ -3594,10 +4208,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x70CB12E364C129A4ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+f 37+h 77+g 73+g)
     { 0x70D02F4D77761AECULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 33h+a)
+    { 0x70DB16BBC2ACA784ULL, 8, 3, { { "57+e", -2632 }, { "77+e", -2632 }, { "57+d", -2632 } } },
     // 4P ply 4 (after 33+c 37+c 77+h 73+a)
     { 0x70DF99EE3142893BULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 73+a)
+    { 0x70F3128F1B0CFB58ULL, 8, 3, { { "57+e", -2333 }, { "37+d", -2453 }, { "37+e", -2601 } } },
     // 2P 3-Base ply 4 (after 53+a 37+e 33+b 57+f)
     { 0x70F6A42DEDEB2F3EULL, 8, 3, { { "53a+b", 0 }, { "33+a", 0 }, { "73h+a", -120 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+d)
+    { 0x714FD4F0BBCE3A3FULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+h 37+f 77+g 73+d)
     { 0x7171DEF2782291F9ULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
     // 4P ply 4 (after 33+h 37+d 77+h 73+b)
@@ -3610,6 +4230,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x71E4B9E59C14BD99ULL, 8, 3, { { "37+c", -1177 }, { "37+e", -1177 }, { "37+d", -1177 } } },
     // 4P ply 3 (after 33+c 37+e 77+g)
     { 0x71EF3978B7D831EBULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+d 53+b)
+    { 0x71FE143FA44B4EBFULL, 8, 3, { { "57+d", -4020 }, { "57+f", -4020 }, { "77+e", -4020 } } },
     // 2P 1-Base ply 4 (after 53+b 57+f 33+h 37+d)
     { 0x72000FB831B20318ULL, 8, 3, { { "33+b", -120 }, { "53h+a", -120 }, { "53h-44", -120 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 53a+b 57e+f)
@@ -3638,6 +4260,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x72F29D6463CAA070ULL, 8, 3, { { "73+a", -280 }, { "53g+h", -280 }, { "33b+a", -280 } } },
     // 4P ply 4 (after 33+d 37+b 77+h 73+f)
     { 0x7315912A0FBEAFC2ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+d 53+h)
+    { 0x732670FE1DB27D75ULL, 8, 3, { { "77+f", -3930 }, { "57f+d", -3930 }, { "77+e", -3930 } } },
     // 4P ply 4 (after 33+a 37+h 77+b 73+f)
     { 0x73311F84F4022FA1ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // OFK ply 4 (after 32+b 46+e 22+a 46e+f)
@@ -3648,6 +4272,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x73564D8C4E77ABA1ULL, 8, 3, { { "53+h", -275 }, { "33a+b", -275 }, { "53+b", -539 } } },
     // OFK ply 4 (after 22+b 36+e 42+a 56+e)
     { 0x7356CAAF715BB8B5ULL, 8, 3, { { "42+a", -140 }, { "22+b", -140 }, { "42+h", -299 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+e)
+    { 0x7367238EB899F353ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+a 26+d 22+b 36+f)
     { 0x736FD64D86754BD0ULL, 8, 3, { { "42+h", 1140 }, { "42+g", 561 }, { "42+b", 13 } } },
     // 4P ply 4 (after 33+h 37+f 77+d 73+b)
@@ -3664,6 +4290,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7444A7A379AF0BB2ULL, 8, 3, { { "53b-64", 0 }, { "33+a", 0 }, { "53b+a", 0 } } },
     // 4P ply 3 (after 33+c 37+h 77+e)
     { 0x744630A8B5373765ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+e)
+    { 0x745FD7F2DE2C7416ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 73+h 57+f)
     { 0x7463F392790DD85BULL, 8, 3, { { "53+b", -275 }, { "73h+a", -275 }, { "53+a", -283 } } },
     // OFK ply 4 (after 32+a 56+f 52+a 26+e)
@@ -3674,6 +4302,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x748EB71AFAB604F6ULL, 8, 3, { { "73+h", 0 }, { "53a+b", 0 }, { "73+a", 0 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+h 77+d)
     { 0x74AEE47AD5AAA5CEULL, 8, 3, { { "73a+h", 120 }, { "33+a", 120 }, { "53b+a", 120 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+h)
+    { 0x74B0988E15930506ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+a 77+f)
     { 0x74BD5F1812BB1816ULL, 8, 3, { { "53+b", -1540 }, { "73a+h", -1540 }, { "53+h", -1540 } } },
     // 4P ply 4 (after 33+d 37+c 77+e 73+f)
@@ -3690,12 +4320,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x75193A13014BEE40ULL, 8, 3, { { "33a+b", -140 }, { "33a+c", -140 }, { "33a+d", -280 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 73+h 77+d)
     { 0x752907F8FFB38AAFULL, 8, 3, { { "53+h", 120 }, { "53+a", 120 }, { "33b+a", 120 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+f 73+c)
+    { 0x7543D3566ECF4E83ULL, 8, 3, { { "57+e", -2352 }, { "57+d", -2352 }, { "77+f", -2352 } } },
     // 4P ply 4 (after 33+b 37+e 77+f 73+b)
     { 0x755054FD720EB787ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 53+b 77+d)
     { 0x75606BE91DDFEE56ULL, 8, 3, { { "73+h", 120 }, { "53b-64", 120 }, { "53b+a", 120 } } },
     // 4P ply 4 (after 33+f 37+e 77+e 73+g)
     { 0x7579269D75991C62ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+e 53+d)
+    { 0x7588A5837023C2DBULL, 8, 3, { { "57+e", -1949 }, { "77+e", -1949 }, { "57+d", -1949 } } },
     // 4P ply 4 (after 33+a 37+f 77+b 73+d)
     { 0x7588AE0D9F6065E2ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 2P 1-Base ply 3 (after 33+a 37+e 33a+b)
@@ -3706,6 +4340,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x75B1CA5F4803698EULL, 8, 3, { { "73+a", 120 }, { "33b+a", 120 }, { "53h+a", 0 } } },
     // OFK ply 4 (after 32+a 36+e 52+a 46+f)
     { 0x75B56F8EE27A6194ULL, 8, 3, { { "42+a", -3059 }, { "32a+b", -3059 }, { "42+h", -3059 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+h)
+    { 0x75B76B21F91CEC7AULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 2 (after 53+b 77+f)
+    { 0x75FEE72BCF2A0A82ULL, 8, 3, { { "33+b", -419 }, { "73+a", -419 }, { "53h+a", -419 } } },
     // 4P ply 4 (after 33+b 37+f 77+e 73+a)
     { 0x760FD14170C79612ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // OFK ply 4 (after 32+a 46+f 22+c 36+d)
@@ -3726,6 +4364,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x76A957B48E0EB105ULL, 8, 3, { { "33b+a", -260 }, { "33b+c", -260 }, { "33b+d", -520 } } },
     // 2P 3-Base ply 4 (after 33+a 37+f 53+b 37f+d)
     { 0x76B509981B61687BULL, 8, 3, { { "33+b", 1020 }, { "53h-44", 1020 }, { "53h+a", 1020 } } },
+    // 2P_3B_ED ply 3 (after 33+b 37+e 53+f)
+    { 0x76B8D42E039A65BFULL, 8, 3, { { "57+e", -1949 }, { "37+e", -1949 }, { "57+f", -1949 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 53b+a 37+d)
     { 0x76BD5ECCEDDD959FULL, 8, 3, { { "73+h", 0 }, { "33+a", 0 }, { "53ab-64", 0 } } },
     // 2P 3-Base ply 4 (after 33+b 57+f 33b+a 57f+e)
@@ -3744,6 +4384,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7726DA0455BDB9B4ULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "37+e", -4020 } } },
     // 2P 1-Base ply 4 (after 33+b 77+f 53+a 37+d)
     { 0x773ABD4EC7C4BAFEULL, 8, 3, { { "53a+h", 30 }, { "73+a", 30 }, { "73+h", -90 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+d)
+    { 0x77493CA0AFA00C44ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 33h+a 57+f)
     { 0x7753823F0AB47F3FULL, 8, 3, { { "53+b", -395 }, { "73+h", -395 }, { "73+a", -539 } } },
     // OFK ply 3 (after 32+b 26+d 32b+g)
@@ -3764,6 +4406,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x77ABB783E9CFBB73ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 4 (after 33+c 37+b 77+b 73+h)
     { 0x77AEA41B62815879ULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+d 73+h)
+    { 0x77B5EEDEA47DF41EULL, 8, 3, { { "37+e", -2651 }, { "77+f", -2651 }, { "37+d", -2771 } } },
     // 4P ply 4 (after 33+c 37+e 77+e 73+h)
     { 0x77C2A77F7A9736CBULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+h 37+h 77+g 73+f)
@@ -3784,6 +4428,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x785073225623ED6AULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+h 37+h 77+h 73+d)
     { 0x7869561EB1CCD2B9ULL, 8, 3, { { "33h+a", 520 }, { "33h+c", 520 }, { "33h+b", 400 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+b)
+    { 0x786D1AD6C6842E7AULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+b 77+d)
     { 0x7871A9E0F67D9372ULL, 8, 3, { { "73+h", 120 }, { "53b-64", 120 }, { "53b+a", 120 } } },
     // 4P ply 3 (after 33+a 37+h 77+b)
@@ -3792,14 +4438,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x78808A22E7BF4C95ULL, 8, 3, { { "37+d", -3170 }, { "77+e", -3170 }, { "37+e", -3170 } } },
     // OFK ply 4 (after 32+a 36+e 52+a 56+f)
     { 0x7883240BF13DE3BFULL, 8, 3, { { "52+h", -1128 }, { "32+b", -1128 }, { "32+a", -1203 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+e)
+    { 0x78A6DB04F687DF09ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // OFK ply 4 (after 32+b 46+f 52+h 26+d)
     { 0x78B8DE3664032551ULL, 8, 3, { { "42+a", -265 }, { "32b-43", -265 }, { "32b+a", -1127 } } },
     // 4P ply 4 (after 33+b 37+b 77+e 73+d)
     { 0x78BD90866B47D6F2ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+f 53+h)
+    { 0x78C21F4E43A386E7ULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "37+e", -4020 } } },
     // 4P ply 4 (after 33+b 37+e 77+b 73+d)
     { 0x78D193E27351B840ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+h)
+    { 0x78EE56CE152D31D8ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+a 37+d)
     { 0x78F31B86959FF410ULL, 8, 3, { { "33+b", 0 }, { "53a+h", 0 }, { "33+a", -610 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+e)
+    { 0x7906EA1D321DA9B4ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 3 (after 33+h 37+e 77+e)
     { 0x792484A348329F9CULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+h 37+b 77+b)
@@ -3810,10 +4464,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x795A35AF4B0FF9A3ULL, 8, 3, { { "33+a", 0 }, { "33+b", 0 }, { "73h+a", 0 } } },
     // 2P 3-Base ply 2 (after 33+h 37+e)
     { 0x7962AED53C370F0DULL, 8, 3, { { "53+a", -419 }, { "33+a", -419 }, { "53+h", -419 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+b)
+    { 0x796AE9792A0BC706ULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 4 (after 33+d 37+h 77+b 73+d)
     { 0x7971A2FBB7CBCEFDULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
     // 4P ply 4 (after 33+c 37+d 77+d 73+h)
     { 0x798D71C2E72A933BULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+e 53b-64)
+    { 0x7998B99FC88914E1ULL, 8, 3, { { "37+d", -3050 }, { "57+d", -3100 }, { "77e+f", -3100 } } },
     // 4P ply 4 (after 33+d 37+c 77+g 73+h)
     { 0x79AA562536661C1FULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 53+b 57+e)
@@ -3824,6 +4482,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x79C8A7A1BE9859ACULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // OFK ply 4 (after 32+a 26+d 32a+b 46+e)
     { 0x79C9F1EA155C20F9ULL, 8, 3, { { "42+a", -20 }, { "32ab-43", -59 }, { "52+h", -265 } } },
+    // 2P_3B_ED ply 3 (after 53+b 37+d 33+a)
+    { 0x79CF19FEFCE43300ULL, 8, 3, { { "57+e", -2333 }, { "77+f", -2453 }, { "77+e", -2601 } } },
     // 4P ply 4 (after 33+h 37+h 77+b 73+a)
     { 0x7A069581795BB925ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+h 37+c 77+d 73+g)
@@ -3844,6 +4504,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7AA0137487929E32ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // OFK ply 4 (after 32+a 36+d 52+a 26+e)
     { 0x7AA3F49138DD4CD3ULL, 8, 3, { { "32+a", -367 }, { "32+b", -740 }, { "52+h", -740 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+g)
+    { 0x7AA90B9D249C9941ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+c 37+e 77+g 73+f)
     { 0x7AAADB70EE457343ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 53+h 57d+e)
@@ -3858,6 +4520,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7ADCBAF429CF25A5ULL, 8, 3, { { "42a+h", -195 }, { "22+b", -1127 }, { "42a+b", -1397 } } },
     // 4P ply 4 (after 33+d 37+h 77+h 73+a)
     { 0x7B1E61647F5CA561ULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
+    // 2P_1B_SP ply 1 (after 53+b)
+    { 0x7B235D686A50ADA0ULL, 8, 3, { { "57+d", -3950 }, { "37+a", -4650 }, { "57+e!", -4870 } } },
     // 4P ply 4 (after 33+f 37+d 77+d 73+g)
     { 0x7B36F020E824B992ULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // 4P ply 4 (after 33+a 37+b 77+b 73+a)
@@ -3870,22 +4534,30 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7B56ECAE9CF64BB0ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 4P ply 4 (after 33+c 37+f 77+h 73+h)
     { 0x7B732643B1967305ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+d 73+f)
+    { 0x7B7C0799F19FA24CULL, 8, 3, { { "57+e", -1949 }, { "57+d", -2069 }, { "77+f", -2069 } } },
     // 4P ply 3 (after 33+b 37+c 77+g)
     { 0x7B8EF0EB3D5C6B0CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 32+b 46+e 22+a 36+d)
     { 0x7B966F15CDAEE6E3ULL, 8, 3, { { "42+a", -3059 }, { "42+h", -3059 }, { "32b+a", -3059 } } },
     // 4P ply 4 (after 33+a 37+b 77+e 73+h)
     { 0x7B9C693F7A290215ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+g)
+    { 0x7BAC9E5547735D24ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 36+d 32+a 46+f)
     { 0x7BAD95285890200DULL, 8, 3, { { "32+b", -217 }, { "32+a", -217 }, { "42a+h", -217 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+f 53+b)
+    { 0x7BC6DC8910C18712ULL, 8, 3, { { "77+f", -3170 }, { "37+e", -3170 }, { "77+e", -3170 } } },
     // 4P ply 4 (after 33+a 37+e 77+b 73+h)
     { 0x7BF06A5B623F6CA7ULL, 8, 3, { { "33a+b", -400 }, { "33a+c", -400 }, { "33a+d", -540 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+f)
+    { 0x7BF6A92E23A865AFULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 53+a 37+e)
     { 0x7BF7D841C6FDF5E5ULL, 8, 3, { { "53a+h", 0 }, { "73+a", 0 }, { "73+h", -120 } } },
     // OFK ply 4 (after 32+b 36+d 32b-43 56+e)
     { 0x7C01286816AD53CAULL, 8, 3, { { "42+a", 0 }, { "52+h", 0 }, { "42+b", -740 } } },
     // 2P_3B_ED ply 1 (after 53+b)
-    { 0x7C106036373FD658ULL, 8, 3, { { "37+d", -2752 }, { "57+f", -2752 }, { "77+e", -2808 } } },
+    { 0x7C106036373FD658ULL, 8, 3, { { "37+d", -2752 }, { "57+f", -2752 }, { "37+e", -2808 } } },
     // 4P ply 4 (after 33+h 37+d 77+d 73+f)
     { 0x7C2EB0168C1278C4ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+a 37+c 77+h 73+h)
@@ -3896,14 +4568,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7C8D8D734ADD9912ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+d 37+e 77+d 73+g)
     { 0x7C90296938D0F954ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+g)
+    { 0x7CAFE3CD30F2AF3AULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 4 (after 33+d 37+b 77+g 73+d)
     { 0x7CB4A84FAD32A6C1ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
+    // 2P_3B_ED ply 2 (after 33+a 37+f)
+    { 0x7CC37FADCD3D06A5ULL, 8, 3, { { "33+b", -268 }, { "53+f", -268 }, { "33+d", -268 } } },
     // 2P 3-Base ply 3 (after 53+a 57+e 53a+b)
     { 0x7CE3281A2627EFC1ULL, 8, 3, { { "77+f", -2333 }, { "37+d", -2453 }, { "37+e", -2577 } } },
     // 4P ply 3 (after 33+a 37+d 77+f)
     { 0x7CEE558BB052F9DBULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 73+b)
+    { 0x7CEFD4C9DEC00EA5ULL, 8, 3, { { "57+d", -2480 }, { "77+f", -2480 }, { "77+e", -3100 } } },
     // 4P ply 4 (after 33+b 37+c 77+b 73+a)
     { 0x7D05E8190EDA4B3BULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+g)
+    { 0x7D0FD2D4F468D987ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 73+a 77+d)
     { 0x7D180A39A71CF710ULL, 8, 3, { { "53+b", 120 }, { "73a+h", 120 }, { "53+h", 120 } } },
     // 2P 3-Base ply 3 (after 53+b 77+e 53b-64)
@@ -3938,6 +4618,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7E1AD175B25571ECULL, 8, 3, { { "57+f", -4020 }, { "57+d", -4020 }, { "77+e", -4020 } } },
     // 2P 3-Base ply 4 (after 33+a 57+d 33a+b 37+f)
     { 0x7E1CC9FEF47EF6E5ULL, 8, 3, { { "73+a", 120 }, { "53+h", 120 }, { "53+a", 120 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 53+h)
+    { 0x7E37B2F7F6100051ULL, 8, 3, { { "37e+d", -3100 }, { "77+f", -3170 }, { "57+d", -3170 } } },
     // OFK ply 4 (after 22+b 36+d 52+h 36d-45)
     { 0x7E3AF605E13CF10CULL, 8, 3, { { "32+h", -1248 }, { "42+a", -1248 }, { "32+b", -1248 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 73+a 77+e)
@@ -3962,6 +4644,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7EDB9F4B811BF989ULL, 8, 3, { { "32+b", -1319 }, { "52+h", -1319 }, { "22+b", -2880 } } },
     // 2P 3-Base ply 4 (after 33+a 57+e 53+g 37+d)
     { 0x7EE109D8EE2DE786ULL, 8, 3, { { "73+h", -400 }, { "53g+b", -400 }, { "73+a", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+e 73+f)
+    { 0x7EE4943A82DA7E7DULL, 8, 3, { { "57+e", -1949 }, { "57+f", -1949 }, { "37+d", -1949 } } },
     // 2P 1-Base ply 4 (after 53+b 77+f 33+h 57+f)
     { 0x7EE56C7C78022DE1ULL, 8, 3, { { "73+h", -560 }, { "53b+a", -560 }, { "53b+h", -1350 } } },
     // 4P ply 4 (after 33+a 37+h 77+g 73+a)
@@ -3982,10 +4666,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x7F45DBCF52B9D169ULL, 8, 3, { { "73+h", -120 }, { "53b+a", -120 }, { "73+a", -120 } } },
     // OFK ply 4 (after 22+b 46+f 22b+c 46f+e)
     { 0x7F531376D7DE69FCULL, 8, 3, { { "42+h", -940 }, { "32+a", -1678 }, { "32+b", -2018 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+b)
+    { 0x7F55EEAAA031A93FULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+b 37+c 77+h 73+d)
     { 0x7F6A2B86C64D20A7ULL, 8, 3, { { "33b+a", 260 }, { "33b+c", 260 }, { "33b+d", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+f 53+b)
+    { 0x7F73DAA93A12EC71ULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 2P 1-Base ply 4 (after 53+b 37+e 53b+a 37e+d)
     { 0x7F8155BD0A355DC7ULL, 8, 3, { { "73+a", 0 }, { "33+b", 0 }, { "53ah-44", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+d 73+h)
+    { 0x7F84E31FFCD289A1ULL, 8, 3, { { "77+f", -3930 }, { "37+e", -3930 }, { "37+d", -3930 } } },
     // 2P 1-Base ply 1 (after 33+a)
     { 0x7F87972B959D9A07ULL, 8, 3, { { "77+e", -3100 }, { "37+e", -3100 }, { "77+f", -3100 } } },
     // 4P ply 3 (after 33+d 37+c 77+e)
@@ -4030,6 +4720,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8151F2793F64C607ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 3-Base ply 4 (after 53+b 77+f 33+b 57+d)
     { 0x815282A49D4291FEULL, 8, 3, { { "73+h", -283 }, { "53b+a", -283 }, { "73+a", -364 } } },
+    // 4P_SP ply 1 (after 33+a!)
+    { 0x815487ECFA78EDA7ULL, 8, 3, { { "37+e!", -7059 }, { "37+a!", -8455 }, { "37+a", -32000 } } },
     // 4P ply 4 (after 33+d 37+b 77+f 73+h)
     { 0x81693486D341BB3FULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 53+h 77+f)
@@ -4054,18 +4746,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x821230FBDF4F30C2ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+c 57+d)
     { 0x821A8618B8F4324AULL, 8, 3, { { "33+b", -1010 }, { "73h+a", -1010 }, { "33+a", -1010 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+g)
+    { 0x82305E45A56006EAULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+c 37+h 77+b 73+b)
     { 0x8237F5790754227CULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+f 37+h 77+e 73+h)
     { 0x823946AC066E0199ULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 4P ply 3 (after 33+c 37+f 77+f)
     { 0x824A61E734F42550ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+f)
+    { 0x825386BD5FEF6623ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 2P 1-Base ply 2 (after 53+b 37+d)
     { 0x828BCB3A5D367AD2ULL, 8, 3, { { "33+a", -500 }, { "73+h", -500 }, { "53b-64", -500 } } },
     // 4P ply 4 (after 33+f 37+h 77+b 73+a)
     { 0x829FC059F8A7268EULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 4P ply 4 (after 33+f 37+c 77+d 73+g)
     { 0x82AA30300A37E25CULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 33+h)
+    { 0x82AC992308BBDC59ULL, 8, 3, { { "77+f", -2333 }, { "57+d", -2333 }, { "57+e", -2333 } } },
     // 4P ply 4 (after 33+b 37+h 77+d 73+f)
     { 0x82B10D9E1980D114ULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
     // 4P ply 4 (after 33+h 37+e 77+f 73+d)
@@ -4076,14 +4774,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x82ECE97F4C7DD90DULL, 8, 3, { { "32+a", -203 }, { "22a+b", -203 }, { "42h-33", -799 } } },
     // 4P ply 4 (after 33+d 37+f 77+e 73+b)
     { 0x82FC34AB3757D30FULL, 8, 3, { { "33d+a", 140 }, { "33d+c", 140 }, { "33d+b", 20 } } },
+    // 2P_3B_ED ply 2 (after 53+a 37+f)
+    { 0x830F8691C7E306DCULL, 8, 3, { { "73+a", 120 }, { "33+b", 120 }, { "53a+h", 120 } } },
     // 4P ply 4 (after 33+d 37+e 77+d 73+f)
     { 0x83113C87DD1AA7A9ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+g)
+    { 0x8335CB8DC68FC28FULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 3 (after 33+b 37+b 77+f)
     { 0x834D9248D87BCC2CULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+f)
+    { 0x836FFCF6A254FA04ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 53+b 57+c)
     { 0x839721AF03F1E0F1ULL, 8, 3, { { "53h+a", 400 }, { "33+b", 400 }, { "33+a", 400 } } },
     // 4P ply 4 (after 33+h 37+d 77+d 73+g)
     { 0x83AFA5F869D82639ULL, 8, 3, { { "33h+a", -280 }, { "33h+c", -280 }, { "33h+b", -400 } } },
+    // 2P_3B_ED ply 2 (after 33+b 57+f)
+    { 0x83C458E6466D0547ULL, 8, 3, { { "53+a", -120 }, { "73+h", -120 }, { "53+b", -201 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+h 37e+d)
     { 0x83D1A2E1E439BF6AULL, 8, 3, { { "53+a", 0 }, { "53+h", 0 }, { "33b+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+h 57+d)
@@ -4102,12 +4808,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x846762A8231F9A13ULL, 8, 3, { { "33+a", 0 }, { "73+h", 0 }, { "53ab-64", 0 } } },
     // 4P ply 4 (after 33+d 37+c 77+f 73+d)
     { 0x8477CAEC481501E1ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+d 33+a)
+    { 0x8492E812ADAF644AULL, 8, 3, { { "37+d", -2453 }, { "57+e", -2453 }, { "37+e", -2654 } } },
     // 4P ply 4 (after 33+b 37+d 77+b 73+a)
     { 0x84992809ECC910F5ULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+h 37+e)
     { 0x84A3ECDA7B9316BDULL, 8, 3, { { "53h-44", 0 }, { "73+a", 0 }, { "53h+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+h 37+d 73+h 77+d)
     { 0x84AD7211A0069557ULL, 8, 3, { { "53+a", 0 }, { "53+b", 0 }, { "73h+a", 0 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+d)
+    { 0x84B43523C7370D6DULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+d 77+d 73+f)
     { 0x84B7E5CE0DEEE76FULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 2 (after 33+b 57+f)
@@ -4122,12 +4832,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8557CC8B298421EEULL, 8, 3, { { "52+h", -461 }, { "32+b", -461 }, { "52+a", -620 } } },
     // 4P ply 3 (after 33+a 37+c 77+f)
     { 0x8572959B5241A215ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+e 53+c)
+    { 0x85785145DCE9448DULL, 8, 3, { { "77+f", -2053 }, { "37+d", -2053 }, { "77+e", -2352 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+b 37e+d)
     { 0x85AEEA6AC4D4A35AULL, 8, 3, { { "73+h", 0 }, { "53b-64", 0 }, { "53b+a", 0 } } },
     // 4P ply 4 (after 33+h 37+c 77+d 73+f)
     { 0x85B270066E01230AULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 1-Base ply 4 (after 33+a 37+d 33a+b 57+d)
     { 0x85C11C84248D1895ULL, 8, 3, { { "73ah-64", -630 }, { "53+b", -870 }, { "53+h", -1540 } } },
+    // 2P_1B_ED ply 2 (after 33+b 37+e)
+    { 0x85D4E68386D9A2B8ULL, 8, 3, { { "33+a", 0 }, { "53+b", 0 }, { "53+a", 0 } } },
     // 4P ply 4 (after 33+a 37+d 77+h 73+h)
     { 0x85D7122F3530AF8EULL, 8, 3, { { "33a+b", -140 }, { "33a+c", -140 }, { "33a+d", -280 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+b 77+f)
@@ -4148,12 +4862,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x869E9BC7B76D043EULL, 8, 3, { { "53b+a", 0 }, { "33+a", 0 }, { "53b-64", 0 } } },
     // 4P ply 4 (after 33+c 37+d 77+f 73+b)
     { 0x86AD5D7E1A99B6AEULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 2 (after 33+c 37+b)
+    { 0x86BFAF4A78DF74D3ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 73+h 57d+f)
     { 0x86C5DF4377EF1960ULL, 8, 3, { { "53+a", -210 }, { "53+b", -280 }, { "53+h", -280 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+b)
+    { 0x86C92EBA4222F2F1ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // OFK ply 4 (after 32+b 46+f 22+a 36+d)
     { 0x86E10F8E44EAE2AEULL, 8, 3, { { "42h-33", -721 }, { "22+b", -721 }, { "32+a", -721 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 33+a 57e+f)
     { 0x86E442ED5A64B487ULL, 8, 3, { { "33+b", 0 }, { "73a+h", -120 }, { "53a+h", -163 } } },
+    // 2P_1B_ED ply 2 (after 33+a 37+e)
+    { 0x86E4972EF56005DCULL, 8, 3, { { "53+b", -620 }, { "73+h", -620 }, { "53+a", -620 } } },
+    // 4P_SP ply 1 (after 33+c)
+    { 0x86F000C395DE25B1ULL, 8, 3, { { "37+c!", -1140 }, { "37+e!", -1476 }, { "37+c", -2320 } } },
     // 4P ply 4 (after 33+b 37+f 77+g 73+b)
     { 0x86F50C62F122A33CULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
     // 4P ply 4 (after 33+b 37+d 77+h 73+d)
@@ -4176,12 +4898,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x875ACAEDE25E4EB2ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 4P ply 4 (after 33+f 37+e 77+g 73+h)
     { 0x87904F7C04810717ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 33+b)
+    { 0x87962BD5FECD65BFULL, 8, 3, { { "37+e", -2632 }, { "57d+e", -2632 }, { "37+d", -2632 } } },
     // 4P ply 2 (after 33+h 37+f)
     { 0x879A325BEE7FAB87ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // OFK ply 3 (after 32+b 46+f 42+h)
     { 0x87A39B641876E98FULL, 8, 3, { { "36+e", -3603 }, { "46f-35", -3603 }, { "26+d", -3603 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 53+b 57+f)
     { 0x87A72F1D28F11748ULL, 8, 3, { { "53h+a", 0 }, { "33+b", 0 }, { "53h-44", 0 } } },
+    // 4P_ED ply 2 (after 33+b 37+f)
+    { 0x87B85CE594509DAFULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 2P 3-Base ply 4 (after 33+b 37+d 73+a 57+c)
     { 0x87D51E39EFE2EE42ULL, 8, 3, { { "53+a", 280 }, { "33a+b", 280 }, { "53+h", 280 } } },
     // 2P 3-Base ply 4 (after 53+b 57+d 33+b 37+c)
@@ -4195,7 +4921,7 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     // OFK ply 4 (after 22+b 36+e 32+a 46+f)
     { 0x88189C669E27ABB2ULL, 8, 3, { { "42+h", 0 }, { "42+b", -1079 }, { "22b+h", -1396 } } },
     // 4P_ED ply 0 (initial)
-    { 0x88262D8DCE9FCB7AULL, 8, 3, { { "33+c", 0 }, { "33+a", 0 }, { "33+b", 0 } } },
+    { 0x88262D8DCE9FCB7AULL, 8, 3, { { "33+a", 0 }, { "33+c", 0 }, { "33+b", 0 } } },
     // 4P ply 4 (after 33+a 37+d 77+f 73+g)
     { 0x882AA26D0C05E58EULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 4P ply 4 (after 33+h 37+h 77+g 73+g)
@@ -4214,6 +4940,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x88D0DE8DCF2F65B1ULL, 8, 3, { { "53+a", -610 }, { "33+b", -610 }, { "53+h", -620 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 33a+b 57+d)
     { 0x88E46CE7EFF4C320ULL, 8, 3, { { "53+a", -610 }, { "73+h", -610 }, { "73+a", -620 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+d)
+    { 0x88EAFB63C78939B3ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+c 77+h 73+b)
     { 0x88EEF9164F4D1262ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+c 37+f 77+f 73+f)
@@ -4242,6 +4970,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8988DAF48F5FA69FULL, 8, 3, { { "32+a", -195 }, { "42ah-33", -195 }, { "32+b", -407 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+h 57+f)
     { 0x89B22ED390316B99ULL, 8, 3, { { "73+a", -43 }, { "53h-44", -43 }, { "53h+a", -43 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+d)
+    { 0x89D681283A32A594ULL, 8, 3, { { "73+a", -1697 }, { "73+g", -1697 }, { "73+h", -1697 } } },
     // 4P ply 4 (after 33+f 37+f 77+g 73+d)
     { 0x89E88B2AF9DE0E52ULL, 8, 3, { { "33f+a", 140 }, { "33f+c", 140 }, { "33f+b", 20 } } },
     // 4P ply 4 (after 33+f 37+d 77+h 73+b)
@@ -4252,6 +4982,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x89F60DF3494A0E26ULL, 8, 3, { { "33d+a", -400 }, { "33d+c", -400 }, { "33d+b", -520 } } },
     // OFK ply 3 (after 32+a 56+f 52+b)
     { 0x8A0FDA61D713D24EULL, 8, 3, { { "36+e", -3502 }, { "46+f", -3502 }, { "46+d", -3802 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 73+h)
+    { 0x8A1771D0C54A3B60ULL, 8, 3, { { "37+d", -2601 }, { "57+h", -2601 }, { "37+b", -2601 } } },
     // 2P 1-Base ply 3 (after 33+b 37+f 53+c)
     { 0x8A36A04D744FFBA2ULL, 8, 3, { { "57+d", -2780 }, { "77+f", -2780 }, { "57+e", -2870 } } },
     // 4P ply 2 (after 33+d 37+b)
@@ -4264,8 +4996,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8AAB2ADEE41928A9ULL, 8, 3, { { "33+a", 400 }, { "73a+h", 400 }, { "53b+a", 400 } } },
     // 4P ply 4 (after 33+b 37+b 77+d 73+a)
     { 0x8ABAFDD06962DBB7ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 2 (after 33+a 37+e)
+    { 0x8AE1610A7861400DULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+f 37+e 77+e 73+f)
     { 0x8AF833739053429FULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+e)
+    { 0x8AFBE39E5A8AA89DULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+f 77+d 73+b)
     { 0x8B153B5F7A1E3639ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 4P ply 4 (after 33+c 37+d 77+b 73+d)
@@ -4286,10 +5022,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8BD049584B27E4AFULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
     // 2P 1-Base ply 4 (after 33+b 57+d 73+h 37+e)
     { 0x8BD41D4A9C4D6444ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "53+b", -210 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+d 53+d)
+    { 0x8BDDCD24EDFB4EAFULL, 8, 3, { { "57+e", -1829 }, { "37+e", -1829 }, { "77f+e", -1829 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+a 77e+f)
     { 0x8BE0AF20BC96C2D5ULL, 8, 3, { { "53+h", -440 }, { "33a+b", -440 }, { "53+a", -610 } } },
     // OFK ply 4 (after 32+b 26+d 32b+c 46+g)
     { 0x8BEE8E95FEC2376BULL, 8, 3, { { "32+a", -108 }, { "42gh-33", -108 }, { "22+b", -108 } } },
+    // 2P_1B_ED ply 2 (after 33+a 57+f)
+    { 0x8BF555271EC278F8ULL, 8, 3, { { "73+h", -620 }, { "53+b", -630 }, { "73+a", -630 } } },
     // OFK ply 3 (after 32+b 56+f 32b+a)
     { 0x8C14DBD041706347ULL, 8, 3, { { "46+f", -3603 }, { "36+e", -4561 }, { "36+d", -4900 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 53+b 57+e)
@@ -4304,6 +5044,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8CAC423B06518C07ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 4P ply 4 (after 33+a 37+h 77+b 73+g)
     { 0x8CB00A6A11C8715CULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_3B_SPED ply 1 (after 33+a!)
+    { 0x8CEFF2FC1C1362ECULL, 8, 3, { { "57+e!", -1145 }, { "57+a!", -1145 }, { "77+a!", -1285 } } },
     // OFK ply 3 (after 22+b 26+d 52+h)
     { 0x8CF5B29E21576BC2ULL, 8, 3, { { "36+e", -3382 }, { "46+f", -3382 }, { "46+e", -3594 } } },
     // 4P ply 3 (after 33+f 37+f 77+h)
@@ -4330,12 +5072,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8E4AE4684E42560BULL, 8, 3, { { "32+a", -1128 }, { "42+h", -1128 }, { "42+b", -1540 } } },
     // 4P ply 4 (after 33+d 37+e 77+h 73+b)
     { 0x8E4DB597FC5696C1ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+f)
+    { 0x8EAA8A4B7744CD3CULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 53+a 37+e 73+a)
     { 0x8EB3F14C7DBB7ACBULL, 8, 3, { { "57+f", -2654 }, { "37+d", -2654 }, { "57+d", -2752 } } },
+    // 2P_3B_ED ply 2 (after 33+b 37+e)
+    { 0x8ED59AEFADCF7863ULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "73+a", 0 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+d)
+    { 0x8ED5FCB04DB3578AULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+h 37+c 77+d)
     { 0x8EF7920E379C61A2ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+c 77+e)
     { 0x8F0B441153564F6EULL, 8, 3, { { "33+a", -400 }, { "53g+b", -400 }, { "73h+a", -400 } } },
+    // 2P_3B_ED ply 3 (after 33+h 57+d 53+d)
+    { 0x8F1F8493266E7E5FULL, 8, 3, { { "37+e", -1829 }, { "77+e", -1829 }, { "57d+e", -1829 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 73+h 77+f)
     { 0x8F287584C5DB56E0ULL, 8, 3, { { "53+a", -43 }, { "53+b", -43 }, { "73h+a", -318 } } },
     // 4P ply 4 (after 33+h 37+b 77+e 73+b)
@@ -4362,12 +5112,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x8FED848E38CCE07CULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
     // 4P ply 3 (after 33+f 37+d 77+d)
     { 0x8FF207C65473A5C7ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+f)
+    { 0x9012F88EA145C707ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 32+b 46+f 42+h 46f+d)
     { 0x901BC27E14AEE182ULL, 8, 3, { { "22+b", 613 }, { "42h+a", 613 }, { "32b+a", 613 } } },
     // 4P ply 3 (after 33+b 37+c 77+f)
     { 0x90309630DB6AF12FULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // OFK ply 4 (after 22+b 26+d 42+h 56+e)
     { 0x903F3EE92BF2AA53ULL, 8, 3, { { "32+a", 1508 }, { "22b+h", 1508 }, { "42h-33", 441 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+g)
+    { 0x9048CFF5C59EFF8CULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 3 (after 33+d 37+f 77+d)
     { 0x904FE0CBE19D6B99ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+b 37+d 77+h 73+h)
@@ -4378,6 +5132,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x90A28281802DE648ULL, 8, 3, { { "73+a", 0 }, { "33a+b", 0 }, { "53a+h", 0 } } },
     // 4P ply 4 (after 33+c 37+e 77+f 73+f)
     { 0x9114BDAB0873E960ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+f)
+    { 0x91176D46C2AA0362ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+a 37+f 77+d 73+d)
     { 0x914ABFBCFBC9C86DULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 33+h 57+e)
@@ -4420,12 +5176,18 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x92ACD667D2C95386ULL, 8, 3, { { "73+a", -777 }, { "73+g", -777 }, { "73+h", -777 } } },
     // 4P ply 3 (after 33+d 37+d 77+h)
     { 0x92B1B74AB7218BA7ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 33+a)
+    { 0x92D4287E77E63685ULL, 8, 3, { { "37+e", -2752 }, { "77+e", -2752 }, { "77+f", -2752 } } },
     // 4P ply 4 (after 33+f 37+f 77+e 73+f)
     { 0x92E30D37F549CC07ULL, 8, 3, { { "33f+a", -120 }, { "33f+c", -120 }, { "33f+b", -240 } } },
     // 4P ply 2 (after 33+c 37+h)
     { 0x92E3B81476608DE6ULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+f 33+h)
+    { 0x92E6538B7A14EE1AULL, 8, 3, { { "57+e", -2480 }, { "37+d", -2480 }, { "57+c", -2880 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 73+h 77+e)
     { 0x92F99AE858A1BE3FULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "73h+a", 0 } } },
+    // 4P_ED ply 2 (after 33+a 37+f)
+    { 0x92FA5F4E1D7BCE95ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 4P ply 4 (after 33+f 37+e 77+d 73+b)
     { 0x930E051B1F04B8A1ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 3 (after 53+b 77+f 53b+a)
@@ -4438,6 +5200,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9370E55E38042F8AULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "53h+a", -163 } } },
     // 2P 1-Base ply 4 (after 33+a 57+d 73+h 57d+f)
     { 0x9387DCE8FEC44A5AULL, 8, 3, { { "53+b", -440 }, { "53+a", -440 }, { "53+h", -1020 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+b)
+    { 0x938B2D11CB09A1CBULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+c 37+e 77+d 73+a)
     { 0x93A6303BE0F7BC53ULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
     // 4P ply 3 (after 33+h 37+d 77+b)
@@ -4476,6 +5240,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x94B77C7F634B029FULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 73+h 57+d)
     { 0x94C120B941B5451CULL, 8, 3, { { "73+a", 30 }, { "53h+a", 30 }, { "53h-44", 30 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+e 73+f)
+    { 0x94D53597EED98345ULL, 8, 3, { { "37+e", -1949 }, { "37+d", -1949 }, { "77+f", -1949 } } },
     // OFK ply 4 (after 22+b 36+e 22b-33 56+e)
     { 0x950BA4954163E57DULL, 8, 3, { { "42+a", -1020 }, { "32+b", -1020 }, { "43h+b", -1199 } } },
     // 4P ply 3 (after 33+f 37+e 77+h)
@@ -4486,12 +5252,18 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x95225B5D82A0B7D4ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+a 37+h 77+f 73+a)
     { 0x954183A5782FD71DULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
+    // 2P_3B_ED ply 3 (after 33+b 57+d 73+b)
+    { 0x95710E6C90B96684ULL, 8, 3, { { "77+e", -2213 }, { "57f+e", -2213 }, { "37+d", -2213 } } },
     // 2P 3-Base ply 3 (after 33+h 37+d 33h+a)
     { 0x95746B259C7576DBULL, 8, 3, { { "57+d", -2213 }, { "57+e", -2213 }, { "37+e", -2213 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+b)
+    { 0x958DC541DF6797B0ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 33a+b 57+d)
     { 0x9597628D3E70EDA5ULL, 8, 3, { { "53+a", 0 }, { "73+h", -120 }, { "73+a", -155 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 33a+b 37+d)
     { 0x95A3D0E71EAB4B34ULL, 8, 3, { { "53+a", -120 }, { "33+b", -120 }, { "33+a", -155 } } },
+    // 4P_ED ply 2 (after 33+c 37+c)
+    { 0x95C2AB327BCE49D0ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 53+b 57+f)
     { 0x95CC2609FEF2F0FBULL, 8, 3, { { "53b+a", -43 }, { "73+h", -43 }, { "53b-64", -43 } } },
     // OFK ply 4 (after 32+a 26+d 22+a 36+d)
@@ -4512,6 +5284,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x96568BD3994C1859ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // OFK ply 2 (after 22+b 36+e)
     { 0x9662F3A6215C0DDAULL, 8, 3, { { "32+a", -740 }, { "42+h", -740 }, { "32+b", -760 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+e 53+b)
+    { 0x96662BF0E3A21209ULL, 8, 3, { { "37+d", -2333 }, { "77+f", -2453 }, { "57e+f", -2608 } } },
     // 2P 3-Base ply 3 (after 33+b 57+d 73+b)
     { 0x9670A8E2CF17772EULL, 8, 3, { { "37+e", -2213 }, { "57d+e", -2213 }, { "77+f", -2213 } } },
     // 4P ply 4 (after 33+c 37+c 77+d 73+d)
@@ -4522,6 +5296,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9693F9D4A875CACFULL, 8, 3, { { "33f+a", -140 }, { "33f+c", -140 }, { "33f+b", -260 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 73+h 37+e)
     { 0x96A713204DC94AC1ULL, 8, 3, { { "53+h", -120 }, { "53+a", -120 }, { "73h+a", -120 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+f)
+    { 0x96B1B40F125E43A4ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 2 (after 53+b 37+d)
     { 0x96C4CE216B5A9C0FULL, 8, 3, { { "33+b", -299 }, { "73+a", -299 }, { "53h+a", -299 } } },
     // 4P ply 4 (after 33+h 37+b 77+d 73+f)
@@ -4532,6 +5308,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x96ECCA15B2FAC0D3ULL, 8, 3, { { "53+a", -299 }, { "73+a", -299 }, { "53+b", -299 } } },
     // 4P ply 4 (after 33+d 37+b 77+f 73+d)
     { 0x970ACE944B043CE2ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+f)
+    { 0x97118516D6C43519ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // OFK ply 1 (after 32+a)
     { 0x97220033605ECA2DULL, 8, 3, { { "46+e", -3714 }, { "36+e", -3714 }, { "56+f", -3714 } } },
     // 4P ply 3 (after 33+h 37+h 77+f)
@@ -4590,6 +5368,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x99D5C8749E4EAA66ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
     // 2P 1-Base ply 4 (after 33+b 77+f 73+b 37+f)
     { 0x99DE7C7B7182BBD2ULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "73h+a", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+a 37+d 53+a)
+    { 0x99E1E6787C2B4ACFULL, 8, 3, { { "57+d", -2480 }, { "37+e", -2480 }, { "37+d", -2600 } } },
     // 4P ply 4 (after 33+f 37+c 77+b 73+f)
     { 0x99E9346F8B54112EULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
     // 4P ply 4 (after 33+b 37+h 77+b 73+g)
@@ -4602,6 +5382,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9A0804A608202463ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // OFK ply 4 (after 32+b 46+e 32b+a 56+e)
     { 0x9A1838CF638C2DB6ULL, 8, 3, { { "42+a", 0 }, { "32ab-43", 0 }, { "52+a", -195 } } },
+    // 2P_3B_SPED ply 1 (after 73+h!)
+    { 0x9A1A59C3D2844C26ULL, 8, 3, { { "57+a!", -2320 }, { "37+e!", -2325 }, { "37+a!", -2411 } } },
     // 4P ply 3 (after 33+c 37+e 77+f)
     { 0x9A515FA351EEABC8ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+h 37+e 53+h 77+d)
@@ -4618,6 +5400,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9ACFB8299E140BDAULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 53+b 57+f)
     { 0x9AD42177F97539CDULL, 8, 3, { { "33+b", 0 }, { "53h-44", 0 }, { "53h+a", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+b 57+d 53+a)
+    { 0x9AE525BF2F494B3AULL, 8, 3, { { "77+f", -3060 }, { "37+e", -3060 }, { "57d-66", -3070 } } },
     // 4P ply 4 (after 33+d 37+e 77+e 73+b)
     { 0x9AE70AEF524D5D97ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 2P 3-Base ply 3 (after 33+a 37+f 73+a)
@@ -4630,6 +5414,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9B2DA34B96FF8786ULL, 8, 3, { { "22+b", -217 }, { "52+h", -217 }, { "32a+b", -217 } } },
     // 4P ply 4 (after 33+b 37+h 77+e 73+b)
     { 0x9B473BF696D72B2AULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 33h+a)
+    { 0x9B50BDC808A2BCC4ULL, 8, 3, { { "57+e", -2213 }, { "37+d", -2213 }, { "57+f", -2213 } } },
     // OFK ply 4 (after 32+b 46+e 42+a 26+f)
     { 0x9B542BD1B0181951ULL, 8, 3, { { "52+h", 500 }, { "52+g", 500 }, { "32b+c", 500 } } },
     // 4P ply 4 (after 33+f 37+h 77+f 73+g)
@@ -4642,6 +5428,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9B9049293577D5EDULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "53b+a", -43 } } },
     // 4P ply 4 (after 33+h 37+b 77+h 73+b)
     { 0x9B93FD6E4C5C2F61ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
+    // 2P_3B_ED ply 2 (after 33+a 37+e)
+    { 0x9B97994424E42B59ULL, 8, 3, { { "73+h", -388 }, { "53+d", -388 }, { "73+f", -388 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+d)
+    { 0x9B97FF1BC49804B0ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 36+d 32+b 36d-45)
     { 0x9BAD34436A7E03CEULL, 8, 3, { { "42+h", -1319 }, { "32b+a", -1319 }, { "52+h", -2901 } } },
     // 4P ply 4 (after 33+b 37+e 77+d 73+d)
@@ -4658,8 +5448,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9C3D4FAF1A06711EULL, 8, 3, { { "46+e", -6141 }, { "36+d", -6141 }, { "26+e", -6141 } } },
     // 4P ply 4 (after 33+h 37+c 77+e 73+b)
     { 0x9C44466EE156D934ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
+    // 2P_1B_ED ply 2 (after 33+a 77+f)
+    { 0x9C6F324D2E101808ULL, 8, 3, { { "33+a", -620 }, { "53+b", -620 }, { "73a+h", -620 } } },
     // 4P ply 4 (after 33+h 37+h 77+f 73+f)
     { 0x9C7609A0F5764199ULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+d)
+    { 0x9CAF0B67A22D83F5ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 3 (after 33+a 37+h 77+d)
     { 0x9CB6EC3DC936C086ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // OFK ply 3 (after 32+b 36+e 52+h)
@@ -4688,6 +5482,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9D8A9676348D5CA1ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 46+f 22b+a 46f+e)
     { 0x9D9752474980498BULL, 8, 3, { { "32+b", -620 }, { "42+a", -620 }, { "42+h", -1273 } } },
+    // 2P_3B_SPED ply 1 (after 33+e!)
+    { 0x9DA255C99F3D111EULL, 8, 3, { { "57+a!", -1145 }, { "57+e!", -1145 }, { "37+a", -1285 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+d)
+    { 0x9DA8F8C84EA26A89ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+d 37+h 77+d 73+d)
     { 0x9DB3B34AD3626372ULL, 8, 3, { { "33d+a", 520 }, { "33d+c", 520 }, { "33d+b", 400 } } },
     // 2P 3-Base ply 3 (after 33+a 57+e 73+h)
@@ -4700,10 +5498,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9DFD29373774B07AULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "33b+a", 0 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+b 57+f)
     { 0x9DFD2BC8A65D8D44ULL, 8, 3, { { "73+h", -120 }, { "53b+a", -120 }, { "53b-64", -120 } } },
+    // 4P_ED ply 2 (after 33+d 37+h)
+    { 0x9E0353B835D0658AULL, 8, 3, { { "77+e", 260 }, { "77+g", 260 }, { "77+f", 260 } } },
     // OFK ply 4 (after 32+b 36+d 52+g 56+e)
     { 0x9E28C3B063467860ULL, 8, 3, { { "42+a", -472 }, { "52g+h", -472 }, { "22+a", -540 } } },
     // 2P 1-Base ply 3 (after 33+a 57+d 73+b)
     { 0x9E41A52397B80A91ULL, 8, 3, { { "37+e", -2360 }, { "77+f", -2360 }, { "57d-66", -2360 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+h)
+    { 0x9E515CE6F49163CBULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+e 77+h 73+f)
     { 0x9E528C0B3E4889C9ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 53+b 77+e)
@@ -4726,10 +5528,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0x9F327BEA0696C128ULL, 8, 3, { { "33a+b", -140 }, { "33a+c", -140 }, { "33a+d", -280 } } },
     // 4P ply 4 (after 33+d 37+h 77+g 73+b)
     { 0x9F4E033F50A25B19ULL, 8, 3, { { "33d+a", 400 }, { "33d+c", 400 }, { "33d+b", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 73+a)
+    { 0x9F55727B4C61685AULL, 8, 3, { { "37+d", -2601 }, { "57+h", -2601 }, { "37+b", -2601 } } },
     // 4P ply 2 (after 33+h 37+e)
     { 0x9F810C1F8B65251FULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+f 37+f 77+g 73+h)
     { 0x9F8B7138619B898FULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_ED ply 2 (after 33+b 37+e)
+    { 0x9FA362A1F14A1337ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // OFK ply 4 (after 32+b 26+d 32b-43 36+d)
     { 0x9FD0E14D607D5E85ULL, 8, 3, { { "52+h", 120 }, { "42+a", 120 }, { "52+g", -99 } } },
     // 4P ply 4 (after 33+d 37+c 77+h 73+g)
@@ -4754,6 +5560,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA08D470E052903CCULL, 8, 3, { { "53+a", -163 }, { "53+h", -163 }, { "33b+a", -318 } } },
     // 2P 3-Base ply 4 (after 33+b 37+e 73+h 77+h)
     { 0xA08DEEB1E8590F0EULL, 8, 3, { { "53+b", 400 }, { "53+h", 400 }, { "53+a", 400 } } },
+    // 2P_1B_ED ply 3 (after 33+a 57+d 73+b)
+    { 0xA0A63EF8966EC846ULL, 8, 3, { { "37+e", -2360 }, { "77+f", -2360 }, { "57d-66", -2360 } } },
     // 4P ply 3 (after 33+c 37+d 77+h)
     { 0xA0B6C73DF547A11CULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 53+h 57+f)
@@ -4762,6 +5570,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA0E4C8633406A75DULL, 8, 3, { { "77+e", 260 }, { "77+g", 260 }, { "77+f", 260 } } },
     // 2P 1-Base ply 4 (after 53+b 57+d 53b+a 37+f)
     { 0xA102F3D8D98CD149ULL, 8, 3, { { "33+b", 30 }, { "73+a", 30 }, { "53ah-44", 30 } } },
+    // 2P_3B_ED ply 2 (after 53+b 37+d)
+    { 0xA11F5E8B8D649680ULL, 8, 3, { { "73+h", -299 }, { "33+a", -299 }, { "53b+a", -299 } } },
     // 2P 1-Base ply 3 (after 53+b 77+f 33+h)
     { 0xA1380C92D8E9300BULL, 8, 3, { { "77+f", -2480 }, { "57+e", -2480 }, { "57+g", -2880 } } },
     // 4P ply 2 (after 33+b 37+e)
@@ -4770,6 +5580,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA151E008EFB231F3ULL, 8, 3, { { "53+a", -43 }, { "53+h", -43 }, { "33b+a", -318 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 73+h 37+e)
     { 0xA1655262CF699762ULL, 8, 3, { { "53+a", 0 }, { "53+b", 0 }, { "73h+a", 0 } } },
+    // 4P_ED ply 2 (after 33+h 37+e)
+    { 0xA16697C48AB3E7C8ULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+d 37+b 77+d 73+h)
     { 0xA16BC5DD444EDF4DULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 4 (after 33+d 37+e 77+d 73+a)
@@ -4780,6 +5592,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA1EFB7505A370DE4ULL, 8, 3, { { "33+b", -120 }, { "53h-44", -120 }, { "53h+a", -120 } } },
     // 4P ply 3 (after 33+c 37+f 77+d)
     { 0xA24890BCA3FB4122ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+a 37+h 77+d)
+    { 0xA25177E6C8E00251ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 53+h 77+f)
     { 0xA27D27FB65706CDAULL, 8, 3, { { "73+h", -419 }, { "73+a", -419 }, { "33h+a", -419 } } },
     // 4P ply 4 (after 33+b 37+c 77+e 73+b)
@@ -4802,18 +5616,26 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA2FA1AF3EF3A85F7ULL, 8, 3, { { "37+c", -1577 }, { "37+e", -1577 }, { "37+d", -1577 } } },
     // 4P ply 4 (after 33+d 37+e 77+f 73+f)
     { 0xA313CDDC4A15C3DBULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
+    // 2P_3B_ED ply 3 (after 33+a 57+e 73+h)
+    { 0xA3274AF71879E13EULL, 8, 3, { { "77+f", -2333 }, { "37+d", -2453 }, { "37+e", -2632 } } },
     // 4P ply 3 (after 33+b 37+b 77+d)
     { 0xA34F63134F74A85EULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+a 37+c 77+h 73+b)
     { 0xA3690FD8BD9FB5A7ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 4P_ED ply 3 (after 33+h 37+b 77+d)
+    { 0xA36D0DAD355B9E76ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+h 37+d 77+f 73+g)
     { 0xA3AD54A3FED7424BULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 73+h)
+    { 0xA3CD092EB47C4F42ULL, 8, 3, { { "57+d", -4140 }, { "77+f", -4140 }, { "57+f", -4140 } } },
     // 4P ply 4 (after 33+a 37+h 77+g 73+g)
     { 0xA3CE8C5B04582282ULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
     // OFK ply 2 (after 32+b 56+f)
     { 0xA3FE4D54D9664919ULL, 8, 3, { { "42+a", -461 }, { "52+h", -461 }, { "32b-43", -620 } } },
     // 4P ply 4 (after 33+b 37+f 77+f 73+d)
     { 0xA40A4D4CE5EDFF25ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 73+a)
+    { 0xA41338D8BCBDA325ULL, 8, 3, { { "57+f", -2752 }, { "37+d", -2752 }, { "57+e", -2752 } } },
     // OFK ply 4 (after 32+b 26+d 32b-43 46+d)
     { 0xA447F804AA1D14E4ULL, 8, 3, { { "32+a", 912 }, { "22+b", 912 }, { "52+a", 860 } } },
     // 4P ply 4 (after 33+c 37+f 77+h 73+b)
@@ -4826,8 +5648,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA4659CD29173FD66ULL, 8, 3, { { "52+h", 1140 }, { "32b+c", 561 }, { "32b+h", 13 } } },
     // 4P ply 4 (after 33+d 37+c 77+d 73+d)
     { 0xA4753BB7DF1A6593ULL, 8, 3, { { "33d+a", 120 }, { "33d+c", 120 }, { "33d+b", 0 } } },
+    // 2P_3B_ED ply 3 (after 53+b 77+f 53b+a)
+    { 0xA4918ABEDF5FC447ULL, 8, 3, { { "37+d", -2453 }, { "57+e", -2453 }, { "57+f", -2651 } } },
     // 4P ply 4 (after 33+f 37+d 77+f 73+f)
     { 0xA4B514959AE1831DULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_ED ply 3 (after 33+c 37+e 77+f)
+    { 0xA4B6C4785038691FULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+a 37+b 77+e 73+b)
     { 0xA4BEB4D8109543F2ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
     // 4P ply 4 (after 33+a 37+e 77+b 73+b)
@@ -4838,6 +5664,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA50DBEE309621659ULL, 8, 3, { { "33c+b", 540 }, { "33c+a", 540 }, { "33c+d", 400 } } },
     // OFK ply 4 (after 32+b 46+f 42+a 56+f)
     { 0xA50FBD4158FE72BCULL, 8, 3, { { "22+b", -179 }, { "42h-33", -195 }, { "52+h", -217 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 73+h)
+    { 0xA516693CF546EB26ULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 53+b 37+e)
     { 0xA5276DF4237A99D1ULL, 8, 3, { { "53h+a", 0 }, { "33+b", 0 }, { "53h-44", 0 } } },
     // 2P 1-Base ply 4 (after 33+b 77+e 53+g 57+d)
@@ -4898,6 +5726,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA72BB4F5F4832BC2ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 4 (after 33+h 37+h 77+b 73+g)
     { 0xA737FCA4E31AD699ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+e)
+    { 0xA74174E4AD024C78ULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 33+b 57+c)
     { 0xA754CEF3FEF0292DULL, 8, 3, { { "33+a", 520 }, { "53a+b", 520 }, { "73h+a", 520 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 33a+b 37+e)
@@ -4908,8 +5738,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA78AB0CD75157ACDULL, 8, 3, { { "42+h", -407 }, { "32b+a", -407 }, { "32b-43", -1248 } } },
     // 4P ply 4 (after 33+b 37+e 77+h 73+g)
     { 0xA78F39582187BC60ULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
+    // 4P_ED ply 2 (after 33+d 37+c)
+    { 0xA7C5DB4539A8636BULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+b 37+b 77+d 73+f)
     { 0xA80A811B16E9EAF6ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
+    // 2P_3B_ED ply 2 (after 33+h 37+f)
+    { 0xA80B51CEB32C0204ULL, 8, 3, { { "53+a", -299 }, { "73+a", -299 }, { "53+b", -299 } } },
     // 4P ply 4 (after 33+f 37+b 77+b 73+a)
     { 0xA8244CDCF7CE1D6CULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
     // 4P ply 4 (after 33+a 37+d 77+d 73+g)
@@ -4918,6 +5752,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA836AFFDC8D8E4F5ULL, 8, 3, { { "33+a", -155 }, { "33+b", -155 }, { "53h+a", -163 } } },
     // 4P ply 4 (after 33+f 37+e 77+e 73+a)
     { 0xA8484FB8EFD873DEULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_SPED ply 1 (after 33+g!)
+    { 0xA85259352508E52EULL, 8, 3, { { "37+e!", 2930 }, { "37+g!", -1710 }, { "37+c!", -1850 } } },
     // 4P ply 3 (after 33+d 37+e 77+f)
     { 0xA8562FD413888173ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 46+f 22b+c 46f+d)
@@ -4934,6 +5770,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA8D3BC21BDDFC5BCULL, 8, 3, { { "33+a", -90 }, { "53b+a", -90 }, { "53b-64", -90 } } },
     // 4P ply 4 (after 33+c 37+e 77+e 73+b)
     { 0xA8E07A98102B772CULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+a 37+b 77+f)
+    { 0xA8E80A3850865DC1ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+f 37+e 77+b 73+h)
     { 0xA8EEC94D111154C9ULL, 8, 3, { { "33f+a", -800 }, { "33f+c", -800 }, { "33f+b", -920 } } },
     // 4P ply 4 (after 33+c 37+f 77+d 73+f)
@@ -4950,6 +5788,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xA9A1F15DE23C35DDULL, 8, 3, { { "46+f", -3502 }, { "26+d", -3502 }, { "36e+d", -3976 } } },
     // OFK ply 3 (after 32+a 26+d 32a+b)
     { 0xA9A811118D010EECULL, 8, 3, { { "36+d", -4010 }, { "36+f", -4440 }, { "46+e", -4796 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+g)
+    { 0xA9B7A88B57B2A12FULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+h 37+h 77+f)
+    { 0xA9D47073AD3DC1E6ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 33h+a 57e+f)
     { 0xA9E55A016A6864C1ULL, 8, 3, { { "53+h", -441 }, { "33+b", -441 }, { "33+a", -542 } } },
     // 4P ply 3 (after 33+b 37+h 77+f)
@@ -4992,16 +5834,26 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xABE3CD8CCE6662D8ULL, 8, 3, { { "73+h", 0 }, { "53b+a", 0 }, { "73+a", -690 } } },
     // 4P ply 4 (after 33+b 37+d 77+g 73+a)
     { 0xABE7AE38F959432BULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+h)
+    { 0xABF0F5D8660309B6ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+c 37+d 77+h 73+f)
     { 0xABF32535ACDAE3B4ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // OFK ply 4 (after 22+b 36+e 52+a 26+d)
     { 0xABF62EA982333BA0ULL, 8, 3, { { "42+h", -3438 }, { "32+a", -3438 }, { "42+a", -3438 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 73+h)
+    { 0xABFC04EFECD332FDULL, 8, 3, { { "77+f", -2841 }, { "57+b", -2841 }, { "77+h", -2841 } } },
+    // 4P_ED ply 2 (after 33+c 37+h)
+    { 0xAC0423CF77B64F31ULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 53b+a 37+f)
     { 0xAC1331D1322EAC6DULL, 8, 3, { { "33+b", 120 }, { "53ah-44", 120 }, { "73+a", 120 } } },
     // 4P ply 2 (after 33+a 37+f)
     { 0xAC1DC4951CAD0C42ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 2P 3-Base ply 3 (after 53+a 57+d 33+a)
     { 0xAC33B3A57630F452ULL, 8, 3, { { "37+e", -2752 }, { "77+e", -2752 }, { "77+f", -2752 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+b)
+    { 0xAC4B4DBCD31F9151ULL, 8, 3, { { "73+a", -777 }, { "73+g", -777 }, { "73+h", -777 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+h)
+    { 0xAC562C91B6F74970ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // OFK ply 4 (after 32+a 26+d 22+b 26d+e)
     { 0xAC64A454604DE729ULL, 8, 3, { { "42+h", 740 }, { "42+g", 340 }, { "42+a", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 73+h 57+f)
@@ -5014,10 +5866,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xACAEB360915EE875ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // OFK ply 4 (after 22+b 36+e 32+b 56+f)
     { 0xACDC99374C34F880ULL, 8, 3, { { "32+a", -228 }, { "42h-33", -633 }, { "22+b", -740 } } },
+    // 2P_1B_ED ply 3 (after 33+a 77+e 53+a)
+    { 0xAD2764FDADE99699ULL, 8, 3, { { "37+d", -2480 }, { "57+f", -2480 }, { "57+d", -3100 } } },
     // 2P 1-Base ply 2 (after 33+b 37+e)
     { 0xAD410F5E7D9D9431ULL, 8, 3, { { "73+a", 0 }, { "53+h", 0 }, { "53+a", 0 } } },
     // 4P ply 4 (after 33+c 37+h 77+g 73+b)
     { 0xAD49734812C471A2ULL, 8, 3, { { "33c+b", 540 }, { "33c+a", 540 }, { "33c+d", 400 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+b)
+    { 0xAD4ED874B0F05534ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 3 (after 33+b 37+d 77+b)
     { 0xAD6CB6CACADF631CULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 1-Base ply 4 (after 33+b 77+e 53+c 57+f)
@@ -5036,6 +5892,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xADE42200D0ED3792ULL, 8, 3, { { "42+h", -1367 }, { "42+b", -1410 }, { "32+b", -3740 } } },
     // 4P ply 4 (after 33+c 37+c 77+h 73+g)
     { 0xADEEF0CBAB03E687ULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_1B_ED ply 3 (after 33+b 77+e 53+a)
+    { 0xAE171550DE5031FDULL, 8, 3, { { "57+f", -3100 }, { "37e+d", -3100 }, { "77+e", -3150 } } },
     // 4P ply 4 (after 33+a 37+c 77+d 73+f)
     { 0xAE3586C89CD384CFULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // OFK ply 4 (after 32+b 46+f 52+h 46f-35)
@@ -5044,8 +5902,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xAE50E4E1C7E2084BULL, 8, 3, { { "33h+a", -280 }, { "33h+c", -280 }, { "33h+b", -400 } } },
     // OFK ply 3 (after 22+b 46+e 52+a)
     { 0xAE6A2F8D4C1CFE78ULL, 8, 3, { { "36+d", -2882 }, { "36+e", -2902 }, { "26+d", -3714 } } },
+    // 4P_ED ply 3 (after 33+d 37+f 77+d)
+    { 0xAEA87B10E04BA94EULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+f 37+b 77+g)
     { 0xAEAF542EC4483D5BULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
+    // 4P_ED ply 3 (after 33+b 37+c 77+f)
+    { 0xAED70DEBDABC33F8ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 3 (after 33+h 37+c 77+f)
     { 0xAEF56355A09305D0ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 36+d 32+b 46+e)
@@ -5070,6 +5932,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xAFEE96F13F2C3318ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 3 (after 33+f 37+d 77+f)
     { 0xAFF0F69DC37CC1B5ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 4P_ED ply 3 (after 33+h 37+c 77+d)
+    { 0xB01009D5364AA375ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+a 37+b 77+h 73+b)
     { 0xB0140BA0BE8E88A4ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 4 (after 33+d 37+h 77+b 73+b)
@@ -5080,12 +5944,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB04D119076920FEBULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+f 77+e 73+a)
     { 0xB05371FC8AC2FD46ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 73+a)
+    { 0xB0546A977C6DB81CULL, 8, 3, { { "57+f", -2654 }, { "37+d", -2654 }, { "57+h", -2721 } } },
     // 2P 3-Base ply 4 (after 33+h 57+d 73+h 37+f)
     { 0xB079D801532A30A6ULL, 8, 3, { { "53+b", 0 }, { "73h+a", 0 }, { "53+a", -163 } } },
     // 4P ply 4 (after 33+f 37+d 77+g 73+g)
     { 0xB08A67A0991D47C3ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+b 57f+e)
     { 0xB0939BD8FF2F9EDAULL, 8, 3, { { "53+b", -840 }, { "73a+h", -840 }, { "53+a", -840 } } },
+    // 2P_1B_ED ply 3 (after 53+b 77+f 53b+a)
+    { 0xB0DE8FA5E933229AULL, 8, 3, { { "57+e", -3180 }, { "77+f", -3180 }, { "57+f", -3200 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+h 77e+f)
     { 0xB0EF8B6D3F0F506DULL, 8, 3, { { "53+h", 0 }, { "53+a", 0 }, { "53+b", -560 } } },
     // 4P ply 4 (after 33+f 37+f 77+b 73+h)
@@ -5094,6 +5962,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB0FB44DC7531F9B4ULL, 8, 3, { { "33c+b", 280 }, { "33c+a", 280 }, { "33c+d", 140 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+h 57+f)
     { 0xB1079E01F54FC4C3ULL, 8, 3, { { "53+b", 0 }, { "53+a", 0 }, { "33a+b", -610 } } },
+    // 4P_ED ply 3 (after 33+f 37+d 77+d)
+    { 0xB1159C1D55A56710ULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 4 (after 33+c 37+e 77+d 73+f)
     { 0xB1164CF09F7C8D12ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // OFK ply 4 (after 32+b 56+f 52+g 46+e)
@@ -5114,6 +5984,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB1D5C5139E29BB2DULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 4P ply 4 (after 33+b 37+b 77+e 73+b)
     { 0xB1FCB77399BE10C8ULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
+    // 2P_3B_SP ply 1 (after 33+a!)
+    { 0xB20869271DC5A03BULL, 8, 3, { { "57+e!", -1290 }, { "77+e!", -1426 }, { "57+d", -1457 } } },
     // 4P ply 4 (after 33+d 37+c 77+d 73+h)
     { 0xB216C1A5475FE24EULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+c 37+d 77+g 73+h)
@@ -5150,6 +6022,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB3A4C16077F8D821ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 2P 1-Base ply 4 (after 33+b 37+f 53+h 57+e)
     { 0xB3BF5C2B75EDC3F3ULL, 8, 3, { { "33b+a", 120 }, { "53h+a", 120 }, { "73+a", 120 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+h)
+    { 0xB3EBCB9C0319872EULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 2 (after 33+a 37+e)
     { 0xB406FAD179B782DAULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 37+d 73+a 57+f)
@@ -5176,6 +6050,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB4AD61E3AA22E7BAULL, 8, 3, { { "32+b", 760 }, { "42+a", 760 }, { "32+a", -1813 } } },
     // 4P ply 4 (after 33+h 37+e 77+d 73+h)
     { 0xB4B58D24F44466EDULL, 8, 3, { { "33h+a", -280 }, { "33h+c", -280 }, { "33h+b", -400 } } },
+    // 4P_ED ply 2 (after 33+d 37+b)
+    { 0xB4B8DF3D3AB95E68ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 53+c)
+    { 0xB4D13B9675993975ULL, 8, 3, { { "57+d", -2780 }, { "77+f", -2780 }, { "57+e", -2870 } } },
     // 2P 1-Base ply 2 (after 33+a 57+f)
     { 0xB512CEFC1F14BA2FULL, 8, 3, { { "73+h", -620 }, { "53+b", -630 }, { "73+a", -630 } } },
     // OFK ply 4 (after 32+b 36+d 32b+a 56+f)
@@ -5184,6 +6062,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB54372FEEF20B36FULL, 8, 3, { { "33a+b", 260 }, { "33a+c", 260 }, { "33a+d", 120 } } },
     // 2P 1-Base ply 4 (after 33+a 57+d 53+b 37+e)
     { 0xB545A197195CCA70ULL, 8, 3, { { "33+b", -90 }, { "53h+a", -90 }, { "53h-44", -90 } } },
+    // 2P_1B_ED ply 2 (after 53+b 37+d)
+    { 0xB5505B90BB08705DULL, 8, 3, { { "73+a", -500 }, { "33+b", -500 }, { "53h-44", -500 } } },
     // 4P ply 4 (after 33+a 37+c 77+b 73+g)
     { 0xB57682971DB077BDULL, 8, 3, { { "33a+b", -400 }, { "33a+c", -400 }, { "33a+d", -540 } } },
     // 4P ply 4 (after 33+d 37+b 77+g 73+b)
@@ -5204,12 +6084,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB697B25E9EC442F0ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // OFK ply 4 (after 32+a 26+d 32a+b 46+d)
     { 0xB6B243A1E44C8975ULL, 8, 3, { { "32+a", 860 }, { "22+b", 860 }, { "42ah-33", 860 } } },
+    // 4P_ED ply 3 (after 33+d 37+e 77+d)
+    { 0xB6B34554855127D6ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 0 (initial)
     { 0xB6C1B656CF4909ADULL, 8, 3, { { "33+a", 0 }, { "33+c", 0 }, { "33+b", 0 } } },
     // 4P ply 4 (after 33+h 37+b 77+f 73+f)
     { 0xB6CD8525FA1F7A7BULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
     // 4P ply 4 (after 33+d 37+b 77+d 73+d)
     { 0xB7083FCFDC0B5890ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 4P_ED ply 3 (after 33+b 37+h 77+d)
+    { 0xB713744D41CB516BULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+d 37+e 77+g 73+g)
     { 0xB72CBEE949E90705ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 3 (after 33+h 37+h 77+d)
@@ -5219,7 +6103,7 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     // 4P ply 4 (after 33+h 37+d 77+g 73+f)
     { 0xB7922796FD2B8695ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 4P_ED ply 1 (after 33+h)
-    { 0xB79A77E61C3EE0E5ULL, 8, 3, { { "37+e", -1437 }, { "37+c", -1437 }, { "37+d", -1437 } } },
+    { 0xB79A77E61C3EE0E5ULL, 8, 3, { { "37+c", -1437 }, { "37+e", -1437 }, { "37+d", -1437 } } },
     // 4P ply 1 (after 33+b)
     { 0xB7B819586611D6CDULL, 8, 3, { { "37+c", -1577 }, { "37+e", -1577 }, { "37+d", -1577 } } },
     // 4P ply 4 (after 33+a 37+c 77+e 73+b)
@@ -5230,6 +6114,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB7F1FF6E07A4E65CULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
     // 2P 1-Base ply 2 (after 33+a 37+e)
     { 0xB8030CF5F4B6C70BULL, 8, 3, { { "53+b", -620 }, { "73+h", -620 }, { "53+a", -620 } } },
+    // 4P_SPED ply 1 (after 33+c)
+    { 0xB8179B189408E766ULL, 8, 3, { { "37+c!", -1140 }, { "37+a!", -1343 }, { "37+e!", -1476 } } },
     // 4P ply 3 (after 33+a 37+d 77+b)
     { 0xB82EB56143F43026ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+h 37+f 77+g 73+b)
@@ -5252,6 +6138,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB897E84214E57415ULL, 8, 3, { { "53+h", 900 }, { "53+a", 900 }, { "33b+a", 900 } } },
     // OFK ply 3 (after 32+a 26+d 22+a)
     { 0xB8CB508F3216DFF3ULL, 8, 3, { { "36+e", -3622 }, { "46+f", -3622 }, { "36+d", -3800 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+e)
+    { 0xB8FC93E918EC8226ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 1-Base ply 4 (after 33+a 37+e 53+a 57+e)
     { 0xB9170E6E806B149BULL, 8, 3, { { "33+b", 0 }, { "53a+h", 0 }, { "33+a", 0 } } },
     // 4P ply 4 (after 33+d 37+d 77+b 73+d)
@@ -5262,6 +6150,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xB9444FB305182DD1ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 2 (after 33+b 37+f)
     { 0xB95FC73E95865F78ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
+    // 4P_ED ply 2 (after 33+h 37+f)
+    { 0xB97DA980EFA96950ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // OFK ply 3 (after 32+b 26+d 42+a)
     { 0xB981856ED6771CB5ULL, 8, 3, { { "46+e", -6261 }, { "36+d", -6261 }, { "56+f", -6261 } } },
     // OFK ply 4 (after 32+b 26+d 32b+c 36+e)
@@ -5286,6 +6176,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBA7573C9AC79A69DULL, 8, 3, { { "37+d", -2453 }, { "57+e", -2453 }, { "37+e", -2654 } } },
     // 4P ply 4 (after 33+h 37+f 77+d 73+d)
     { 0xBACD4972091B6FA8ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+g)
+    { 0xBAF34370CAF7C46EULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+d 77+e 73+h)
     { 0xBAFA5B9969F9C31DULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+d 37+f 77+f 73+f)
@@ -5300,6 +6192,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBB6CB8CD064FE4BDULL, 8, 3, { { "33f+a", -140 }, { "33f+c", -140 }, { "33f+b", -260 } } },
     // 4P ply 4 (after 33+b 37+c 77+d 73+f)
     { 0xBB77856315F8D7F5ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 3 (after 33+a 37+c 77+f)
+    { 0xBB950E40539760C2ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 3 (after 33+a 57+e 53+c)
     { 0xBB9FCA9EDD3F865AULL, 8, 3, { { "77+f", -2053 }, { "37+d", -2053 }, { "77+e", -2352 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 33h+a 77+f)
@@ -5328,6 +6222,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBC71FDB20808FFCCULL, 8, 3, { { "33+b", 0 }, { "33+a", 0 }, { "73+h", 0 } } },
     // 4P ply 4 (after 33+h 37+h 77+d 73+f)
     { 0xBC74F8FB627925EBULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
+    // 4P_ED ply 3 (after 33+c 37+f 77+f)
+    { 0xBCADFA3C3522E787ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 3 (after 33+a 37+h 77+f)
     { 0xBCB41D665E39A4F4ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 4 (after 33+a 37+f 77+b 73+b)
@@ -5338,6 +6234,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBCE2F0C041C3B888ULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // OFK ply 4 (after 22+b 36+e 42+h 26+d)
     { 0xBCF50D481742EAD9ULL, 8, 3, { { "42+a", -179 }, { "32b-43", -315 }, { "52h+b", -1079 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+g)
+    { 0xBCF5AB20DE99F215ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+a 37+b 77+d 73+f)
     { 0xBD4882B09FC2B9CCULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 4 (after 33+b 37+d 77+d 73+g)
@@ -5348,6 +6246,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBD88672DA38238D3ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 53+h 37+e)
     { 0xBDA50DE0142F3017ULL, 8, 3, { { "73a+h", -690 }, { "33+a", -690 }, { "53b+a", -690 } } },
+    // 4P_ED ply 3 (after 33+b 37+b 77+f)
+    { 0xBDAA0993D9AD0EFBULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+d 37+h 77+f 73+d)
     { 0xBDB14211446D0700ULL, 8, 3, { { "33d+a", 660 }, { "33d+c", 660 }, { "33d+b", 540 } } },
     // 4P ply 3 (after 33+f 37+c 77+g)
@@ -5374,20 +6274,28 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xBF20205531084330ULL, 8, 3, { { "32+a", 0 }, { "42+a", 0 }, { "22+b", 0 } } },
     // 4P ply 4 (after 33+a 37+e 77+f 73+h)
     { 0xBF308AB19199A55AULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+b)
+    { 0xBF3649C4D00EAC52ULL, 8, 3, { { "73+a", -917 }, { "73+g", -917 }, { "73+h", -917 } } },
     // OFK ply 4 (after 32+a 56+f 52+b 46+f)
     { 0xBF48BBF3A6702DBAULL, 8, 3, { { "22+b", -620 }, { "42+h", -620 }, { "32a+b", -1747 } } },
     // 4P ply 4 (after 33+c 37+d 77+e 73+f)
     { 0xBF599A4D02C128E2ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+e)
+    { 0xBF5A4AA0C818C2E0ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+b 37+f 77+h 73+g)
     { 0xBF94071C449D32F8ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 73+a 37+d)
     { 0xBFA39A6DB021360EULL, 8, 3, { { "53+h", -120 }, { "33a+b", -120 }, { "53+a", -120 } } },
     // 2P 3-Base ply 4 (after 33+a 77+e 53+h 37+d)
     { 0xBFACC897F80A8405ULL, 8, 3, { { "73+a", -155 }, { "33a+b", -155 }, { "53h+a", -155 } } },
+    // 4P_SPED ply 1 (after 33+a!)
+    { 0xBFB31C37FBAE2F70ULL, 8, 3, { { "37+e!", -7103 }, { "37+a!", -8271 }, { "37+a", -32000 } } },
     // 4P ply 4 (after 33+a 37+b 77+f 73+a)
     { 0xBFFA0F207746ECFFULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
     // 4P ply 2 (after 33+a 37+b)
     { 0xC00E165F1AED7B35ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
+    // 4P_SPED ply 1 (after 33+a)
+    { 0xC041B9D6F7EC2A57ULL, 8, 3, { { "37+e!", -165 }, { "37+c!", -686 }, { "37+a!", -1269 } } },
     // 4P ply 4 (after 33+b 37+h 77+g 73+b)
     { 0xC05D522DF80BEFA9ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
     // OFK ply 4 (after 22+b 56+f 32+a 46+e)
@@ -5398,24 +6306,34 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC07897AF2010FD17ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // OFK ply 4 (after 22+b 46+f 32+h 26+c)
     { 0xC08A6232008C3018ULL, 8, 3, { { "52+h", -1121 }, { "42+a", -1121 }, { "42+h", -1492 } } },
+    // 4P_ED ply 2 (after 33+d 37+e)
+    { 0xC0B033B359E3A787ULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+h 37+b 77+d 73+h)
     { 0xC0BD61AA971E9F02ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+e 53a+b)
+    { 0xC0D43C1E15FB06E5ULL, 8, 3, { { "37+d", -2721 }, { "57+h", -2721 }, { "37+b", -2721 } } },
     // 4P ply 4 (after 33+f 37+h 77+h 73+f)
     { 0xC0E1EC00527B4BC4ULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+b 77+f 53+h 37+c)
     { 0xC0F7FC760835EE38ULL, 8, 3, { { "53b-64", 400 }, { "33+a", 400 }, { "53b+a", 400 } } },
     // 4P ply 4 (after 33+b 37+c 77+h 73+g)
     { 0xC0FAD1AE41CC788CULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
+    // 4P_ED ply 2 (after 33+b 37+h)
+    { 0xC11002AA9D79D13AULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } },
     // 4P ply 4 (after 33+a 37+c 77+e 73+g)
     { 0xC1126D7D66FCE0E0ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // OFK ply 4 (after 22+b 26+d 52+h 36+d)
     { 0xC12E75D4B7791909ULL, 8, 3, { { "32+a", -38 }, { "42+a", -581 }, { "42+h", -620 } } },
     // 4P ply 2 (after 33+h 37+h)
     { 0xC1326C14E756E712ULL, 8, 3, { { "77+e", 260 }, { "77+g", 260 }, { "77+f", 260 } } },
+    // 2P_3B_ED ply 2 (after 33+h 57+e)
+    { 0xC15075624B2832B7ULL, 8, 3, { { "53+a", -120 }, { "53+b", -120 }, { "73+h", -120 } } },
     // 4P ply 4 (after 33+a 37+h 77+d 73+h)
     { 0xC1811BE16AA50325ULL, 8, 3, { { "33a+b", 260 }, { "33a+c", 260 }, { "33a+d", 120 } } },
     // 2P 1-Base ply 4 (after 53+b 37+e 33+b 57+d)
     { 0xC187C8889CD97A3AULL, 8, 3, { { "33+b", -210 }, { "53h+a", -210 }, { "53h-44", -210 } } },
+    // 2P_3B_ED ply 3 (after 53+b 57+f 33+h)
+    { 0xC1B005DF67CC76C3ULL, 8, 3, { { "77+e", -2213 }, { "57f+e", -2213 }, { "37+d", -2213 } } },
     // 2P 1-Base ply 3 (after 53+b 57+f 53b+a)
     { 0xC1C0EB46CE22642EULL, 8, 3, { { "77+f", -3200 }, { "37+e", -3200 }, { "77+e", -3200 } } },
     // OFK ply 4 (after 22+b 36+e 42+a 46+f)
@@ -5440,6 +6358,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC2A0E2587BCBD7C2ULL, 8, 3, { { "33b+a", 660 }, { "33b+c", 660 }, { "33b+d", 400 } } },
     // 2P 3-Base ply 4 (after 53+a 57+d 73+b 37+d)
     { 0xC2ADC41BAA1B6423ULL, 8, 3, { { "33+b", -283 }, { "53a+h", -283 }, { "53a+b", -857 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+d)
+    { 0xC2BBA9DAE60BDE39ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+f 37+f 77+g)
     { 0xC2BC86E4C2084A2CULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 4 (after 33+h 37+e 77+f 73+f)
@@ -5458,6 +6378,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC3B0761722409B0AULL, 8, 3, { { "52+h", 841 }, { "32a+b", 841 }, { "52+a", 841 } } },
     // 4P_SPED ply 0 (initial)
     { 0xC3BB37EE45A91717ULL, 8, 3, { { "33+a!", 640 }, { "33+g!", 327 }, { "33+e!", 103 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+f)
+    { 0xC3C32C8E3073ADF3ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+b 37+f 77+d 73+f)
     { 0xC41953D110A99D81ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+a 37+e 77+h 73+b)
@@ -5484,6 +6406,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC4E13B5414BA916DULL, 8, 3, { { "33+a", 120 }, { "53+b", 120 }, { "53+a", 120 } } },
     // 4P ply 3 (after 33+c 37+h 77+f)
     { 0xC4E23FA83DDD69C5ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+f)
+    { 0xC4FBD8F256C62AB6ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+c 37+b 77+d 73+f)
     { 0xC51EA07EFC2674FDULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 2P 1-Base ply 2 (after 53+b 57+d)
@@ -5500,6 +6424,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC5DD299DFD7342C2ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 4P ply 4 (after 33+b 37+e 77+e 73+b)
     { 0xC5F45BFDFAE4E927ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
+    // 4P_ED ply 2 (after 33+h 37+c)
+    { 0xC6137F32EAF82324ULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 2P 3-Base ply 4 (after 33+h 57+e 53+h 77+f)
     { 0xC61FC7953E5F40AFULL, 8, 3, { { "33+b", -539 }, { "33+a", -539 }, { "73b+a", -539 } } },
     // 4P ply 4 (after 33+c 37+f 77+e 73+g)
@@ -5528,6 +6454,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC70418CEEB51253CULL, 8, 3, { { "33f+a", -120 }, { "33f+c", -120 }, { "33f+b", -240 } } },
     // 4P ply 4 (after 33+a 37+d 77+e 73+f)
     { 0xC70FB8836125E5D3ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 2 (after 33+f 37+d)
+    { 0xC716EAFA8917E741ULL, 8, 3, { { "77+e", -400 }, { "77+g", -400 }, { "77+f", -400 } } },
     // 4P ply 4 (after 33+b 37+b 77+e 73+g)
     { 0xC72D6AAEECC68ED9ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+b 37+e 77+b 73+g)
@@ -5542,14 +6470,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC7C430B94B65FB19ULL, 8, 3, { { "32+a", -740 }, { "22+b", -740 }, { "42h+a", -919 } } },
     // 4P ply 4 (after 33+h 37+h 77+h 73+g)
     { 0xC7F9AC36364D8A92ULL, 8, 3, { { "33h+a", 120 }, { "33h+c", 120 }, { "33h+b", 0 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+f)
+    { 0xC802D4047E6D81A9ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 4 (after 33+b 37+b 77+f 73+d)
     { 0xC8199F86E3AD8852ULL, 8, 3, { { "33b+a", 540 }, { "33b+c", 540 }, { "33b+d", 280 } } },
     // 4P ply 4 (after 33+f 37+e 77+h 73+h)
     { 0xC82099DFC44608C2ULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // 4P ply 4 (after 33+c 37+b 77+h 73+b)
     { 0xC842296EDD6A4595ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
+    // 2P_3B_ED ply 3 (after 53+a 37+d 33+b)
+    { 0xC86FD4EDD80AE1DCULL, 8, 3, { { "57+e", -2453 }, { "77+f", -2453 }, { "57+d", -2632 } } },
     // 2P 1-Base ply 2 (after 53+b 77+e)
     { 0xC8835A7C9D2079F2ULL, 8, 3, { { "73+a", 0 }, { "33+b", 0 }, { "53h-44", 0 } } },
+    // 2P_3B_ED ply 3 (after 33+h 77+e 53+h)
+    { 0xC8A40865C8ADDF79ULL, 8, 3, { { "77+f", -1895 }, { "57+d", -1895 }, { "57+e", -1980 } } },
     // 4P ply 4 (after 33+a 37+f 77+e 73+b)
     { 0xC8AD661216D53485ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
     // 2P 1-Base ply 4 (after 33+a 77+e 73+a 37+e)
@@ -5576,6 +6510,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xC9808BA3C0D8C13CULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 22+b 36+d 52+h 56+f)
     { 0xC98C7E7ED2EC969DULL, 8, 3, { { "32+a", -1248 }, { "42+h", -1248 }, { "42+b", -2441 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+f)
+    { 0xC9A2E51DBAF7F714ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+f 77+g 73+f)
     { 0xC9F964EC9B950884ULL, 8, 3, { { "33f+a", -120 }, { "33f+c", -120 }, { "33f+b", -240 } } },
     // 4P ply 4 (after 33+h 37+h 77+f 73+h)
@@ -5600,6 +6536,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xCB39CEE37BC74410ULL, 8, 3, { { "53+a", 0 }, { "33+b", -120 }, { "53+b", -299 } } },
     // 4P ply 4 (after 33+c 37+d 77+b 73+f)
     { 0xCB3D75A7798DBFBFULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+b)
+    { 0xCB3EA54AB35455BDULL, 8, 3, { { "73+a", -777 }, { "73+g", -777 }, { "73+h", -777 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+e)
+    { 0xCB52A62EAB423B0FULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 2P 1-Base ply 4 (after 33+a 77+f 73+b 37+f)
     { 0xCB8BB0AB99A12838ULL, 8, 3, { { "53+h", 0 }, { "33a+b", 0 }, { "53+a", 0 } } },
     // 4P ply 3 (after 33+f 37+h 77+h)
@@ -5618,8 +6558,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xCC4A5A8B38B8A77BULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 2 (after 33+c 37+e)
     { 0xCC50D81F1A534FEBULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
+    // 2P_3B_ED ply 2 (after 53+b 77+e)
+    { 0xCC66E35AA0289C7AULL, 8, 3, { { "73+h", 0 }, { "33+a", 0 }, { "33+b", -120 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+h)
+    { 0xCC851D2E0648CD5AULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 2P 1-Base ply 4 (after 53+b 77+e 33+b 37+e)
     { 0xCC960A81777B071EULL, 8, 3, { { "33+b", -120 }, { "53h+a", -120 }, { "53h-44", -120 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+b)
+    { 0xCC987C0363A0157BULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
+    // 2P_3B_ED ply 3 (after 33+h 37+e 53+b)
+    { 0xCCA1C7D68C6E0BE7ULL, 8, 3, { { "77+f", -2601 }, { "57+b", -2601 }, { "77+h", -2601 } } },
     // 2P 3-Base ply 4 (after 53+a 57+d 73+a 37+f)
     { 0xCCF1AB3B619E4135ULL, 8, 3, { { "73+h", 120 }, { "53a+b", 120 }, { "73+a", 120 } } },
     // 4P ply 4 (after 33+b 37+c 77+f 73+h)
@@ -5632,14 +6580,20 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xCD4F05FC22EC048FULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
     // 4P ply 4 (after 33+d 37+f 77+d 73+h)
     { 0xCD781717420EA83AULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+h)
+    { 0xCD8088E665A7093FULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+f 73+a)
+    { 0xCDA25FADE8BC3DEAULL, 8, 3, { { "57+f", -3100 }, { "37+d", -3100 }, { "57+e", -3100 } } },
     // 4P ply 3 (after 33+b 37+d 77+h)
     { 0xCDA2E6581F883F17ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+f 37+h 77+d 73+b)
     { 0xCDBD651073377AACULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 2P 1-Base ply 4 (after 33+b 37+e 53+a 57+e)
     { 0xCDD5677105EEA4D1ULL, 8, 3, { { "53a+b", 0 }, { "73h+a", 0 }, { "33+a", 0 } } },
+    // 2P_3B_ED ply 2 (after 33+b 77+f)
+    { 0xCDE100D88A31B31BULL, 8, 3, { { "53+a", 0 }, { "73+h", -120 }, { "73+a", -268 } } },
     // 2P_3B_SP ply 0 (initial)
-    { 0xCE0042FEA3C2985CULL, 8, 3, { { "33+a!", 0 }, { "53+a!", 0 }, { "33+b", 0 } } },
+    { 0xCE0042FEA3C2985CULL, 8, 3, { { "33+a!", 0 }, { "53+a!", 0 }, { "53+h", 0 } } },
     // 4P ply 4 (after 33+a 37+c 77+f 73+d)
     { 0xCE2698556997E66BULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
     // 4P ply 4 (after 33+h 37+d 77+e 73+a)
@@ -5668,6 +6622,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xCF40D565F0F742C7ULL, 8, 3, { { "33f+a", 400 }, { "33f+c", 400 }, { "33f+b", 280 } } },
     // 4P ply 3 (after 33+b 37+f 77+d)
     { 0xCF5CB1D94934DF29ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 2P_1B_SPED ply 1 (after 53+a!)
+    { 0xCF66BBF67A66C067ULL, 8, 3, { { "57+e!", -4870 }, { "37+e", -9330 }, { "77+e", -9330 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+d)
+    { 0xCF7EDF67331BE901ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+d 37+d 77+h 73+h)
     { 0xCF86409614B24804ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+c 37+c 77+e 73+b)
@@ -5680,20 +6638,28 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD0013A68AA75D034ULL, 8, 3, { { "73+h", -419 }, { "33+a", -419 }, { "73+a", -419 } } },
     // 2P 3-Base ply 4 (after 33+b 37+d 53+h 77+c)
     { 0xD002CC429FC75720ULL, 8, 3, { { "33+a", 245 }, { "73h+a", 245 }, { "53b+a", 237 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+f 33+h)
+    { 0xD0266871FFF876BFULL, 8, 3, { { "37+d", -2910 }, { "77+f", -2910 }, { "37+e", -2910 } } },
     // 4P ply 4 (after 33+f 37+f 77+h 73+h)
     { 0xD03BA79BA15C865AULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
     // 4P ply 4 (after 33+d 37+c 77+g 73+g)
     { 0xD059561F29A2C3E9ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 4 (after 33+c 37+d 77+d 73+g)
     { 0xD07E71F8F8EE4CCDULL, 8, 3, { { "33c+b", -140 }, { "33c+a", -140 }, { "33c+d", -280 } } },
+    // 2P_1B_ED ply 2 (after 33+b 77+f)
+    { 0xD0920EB25BB59D9EULL, 8, 3, { { "73+a", -500 }, { "53+h", -500 }, { "53+a", -500 } } },
     // 4P ply 4 (after 33+a 37+e 77+e 73+b)
     { 0xD0B6585673CFBA1DULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+f)
+    { 0xD0BE28F6336290F0ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+a 37+b 77+b 73+b)
     { 0xD0DA5B326BD9D4AFULL, 8, 3, { { "33a+b", -120 }, { "33a+c", -120 }, { "33a+d", -260 } } },
     // 4P ply 4 (after 33+d 37+h 77+h 73+b)
     { 0xD0FED59C906554CCULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
     // 4P ply 4 (after 33+c 37+e 77+f 73+d)
     { 0xD105526D6A38EFB6ULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
+    // 2P_1B_ED ply 2 (after 53+b 77+e)
+    { 0xD115ED3071ACB2FFULL, 8, 3, { { "33+a", 0 }, { "73+h", 0 }, { "53b-64", 0 } } },
     // 2P 3-Base ply 4 (after 53+a 37+f 73+c 77+f)
     { 0xD131BDDDBEC693A0ULL, 8, 3, { { "73+h", -280 }, { "53a+b", -280 }, { "73+a", -280 } } },
     // 2P 3-Base ply 3 (after 33+h 37+e 53+b)
@@ -5704,6 +6670,12 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD15EE48554FF2271ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
     // 4P ply 3 (after 33+h 37+f 77+f)
     { 0xD19BB5E7A5C24FA4ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+f)
+    { 0xD1B9DB59DFED798CULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+d)
+    { 0xD1C6ADA2E51AE33AULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+g)
+    { 0xD1E18A4534566C1EULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+e 77+g 73+f)
     { 0xD1E25AA8FE8F861CULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 2P 3-Base ply 4 (after 33+b 77+e 53+b 37+e)
@@ -5716,6 +6688,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD2036A617DFBB351ULL, 8, 3, { { "33a+b", -400 }, { "33a+c", -400 }, { "33a+d", -540 } } },
     // 2P 1-Base ply 4 (after 53+b 57+d 33+b 57d+f)
     { 0xD204D4F0809A0927ULL, 8, 3, { { "73+h", -280 }, { "53b+a", -440 }, { "53b-64", -830 } } },
+    // 2P_3B_SPED ply 1 (after 53+a!)
+    { 0xD215B59CABE2EEE2ULL, 8, 3, { { "37+e!", -1540 }, { "77+e!", -1857 }, { "77+b!", -1995 } } },
     // 4P ply 4 (after 33+b 37+d 77+e 73+f)
     { 0xD24DBB28E80EB6E9ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 33+h 57+e)
@@ -5732,6 +6706,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD2F2E2F19702CAD1ULL, 8, 3, { { "33f+a", 140 }, { "33f+c", 140 }, { "33f+b", 20 } } },
     // 2P 3-Base ply 4 (after 33+h 37+f 33h+a 77+f)
     { 0xD2FD71720CE6D223ULL, 8, 3, { { "53+b", -419 }, { "73+h", -419 }, { "53+h", -419 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+b)
+    { 0xD3259B0ED64EDB25ULL, 8, 3, { { "73+a", -917 }, { "73+g", -917 }, { "73+h", -917 } } },
     // 4P ply 4 (after 33+h 37+h 77+e 73+g)
     { 0xD353134E985641C4ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // 4P ply 2 (after 33+a 37+c)
@@ -5764,16 +6740,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD44F2E1180ACB386ULL, 8, 3, { { "53+b", -163 }, { "53+a", -163 }, { "53+h", -283 } } },
     // 4P ply 4 (after 33+b 37+c 77+e 73+g)
     { 0xD4506ED6EFD7B3DAULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
+    // 4P_ED ply 2 (after 33+a 37+h)
+    { 0xD452010114528200ULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } },
     // 2P 3-Base ply 3 (after 53+a 57+d 53a+h)
     { 0xD453495B12D5B0CCULL, 8, 3, { { "77+e", -2577 }, { "57f+e", -2577 }, { "37+d", -2577 } } },
     // 4P ply 4 (after 33+f 37+c 77+f 73+b)
     { 0xD4791CB6E840183FULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 53+b)
+    { 0xD4936E51D52B1DDCULL, 8, 3, { { "37+d", -2841 }, { "57+h", -2841 }, { "37+b", -2841 } } },
     // 2P 3-Base ply 2 (after 53+a 57+e)
     { 0xD4B339E63E31F4B8ULL, 8, 3, { { "33+a", 0 }, { "73+a", 0 }, { "33+b", 0 } } },
     // 4P ply 4 (after 33+b 37+h 77+d 73+h)
     { 0xD4C3184AE38E501FULL, 8, 3, { { "33b+a", 260 }, { "33b+c", 260 }, { "33b+d", 0 } } },
     // 4P ply 4 (after 33+c 37+c 77+f 73+a)
     { 0xD4D1299617B31CCDULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
+    // 2P_1B_ED ply 3 (after 33+b 37+d 53+a)
+    { 0xD51CDA87098ECF59ULL, 8, 3, { { "57+d", -3180 }, { "77+f", -3180 }, { "57+e", -3180 } } },
     // 4P ply 4 (after 33+a 37+h 77+g 73+b)
     { 0xD51F51867120BC93ULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
     // 2P 3-Base ply 3 (after 33+h 77+e 53+h)
@@ -5782,6 +6764,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD54C15F493C6280FULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 4P ply 4 (after 33+d 37+e 77+d 73+h)
     { 0xD5632953271426A2ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
+    // 4P_ED ply 2 (after 33+h 37+b)
+    { 0xD56E7B4AE9E91E27ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+h 37+d 77+f 73+b)
     { 0xD57C897E8BAFDC5AULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+a 77+e)
@@ -5820,18 +6804,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD7478F9D2C2E51B1ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 4 (after 32+a 36+d 52+h 36d-45)
     { 0xD764A0D60917D788ULL, 8, 3, { { "32+b", -1248 }, { "52+h", -1248 }, { "22b+a", -1755 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+d)
+    { 0xD765E12356016799ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+a 37+h 77+d 73+d)
     { 0xD7E2E1F3F2E084F8ULL, 8, 3, { { "33a+b", 660 }, { "33a+c", 660 }, { "33a+d", 520 } } },
+    // 4P_ED ply 3 (after 33+f 37+c 77+e)
+    { 0xD82FA256A853060CULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+a 37+c 77+f 73+h)
     { 0xD8456247F1D261B6ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 4P ply 4 (after 33+h 37+f 77+d 73+a)
     { 0xD86CDA7F14DB583FULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 4P_ED ply 2 (after 33+d 37+f)
+    { 0xD8AB0DF73CF9291FULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 2P 3-Base ply 4 (after 33+a 37+e 73+a 57+d)
     { 0xD8B6F974A14E5A0CULL, 8, 3, { { "53+h", -155 }, { "33a+b", -155 }, { "53+b", -155 } } },
     // 4P ply 3 (after 33+a 37+d 77+h)
     { 0xD8E0E5F396A36C2DULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P_3B_ED ply 1 (after 53+a)
-    { 0xD8F2AE8E9AFA57BEULL, 8, 3, { { "77+e", -2632 }, { "37+e", -2632 }, { "57+e", -2632 } } },
+    { 0xD8F2AE8E9AFA57BEULL, 8, 3, { { "37+e", -2632 }, { "57+e", -2632 }, { "77+e", -2632 } } },
     // 4P ply 4 (after 33+h 37+d 77+b 73+d)
     { 0xD8FD4E618AF0D39DULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 3 (after 33+b 37+d 77+e)
@@ -5840,6 +6830,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD922FCADAB2E0015ULL, 8, 3, { { "53+b", -283 }, { "53+a", -283 }, { "73h+a", -364 } } },
     // 4P ply 4 (after 33+f 37+h 77+g 73+h)
     { 0xD9232F7768B2C51AULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
+    // 4P_ED ply 3 (after 33+h 37+d 77+e)
+    { 0xD92A379ECBBCC269ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 3 (after 53+a 37+e 53a+b)
     { 0xD9428B52F977CDE8ULL, 8, 3, { { "57+d", -2752 }, { "77+f", -2752 }, { "57+e", -2752 } } },
     // 2P 1-Base ply 4 (after 33+a 57+f 73+b 77+d)
@@ -5850,6 +6842,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xD9E65D70598B178CULL, 8, 3, { { "33d+a", 140 }, { "33d+c", 140 }, { "33d+b", 20 } } },
     // 4P ply 4 (after 33+f 37+c 77+b 73+d)
     { 0xD9F8DBA9E91F17F8ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+d)
+    { 0xDA075528AB04CF60ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
     // 4P ply 3 (after 33+a 37+f 77+d)
     { 0xDA1EB272C01F8C13ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+d 77+h 73+a)
@@ -5898,6 +6892,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xDC8495726B67E071ULL, 8, 3, { { "33c+b", -260 }, { "33c+a", -260 }, { "33c+d", -400 } } },
     // 4P ply 4 (after 33+f 37+e 77+e 73+h)
     { 0xDC8A26A76A5DC394ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+f)
+    { 0xDCE0E6B633DCA42EULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+f 37+b 77+b 73+h)
     { 0xDCE625C3724BAD26ULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
     // 4P ply 4 (after 33+c 37+b 77+e 73+b)
@@ -5912,6 +6908,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xDD5B9C2D6A86DB68ULL, 8, 3, { { "33a+b", 540 }, { "33a+c", 540 }, { "33a+d", 400 } } },
     // 4P ply 4 (after 33+d 37+h 77+d 73+f)
     { 0xDDA25C8CB12965A4ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 2P_1B_ED ply 3 (after 53+b 37+e 53b+a)
+    { 0xDDA73274C47F2860ULL, 8, 3, { { "77e+f", -3180 }, { "57+f", -3200 }, { "37+d", -3200 } } },
     // 4P ply 4 (after 33+f 37+f 77+f 73+g)
     { 0xDDC617D99869CC5AULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 4P ply 4 (after 33+b 37+f 77+e 73+b)
@@ -5940,6 +6938,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xDF7D963B9767E6F3ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 2P 1-Base ply 4 (after 53+b 37+d 53b-64 57+f)
     { 0xDFF4E13F1AC1684CULL, 8, 3, { { "73+h", 0 }, { "33+a", 0 }, { "64b+a", 0 } } },
+    // 4P_ED ply 3 (after 33+f 37+b 77+h)
+    { 0xDFF819560559F059ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 2P 3-Base ply 4 (after 53+a 57+e 53a+b 37+d)
     { 0xE022D408E9BB58B1ULL, 8, 3, { { "73+a", 0 }, { "33+b", 0 }, { "33+a", 0 } } },
     // 4P ply 4 (after 33+f 37+h 77+b 73+d)
@@ -5964,6 +6964,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE19FA2EBEA339A0CULL, 8, 3, { { "33h+a", -400 }, { "33h+c", -400 }, { "33h+b", -520 } } },
     // 4P ply 4 (after 33+h 37+d 77+g 73+h)
     { 0xE1E032420725079EULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+e)
+    { 0xE1E92AABA42B00EDULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 3 (after 33+a 37+e 77+f)
     { 0xE2077D6D320A66F9ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 1-Base ply 3 (after 53+b 57+f 33+h)
@@ -5972,6 +6974,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE22CFA1BC33C7DFFULL, 8, 3, { { "53+b", 280 }, { "53+a", 280 }, { "33b+a", 280 } } },
     // 4P ply 4 (after 33+f 37+h 77+h 73+a)
     { 0xE25190CB2DF07A85ULL, 8, 3, { { "33f+a", -140 }, { "33f+c", -140 }, { "33f+b", -260 } } },
+    // 2P_3B_ED ply 3 (after 53+a 57+d 53a+h)
+    { 0xE2547EF71E70887CULL, 8, 3, { { "37+e", -2577 }, { "57d+e", -2577 }, { "77+f", -2577 } } },
     // 4P ply 4 (after 33+c 37+c 77+g 73+g)
     { 0xE25E26686BC4E952ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 2P 1-Base ply 4 (after 33+b 77+e 53+c 77e+f)
@@ -5980,6 +6984,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE279018FBA886676ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+b 37+h 77+f 73+d)
     { 0xE2A21303ECC4B3B0ULL, 8, 3, { { "33b+a", 800 }, { "33b+c", 800 }, { "33b+d", 540 } } },
+    // 4P_ED ply 3 (after 33+d 37+b 77+f)
+    { 0xE2B958817104BA4BULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+e 77+d 73+f)
     { 0xE2C798F00E4AE7E6ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+c 37+h 77+h 73+b)
@@ -5988,8 +6994,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE302221A285EC50DULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
     // 4P ply 4 (after 33+h 37+f 77+e 73+b)
     { 0xE32A90DCE4079340ULL, 8, 3, { { "33h+a", 140 }, { "33h+c", 140 }, { "33h+b", 20 } } },
+    // 4P_ED ply 3 (after 33+c 37+c 77+d)
+    { 0xE3C1DDD5A77CC981ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 4P_ED ply 3 (after 33+d 37+d 77+g)
+    { 0xE3E6FA32763046A5ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+b 37+f 77+f 73+f)
     { 0xE41BA28A87A6F9F3ULL, 8, 3, { { "33b+a", 280 }, { "33b+c", 280 }, { "33b+d", 20 } } },
+    // 4P_ED ply 3 (after 33+f 37+e 77+g)
+    { 0xE440237BA6C40663ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
     // 4P ply 4 (after 33+c 37+d 77+g 73+f)
     { 0xE443F3966C1DEC61ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P_ED ply 1 (after 33+c)
@@ -6002,6 +7014,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE4A4FB53F8AA85CBULL, 8, 3, { { "33f+a", 0 }, { "33f+c", 0 }, { "33f+b", -120 } } },
     // 4P ply 3 (after 33+c 37+h 77+d)
     { 0xE4E0CEF3AAD20DB7ULL, 8, 3, { { "73+a", -1837 }, { "73+g", -1837 }, { "73+h", -1837 } } },
+    // 4P_ED ply 3 (after 33+a 37+f 77+d)
+    { 0xE4F929A9C1C94EC4ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P 3-Base ply 4 (after 33+b 57+d 53+h 77+e)
     { 0xE517340457E6535CULL, 8, 3, { { "73+a", -155 }, { "33b+a", -155 }, { "53h+a", -163 } } },
     // 4P ply 4 (after 33+a 37+d 77+b 73+h)
@@ -6018,6 +7032,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE5DFD8C66A7C26B0ULL, 8, 3, { { "33f+a", -540 }, { "33f+c", -540 }, { "33f+b", -660 } } },
     // 4P ply 4 (after 33+f 37+b 77+g 73+d)
     { 0xE5FB59E0FF9E7925ULL, 8, 3, { { "33f+a", 140 }, { "33f+c", 140 }, { "33f+b", 20 } } },
+    // 2P_3B_ED ply 2 (after 53+b 57+d)
+    { 0xE6060DC4A6D0E884ULL, 8, 3, { { "33+b", -419 }, { "73+a", -419 }, { "33+a", -419 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+h)
+    { 0xE6077E289775AEFAULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 1 (after 53+a)
     { 0xE61535559B2C9569ULL, 8, 3, { { "37+e", -2632 }, { "57+e", -2632 }, { "77+e", -2632 } } },
     // 4P ply 4 (after 33+b 37+d 77+b 73+d)
@@ -6050,6 +7068,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE7AEDCB583AD45BCULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 3 (after 33+h 37+d 77+e)
     { 0xE7CDAC45CA6A00BEULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+e)
+    { 0xE7EFC2FBB0453696ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+d 37+h 77+d)
+    { 0xE800255FE962E5DBULL, 8, 3, { { "73+a", -1697 }, { "73+g", -1697 }, { "73+h", -1697 } } },
     // 4P ply 4 (after 33+b 37+b 77+d 73+d)
     { 0xE81B6EDD74A2EC20ULL, 8, 3, { { "33b+a", 400 }, { "33b+c", 400 }, { "33b+d", 140 } } },
     // 4P ply 4 (after 33+h 37+c 77+b 73+b)
@@ -6074,16 +7096,24 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xE98D096C06068EFEULL, 8, 3, { { "33c+b", -400 }, { "33c+a", -400 }, { "33c+d", -540 } } },
     // 4P ply 4 (after 33+d 37+h 77+g 73+g)
     { 0xE99FDEE225DAC508ULL, 8, 3, { { "33d+a", 260 }, { "33d+c", 260 }, { "33d+b", 140 } } },
+    // 4P_ED ply 3 (after 33+b 37+e 77+d)
+    { 0xE9A014462DF89366ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 2P 3-Base ply 4 (after 33+h 77+e 73+h 57+e)
     { 0xE9D503F11EF4AE4CULL, 8, 3, { { "53+a", -120 }, { "53+h", -120 }, { "33b+a", -120 } } },
     // 2P 1-Base ply 3 (after 33+b 37+f 73+a)
     { 0xE9E8FBEA302F3DDFULL, 8, 3, { { "57+d", -3100 }, { "77+f", -3100 }, { "57+e", -3100 } } },
     // 4P ply 4 (after 33+h 37+h 77+d 73+h)
     { 0xEA06ED2F9877A4E0ULL, 8, 3, { { "33h+a", 120 }, { "33h+c", 120 }, { "33h+b", 0 } } },
+    // 2P_3B_ED ply 2 (after 53+a 57+e)
+    { 0xEA54A23D3FE7366FULL, 8, 3, { { "33+a", 0 }, { "73+a", 0 }, { "33+b", 0 } } },
     // 4P ply 4 (after 33+f 37+b 77+h 73+f)
     { 0xEA5A60855D127026ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_SPED ply 1 (after 33+e!)
+    { 0xEA9443DEB6CC3B3BULL, 8, 3, { { "37+a!", -1476 }, { "37+e!", -2810 }, { "37+f!", -9359 } } },
     // 4P ply 4 (after 33+h 37+c 77+e 73+g)
     { 0xEA959BB3942E4725ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
+    // 4P_ED ply 2 (after 33+c 37+f)
+    { 0xEAAC7D807E9F03A4ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 4P ply 2 (after 33+a 37+h)
     { 0xEAB59ADA158440D7ULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } },
     // 4P ply 4 (after 33+b 37+b 77+g 73+b)
@@ -6098,6 +7128,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xEB89E091E83FDCF0ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+f 37+d 77+e 73+g)
     { 0xEB900E7BF7C18340ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 2 (after 33+b 37+b)
+    { 0xEBAB8E2F9210EAD8ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 4P ply 4 (after 33+b 37+d 77+f 73+b)
     { 0xEBB97C1BF05628A5ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 4 (after 33+c 37+f 77+g 73+b)
@@ -6118,16 +7150,22 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xECD522FCCF6A8686ULL, 8, 3, { { "73+h", 280 }, { "53a+b", 280 }, { "73+a", 280 } } },
     // 4P ply 4 (after 33+a 37+c 77+g 73+b)
     { 0xECD9D97B7D58BA72ULL, 8, 3, { { "33a+b", 140 }, { "33a+c", 140 }, { "33a+d", 0 } } },
+    // 2P_3B_SP ply 1 (after 53+a!)
+    { 0xECF22E47AA342C35ULL, 8, 3, { { "77+g", -1577 }, { "77+e!", -1865 }, { "37+e!", -1865 } } },
     // 4P ply 4 (after 33+b 37+c 77+d 73+h)
     { 0xED0590B7EFF656FEULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
     // 4P ply 4 (after 33+c 37+h 77+f 73+a)
     { 0xED17A16B1BCB1A2CULL, 8, 3, { { "33c+b", 400 }, { "33c+a", 400 }, { "33c+d", 260 } } },
+    // 4P_SP ply 1 (after 33+b!)
+    { 0xED3FCE92FDB959FEULL, 8, 3, { { "37+e!", 3222 }, { "37+f!", -3728 }, { "37+b!", -3754 } } },
     // 4P ply 4 (after 33+h 37+b 77+h 73+g)
     { 0xED4220B33924B170ULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+d 37+f 77+f 73+h)
     { 0xED7AE64CD501CC48ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 4P ply 4 (after 33+f 37+c 77+e 73+f)
     { 0xED8DDB85F0188673ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
+    // 4P_ED ply 2 (after 33+a 37+c)
+    { 0xED9489FC182A84E1ULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 2P_1B_SPED ply 0 (initial)
     { 0xED94D74F7390740EULL, 8, 3, { { "53+a!", 0 }, { "53+b", 0 }, { "53+h", 0 } } },
     // 4P ply 4 (after 33+b 37+h 77+e 73+g)
@@ -6142,6 +7180,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xEE1648687CF08987ULL, 8, 3, { { "33+b", -120 }, { "53h+a", -120 }, { "53h-44", -120 } } },
     // 4P ply 4 (after 33+a 37+c 77+d 73+d)
     { 0xEE24690EFE988219ULL, 8, 3, { { "33a+b", 260 }, { "33a+c", 260 }, { "33a+d", 120 } } },
+    // 2P_3B_ED ply 3 (after 33+a 37+f 73+f)
+    { 0xEE426A619D3F44AFULL, 8, 3, { { "57+e", -2069 }, { "57+f", -2069 }, { "37+d", -2069 } } },
     // 4P ply 3 (after 33+c 37+b 77+f)
     { 0xEE59B32D32B45227ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+d 37+e 77+b 73+b)
@@ -6158,6 +7198,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xEF23D41CED9BBC77ULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
     // 4P ply 3 (after 33+b 37+f 77+f)
     { 0xEF5E4082DE3BBB5BULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
+    // 4P_ED ply 3 (after 33+h 37+f 77+f)
+    { 0xEF7C2E3CA4148D73ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+h 37+e 77+h 73+b)
     { 0xEF9B11E02F06D68EULL, 8, 3, { { "33h+a", -140 }, { "33h+c", -140 }, { "33h+b", -260 } } },
     // 4P ply 4 (after 33+c 37+h 77+d 73+f)
@@ -6168,8 +7210,10 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF05B4116694CA0BFULL, 8, 3, { { "33b+a", -400 }, { "33b+c", -400 }, { "33b+d", -660 } } },
     // 4P ply 4 (after 33+c 37+d 77+f 73+g)
     { 0xF07C80A36FE128BFULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
+    // 4P_ED ply 3 (after 33+c 37+b 77+d)
+    { 0xF0BCD9ADA46DF482ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 2P_3B_SPED ply 0 (initial)
-    { 0xF0E7D925A2145A8BULL, 8, 3, { { "73+h!", 0 }, { "53+a!", 0 }, { "33+a!", 0 } } },
+    { 0xF0E7D925A2145A8BULL, 8, 3, { { "53+e!", 148 }, { "73+h!", 0 }, { "53+a!", 0 } } },
     // 4P ply 4 (after 33+b 37+d 77+e 73+a)
     { 0xF0FDC7E3978587A8ULL, 8, 3, { { "33b+a", 0 }, { "33b+c", 0 }, { "33b+d", -260 } } },
     // 4P ply 4 (after 33+c 37+e 77+d 73+d)
@@ -6180,14 +7224,26 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF123221068D5D451ULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+a 37+f 77+f 73+f)
     { 0xF159A1210E8DAAC9ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
+    // 2P_1B_SP ply 1 (after 53+a!)
+    { 0xF181202D7BB002B0ULL, 8, 3, { { "57+e!", -4870 }, { "37+e", -9640 }, { "37+d!", -9740 } } },
     // 4P ply 3 (after 33+h 37+f 77+d)
     { 0xF19944BC32CD2BD6ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
+    // 4P_ED ply 3 (after 33+b 37+f 77+d)
+    { 0xF1BB2A0248E21DFEULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+d 37+c 77+f)
+    { 0xF1C45CF972158748ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+f 37+c 77+h)
     { 0xF26286F5079E0F8DULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
     // 4P ply 3 (after 33+d 37+d 77+b)
     { 0xF27FE7D86276D7ACULL, 8, 3, { { "73+a", -1037 }, { "73+g", -1037 }, { "73+h", -1037 } } },
+    // 4P_ED ply 3 (after 33+a 37+d 77+e)
+    { 0xF2ADC150396E65ACULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 2 (after 33+c 37+e)
+    { 0xF2B743C41B858D3CULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 4 (after 33+f 37+d 77+f 73+h)
     { 0xF2C7014160EF0216ULL, 8, 3, { { "33f+a", -400 }, { "33f+c", -400 }, { "33f+b", -520 } } },
+    // 4P_ED ply 3 (after 33+b 37+d 77+h)
+    { 0xF3457D831E5EFDC0ULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // OFK ply 3 (after 32+a 36+d 42+a)
     { 0xF34AAEC0CCA098E6ULL, 8, 3, { { "46+f", -3730 }, { "46+e", -4010 }, { "36d-45", -4010 } } },
     // 4P ply 4 (after 33+f 37+e 77+g 73+a)
@@ -6196,6 +7252,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF367133D6471CBE8ULL, 8, 3, { { "73+a", -1297 }, { "73+g", -1297 }, { "73+h", -1297 } } },
     // 4P ply 4 (after 33+a 37+d 77+b 73+d)
     { 0xF37AB8AF78227458ULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
+    // 2P_1B_ED ply 2 (after 53+b 57+d)
+    { 0xF395AFD97A273C66ULL, 8, 3, { { "73+h", -630 }, { "33+a", -630 }, { "73+a", -630 } } },
     // 4P ply 4 (after 33+f 37+b 77+g 73+h)
     { 0xF398A3F267DBFEF8ULL, 8, 3, { { "33f+a", -260 }, { "33f+c", -260 }, { "33f+b", -380 } } },
     // 2P 3-Base ply 3 (after 53+b 57+f 33+h)
@@ -6205,7 +7263,7 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     // 4P ply 4 (after 33+a 37+f 77+d 73+a)
     { 0xF3EB2CB1E609FFFAULL, 8, 3, { { "33a+b", 0 }, { "33a+c", 0 }, { "33a+d", -140 } } },
     // 2P_3B_ED ply 1 (after 33+h)
-    { 0xF3F679D1EE355366ULL, 8, 3, { { "77+e", -2512 }, { "37+e", -2512 }, { "57+e", -2512 } } },
+    { 0xF3F679D1EE355366ULL, 8, 3, { { "37+e", -2512 }, { "57+e", -2512 }, { "77+e", -2512 } } },
     // 4P ply 4 (after 33+c 37+e 77+g 73+b)
     { 0xF3FA13437EF7B3AFULL, 8, 3, { { "33c+b", 140 }, { "33c+a", 140 }, { "33c+d", 0 } } },
     // 4P ply 4 (after 33+d 37+f 77+e 73+g)
@@ -6222,6 +7280,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF4E628A4722CBC6DULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+d 37+d 77+g 73+a)
     { 0xF4F4FF2A51F0F79BULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
+    // 4P_ED ply 3 (after 33+f 37+h 77+h)
+    { 0xF54395D30A30CBBBULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+d 37+e 77+f 73+h)
     { 0xF561D808B01B42D0ULL, 8, 3, { { "33d+a", -140 }, { "33d+c", -140 }, { "33d+b", -260 } } },
     // 4P ply 4 (after 33+h 37+d 77+d 73+b)
@@ -6252,12 +7312,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF719D009BE405E46ULL, 8, 3, { { "33d+a", 0 }, { "33d+c", 0 }, { "33d+b", -120 } } },
     // 4P ply 3 (after 33+b 37+e 77+f)
     { 0xF7457EC6BB2135C3ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
+    // 4P_ED ply 3 (after 33+h 37+e 77+f)
+    { 0xF7671078C10E03EBULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+h 37+f 77+h 73+b)
     { 0xF7802FA44A1C5816ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 4P ply 4 (after 33+h 37+d 77+g 73+d)
     { 0xF783C8509F608043ULL, 8, 3, { { "33h+a", 260 }, { "33h+c", 260 }, { "33h+b", 140 } } },
     // 2P 3-Base ply 3 (after 33+h 57+d 53+h)
     { 0xF7B732736B694E73ULL, 8, 3, { { "77+e", -2376 }, { "37+d", -2376 }, { "77+f", -2496 } } },
+    // 2P_1B_ED ply 3 (after 53+b 57+f 53b+a)
+    { 0xF7C7DCEAC2875C9EULL, 8, 3, { { "37+d", -3200 }, { "77+e", -3200 }, { "37+e", -3200 } } },
     // 4P ply 4 (after 33+a 37+h 77+f 73+d)
     { 0xF7E010A865EFE08AULL, 8, 3, { { "33a+b", 800 }, { "33a+c", 800 }, { "33a+d", 660 } } },
     // 4P ply 4 (after 33+h 37+d 77+h 73+f)
@@ -6270,6 +7334,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF89C684A892E08D0ULL, 8, 3, { { "33d+a", -280 }, { "33d+c", -280 }, { "33d+b", -400 } } },
     // 4P ply 4 (after 33+a 37+h 77+e 73+g)
     { 0xF8D4E5806A84E601ULL, 8, 3, { { "33a+b", 400 }, { "33a+c", 400 }, { "33a+d", 260 } } },
+    // 4P_ED ply 2 (after 33+b 37+c)
+    { 0xF8D68A579101D7DBULL, 8, 3, { { "77+e", 0 }, { "77+g", 0 }, { "77+f", 0 } } },
     // 4P ply 2 (after 33+h 37+c)
     { 0xF8F4E4E9EB2EE1F3ULL, 8, 3, { { "77+e", -140 }, { "77+g", -140 }, { "77+f", -140 } } },
     // 4P ply 4 (after 33+f 37+c 77+h 73+f)
@@ -6286,6 +7352,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xF9E89FCB973F7A26ULL, 8, 3, { { "33h+a", 0 }, { "33h+c", 0 }, { "33h+b", -120 } } },
     // 4P ply 2 (after 33+f 37+d)
     { 0xF9F1712188C12596ULL, 8, 3, { { "77+e", -400 }, { "77+g", -400 }, { "77+f", -400 } } },
+    // 4P_ED ply 3 (after 33+c 37+h 77+f)
+    { 0xFA05A4733C0BAB12ULL, 8, 3, { { "73+a", -1977 }, { "73+g", -1977 }, { "73+h", -1977 } } },
     // 4P ply 3 (after 33+a 37+f 77+f)
     { 0xFA1C43295710E861ULL, 8, 3, { { "73+a", -1717 }, { "73+g", -1717 }, { "73+h", -1717 } } },
     // 4P ply 4 (after 33+d 37+b 77+h 73+b)
@@ -6310,10 +7378,14 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xFBEA1C9B405EE6AAULL, 8, 3, { { "53+b", -318 }, { "53+h", -318 }, { "33a+b", -318 } } },
     // 4P ply 4 (after 33+b 37+e 77+f 73+f)
     { 0xFC009CCEE2BC776BULL, 8, 3, { { "33b+a", 140 }, { "33b+c", 140 }, { "33b+d", -120 } } },
+    // 4P_ED ply 3 (after 33+f 37+f 77+g)
+    { 0xFC5B1D3FC3DE88FBULL, 8, 3, { { "73+a", -1317 }, { "73+g", -1317 }, { "73+h", -1317 } } },
     // 4P ply 3 (after 33+d 37+b 77+d)
     { 0xFC5C3201E7DD1CEEULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 4 (after 33+h 37+h 77+d 73+d)
     { 0xFC65173D0032233DULL, 8, 3, { { "33h+a", 520 }, { "33h+c", 520 }, { "33h+b", 400 } } },
+    // 4P_ED ply 3 (after 33+a 37+e 77+d)
+    { 0xFCE217EDA4D3C05CULL, 8, 3, { { "73+a", -1437 }, { "73+g", -1437 }, { "73+h", -1437 } } },
     // 4P ply 3 (after 33+c 37+c 77+f)
     { 0xFD24B75531A56F24ULL, 8, 3, { { "73+a", -1577 }, { "73+g", -1577 }, { "73+h", -1577 } } },
     // 4P ply 4 (after 33+a 37+b 77+d 73+d)
@@ -6340,8 +7412,16 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xFE98A74883F21B56ULL, 8, 3, { { "33h+a", 400 }, { "33h+c", 400 }, { "33h+b", 280 } } },
     // 4P ply 4 (after 33+f 37+e 77+b 73+f)
     { 0xFE9CDC99EB1FD5C2ULL, 8, 3, { { "33f+a", -660 }, { "33f+c", -660 }, { "33f+b", -780 } } },
+    // 4P_ED ply 3 (after 33+c 37+d 77+b)
+    { 0xFE9F0C7421C63FC0ULL, 8, 3, { { "73+a", -1177 }, { "73+g", -1177 }, { "73+h", -1177 } } },
+    // 4P_SP ply 1 (after 33+a)
+    { 0xFEA6220DF63AE880ULL, 8, 3, { { "37+e!", 19 }, { "37+c!", -686 }, { "37+d", -1943 } } },
     // 4P ply 4 (after 33+b 37+e 77+d 73+a)
     { 0xFEB2115E0A382258ULL, 8, 3, { { "33b+a", -140 }, { "33b+c", -140 }, { "33b+d", -400 } } },
+    // 4P_SP ply 1 (after 33+h!)
+    { 0xFEE2A62FDA68CC0BULL, 8, 3, { { "37+e!", 6826 }, { "37+c!", -366 }, { "37+f!", -1197 } } },
+    // 4P_ED ply 2 (after 33+a 37+b)
+    { 0xFEE98D841B3BB9E2ULL, 8, 3, { { "77+e", 140 }, { "77+g", 140 }, { "77+f", 140 } } },
     // 4P ply 4 (after 33+f 37+b 77+e 73+f)
     { 0xFEF0DFFDF309BB70ULL, 8, 3, { { "33f+a", -120 }, { "33f+c", -120 }, { "33f+b", -240 } } },
     // 4P ply 4 (after 33+a 37+d 77+f 73+b)
@@ -6358,6 +7438,8 @@ static constexpr OpeningBookEntry g_openingBookEntries[] = {
     { 0xFF7F676000688281ULL, 8, 3, { { "33c+b", 0 }, { "33c+a", 0 }, { "33c+d", -140 } } },
     // 4P ply 4 (after 33+a 37+b 77+g 73+b)
     { 0xFFA4DD037E498771ULL, 8, 3, { { "33a+b", 280 }, { "33a+c", 280 }, { "33a+d", 140 } } },
+    // 4P_ED ply 2 (after 33+h 37+h)
+    { 0xFFD5F7CFE68025C5ULL, 8, 3, { { "77+e", 260 }, { "77+g", 260 }, { "77+f", 260 } } },
     // 4P ply 2 (after 33+b 37+h)
     { 0xFFF799719CAF13EDULL, 8, 3, { { "77+e", 400 }, { "77+g", 400 }, { "77+f", 400 } } }
 };
