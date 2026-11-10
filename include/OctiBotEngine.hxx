@@ -103,6 +103,7 @@ struct BotTuningProfile {
     int oneStepBaseThreatBonus       = 8500;  // Bonus when a pod has prong to step into enemy base next turn
     int oneJumpBaseThreatBonus       = 12000; // Bonus when a pod has prong + pivot to jump into enemy base
     int twoPlyBaseThreatWeight       = 2400;  // Bonus when a pod is at dist 1 from enemy base & needs 1 prong
+    int contestedEnemyBaseThreatScalePct = 100; // Scale (%) on friendly base-threat bonuses when enemy contests (100 = flat)
 
     // --- 3. Multi-Pod Development & Anti-Monopoly Weights ---
     int podZeroProngVal              = 320;   // Base value of an unarmed pod on the board
@@ -117,7 +118,14 @@ struct BotTuningProfile {
     int secondArmedPodBonus          = 1100;  // Additional bonus for arming a 2nd pod
     int thirdArmedPodBonus           = 700;   // Additional bonus for arming a 3rd pod
     int singlePodMonopolyPenalty     = 1000;  // Penalty per prong > 2 on a lone pod while >= 2 home pods have 0 prongs
+    int ofkSinglePodMonopolyPenalty  = -1;    // OFK override for singlePodMonopolyPenalty (< 0 = use singlePodMonopolyPenalty)
     int loneOneProngRushPenalty      = 550;   // Penalty when a lone 1-prong pod advances past midline without backup
+    int enemyHeavyPodThreatPenalty   = 0;     // Penalty per prong >= 4 on an enemy pod (0 = off)
+    int unarmedHomePodPenalty        = 900;   // Penalty per unarmed home pod when >= 2 board pods and >= 6 free prongs
+    int canLiberateBonus             = 450;   // Bonus when side can liberate a captured pod
+    int reserveFreePodVal            = 450;   // Value per unplaced pod in reserve
+    int capturedPodPenalty           = 3800;  // Penalty per captured pod in standard 2P/4P
+    int reserveFreeProngVal          = 140;   // Value per unplaced prong in reserve in standard 2P/4P
 
     // --- 4. Leapfrog / Launchpad Battery & Jump Reachability Weights ---
     int leapfrogBatteryWeight        = 550;   // Bonus for friendly pod + adjacent friendly pivot along a prong dir
@@ -138,6 +146,68 @@ struct BotTuningProfile {
     int moveOrderBaseEntryBonus      = 60000; // Move-ordering priority for stepping/jumping onto enemy base
     int moveOrderLeapfrogBonus       = 1200;  // Move-ordering priority for forming/using a leapfrog battery
     int moveOrderBlunderPenalty      = 7000;  // Move-ordering penalty for landing in enemy jump-capture mask
+};
+
+struct OctiEvalBreakdown {
+    int terminalScore                   = 0;
+    int capturedEnemyBases              = 0;
+    int lostAlliedBases                 = 0;
+    int neutralOctiSquares              = 0;
+    int stackAndCapturedBaseHolding     = 0;
+    int podMaterial                     = 0;
+    int podAdvanceDistance              = 0;
+    int loneOneProngRush                = 0;
+    int prongMaterial                   = 0;
+    int prongDirectionality             = 0;
+    int leapfrogBattery                 = 0;
+    int structuralPositional            = 0;
+    int orthDiagVersatility             = 0;
+    int oneStepBaseThreat               = 0;
+    int oneJumpBaseThreat               = 0;
+    int twoPlyBaseThreat                = 0;
+    int jumpReachability                = 0;
+    int jumpCaptureThreats              = 0;
+    int armyDevelopment                 = 0;
+    int singlePodMonopoly               = 0;
+    int overArmAndBackRank              = 0;
+    int heavyPodThreat                  = 0;
+    int hangingVulnerability            = 0;
+    int closestBaseDistance             = 0;
+    int reserveAndCapturedMaterial      = 0;
+    int undeployedAndUnarmedHomePenalty = 0;
+    int liberationBonus                 = 0;
+    int totalScore                      = 0;
+
+    int sumTerms() const noexcept
+    {
+        return terminalScore
+             + capturedEnemyBases
+             + lostAlliedBases
+             + neutralOctiSquares
+             + stackAndCapturedBaseHolding
+             + podMaterial
+             + podAdvanceDistance
+             + loneOneProngRush
+             + prongMaterial
+             + prongDirectionality
+             + leapfrogBattery
+             + structuralPositional
+             + orthDiagVersatility
+             + oneStepBaseThreat
+             + oneJumpBaseThreat
+             + twoPlyBaseThreat
+             + jumpReachability
+             + jumpCaptureThreats
+             + armyDevelopment
+             + singlePodMonopoly
+             + overArmAndBackRank
+             + heavyPodThreat
+             + hangingVulnerability
+             + closestBaseDistance
+             + reserveAndCapturedMaterial
+             + undeployedAndUnarmedHomePenalty
+             + liberationBonus;
+    }
 };
 
 class OctiBotEngine {
@@ -193,10 +263,28 @@ public:
                                       int *outScore = nullptr,
                                       int *outDepth = nullptr);
 
+    static OctiEvalBreakdown evaluatePositionBreakdown(const OctiBoard &board,
+                                                       OctiPlayer perspective,
+                                                       const BotTuningProfile &profile);
+    static OctiEvalBreakdown evaluatePositionBreakdown(const OctiBoard &board,
+                                                       OctiPlayer perspective,
+                                                       const BotTuningProfile *profile = nullptr);
+    static OctiEvalBreakdown evaluatePositionBreakdown(const OctiGame &game,
+                                                       OctiPlayer perspective,
+                                                       const BotTuningProfile &profile);
+    static OctiEvalBreakdown evaluatePositionBreakdown(const OctiGame &game,
+                                                       OctiPlayer perspective,
+                                                       const BotTuningProfile *profile = nullptr);
+
     static int evaluatePosition(const OctiBoard &board,
                                 OctiPlayer perspective,
                                 const BotTuningProfile &profile);
     static int evaluatePosition(const OctiBoard &board,
+                                OctiPlayer perspective);
+    static int evaluatePosition(const OctiGame &game,
+                                OctiPlayer perspective,
+                                const BotTuningProfile &profile);
+    static int evaluatePosition(const OctiGame &game,
                                 OctiPlayer perspective);
 
     static int defaultBudgetForDifficulty(BotDifficulty d);

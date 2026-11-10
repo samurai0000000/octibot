@@ -7775,6 +7775,147 @@ TEST(OctiEnvelope3bSpMoveGenTest, GoldenMoveListOrderOpsAndStringsAcrossRef24And
     CHECK_EQUAL(1024u, cursor);
 }
 
+// ---------------------------------------------------------------------------
+// Envelope 5 Evaluation Breakdown & Candidate Tuning Profile Fields
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiEnvelope5EvalTest)
+{
+};
+
+TEST(OctiEnvelope5EvalTest, BreakdownSumEqualsEvaluatePositionAcrossVariantsAndTerminalStates)
+{
+    const char *const kTestFens[] = {
+        "2:3:0:0:P:A:-:0:4,0,22,0:4,0,22,0:A33,A53ab,A73a,B37e,B57e,B77f",
+        "2:3:0:0:P:A:-:0:4,1,14,0:4,1,17,0:B45acdefg,B75bdefgh,A57abh,A28abdh",
+        "2:3:0:0:P:A:-:0:3,1,12,0:3,1,20,0:B56acdgh,A37abdefh,A37,A37,B67abcdefg,B77",
+        "2:1:0:0:P:B:-:0:2,0,22,0:4,0,22,0:A33b,A33ac,A33,A53,A73,B66df,B37,B77f",
+        "OFK:1:0:0:P:A:-:0:0,0,7,0:0,0,7,0:A32ab,A42h,A52,A33ab,B55cdefh,B26,B36,B46",
+        "OFK:1:0:0:P:A:-:0:0,0,9,0:0,0,10,0:A22b,A32a,A52,A33h,B34df,B26,B46,B56",
+        "4:3:0:0:P:A:-:0:3,0,11,0:3,0,11,0:3,0,11,0:3,0,11,0:A33ab,B37ef,C77ef,D73cd",
+        "2:3:1:1:P:A:-:0:4,0,15,0:4,0,14,0:B33cde!f,A73abh,A44abh,B65defg,A37a!bch,B77def"
+    };
+
+    octi::BotTuningProfile masterProf =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+    octi::BotTuningProfile gmProf =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::GRANDMASTER);
+
+    for (const char *fen : kTestFens) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(fen);
+        const octi::OctiGame *game = board.getGame();
+        CHECK_TRUE(game != nullptr);
+
+        for (octi::OctiPlayer p : {octi::PLAYER_A, octi::PLAYER_B}) {
+            octi::OctiEvalBreakdown bdDefault =
+                octi::OctiBotEngine::evaluatePositionBreakdown(board, p);
+            octi::OctiEvalBreakdown bdGameDefault =
+                octi::OctiBotEngine::evaluatePositionBreakdown(*game, p, nullptr);
+            octi::OctiEvalBreakdown bdMaster =
+                octi::OctiBotEngine::evaluatePositionBreakdown(board, p, masterProf);
+            octi::OctiEvalBreakdown bdGm =
+                octi::OctiBotEngine::evaluatePositionBreakdown(*game, p, &gmProf);
+
+            int evalDefault = octi::OctiBotEngine::evaluatePosition(board, p);
+            int evalGameDefault = octi::OctiBotEngine::evaluatePosition(*game, p);
+            int evalGm = octi::OctiBotEngine::evaluatePosition(*game, p, gmProf);
+
+            CHECK_EQUAL(bdDefault.sumTerms(), bdDefault.totalScore);
+            CHECK_EQUAL(evalDefault, bdDefault.totalScore);
+            CHECK_EQUAL(evalDefault, evalGameDefault);
+            CHECK_EQUAL(bdDefault.totalScore, bdGameDefault.totalScore);
+            CHECK_EQUAL(bdDefault.totalScore, bdMaster.totalScore);
+            CHECK_EQUAL(bdGm.sumTerms(), bdGm.totalScore);
+            CHECK_EQUAL(evalGm, bdGm.totalScore);
+        }
+    }
+
+    // Terminal position breakdown check
+    octi::OctiBoard winBoard(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+    winBoard.suppressBoardUpdateNotification(true);
+    winBoard.fromPositionString("2:1:0:0:P:A:-:0:4,0,22,0:4,0,22,0:A56a,B37");
+    winBoard.getGame()->move("56a-57");
+    CHECK_TRUE(winBoard.getGame()->isGameOver());
+    octi::OctiEvalBreakdown winBdA =
+        octi::OctiBotEngine::evaluatePositionBreakdown(winBoard, octi::PLAYER_A);
+    octi::OctiEvalBreakdown winBdB =
+        octi::OctiBotEngine::evaluatePositionBreakdown(winBoard, octi::PLAYER_B);
+    CHECK_EQUAL(winBdA.sumTerms(), winBdA.totalScore);
+    CHECK_EQUAL(winBdB.sumTerms(), winBdB.totalScore);
+    CHECK_EQUAL(1000000, winBdA.terminalScore);
+    CHECK_EQUAL(-1000000, winBdB.terminalScore);
+    CHECK_EQUAL(octi::OctiBotEngine::evaluatePosition(winBoard, octi::PLAYER_A),
+                winBdA.totalScore);
+}
+
+TEST(OctiEnvelope5EvalTest, CandidateTuningProfileFieldsModifyTargetTermsAndPreserveDefaults)
+{
+    octi::BotTuningProfile defProf;
+    CHECK_EQUAL(100, defProf.contestedEnemyBaseThreatScalePct);
+    CHECK_EQUAL(-1, defProf.ofkSinglePodMonopolyPenalty);
+    CHECK_EQUAL(0, defProf.enemyHeavyPodThreatPenalty);
+    CHECK_EQUAL(900, defProf.unarmedHomePodPenalty);
+    CHECK_EQUAL(450, defProf.canLiberateBonus);
+    CHECK_EQUAL(450, defProf.reserveFreePodVal);
+    CHECK_EQUAL(3800, defProf.capturedPodPenalty);
+    CHECK_EQUAL(140, defProf.reserveFreeProngVal);
+
+    // 1. OFK single-pod monopoly override + enemy heavy-pod threat penalty on G5 (OFK)
+    {
+        octi::OctiBoard bOfk;
+        bOfk.suppressBoardUpdateNotification(true);
+        bOfk.fromPositionString(
+            "OFK:1:0:0:P:A:-:0:0,0,7,0:0,0,7,0:A32ab,A42h,A52,A33ab,B55cdefh,B26,B36,B46");
+        octi::BotTuningProfile baseProf =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+        octi::OctiEvalBreakdown bdBase =
+            octi::OctiBotEngine::evaluatePositionBreakdown(bOfk, octi::PLAYER_A, baseProf);
+        // Under default (-1), B55cdefh (5 prongs, 3 unarmed home pods) gives A +(5-2)*1400 = +4200 monopoly
+        CHECK_EQUAL(4200, bdBase.singlePodMonopoly);
+        CHECK_EQUAL(0, bdBase.heavyPodThreat);
+
+        octi::BotTuningProfile tunedOfk = baseProf;
+        tunedOfk.ofkSinglePodMonopolyPenalty = 200;
+        tunedOfk.enemyHeavyPodThreatPenalty = 500;
+        octi::OctiEvalBreakdown bdTuned =
+            octi::OctiBotEngine::evaluatePositionBreakdown(bOfk, octi::PLAYER_A, tunedOfk);
+        CHECK_EQUAL(600, bdTuned.singlePodMonopoly);
+        CHECK_EQUAL(-1000, bdTuned.heavyPodThreat);
+        CHECK_EQUAL(bdBase.totalScore - 3600 - 1000, bdTuned.totalScore);
+    }
+
+    // 2. Contested enemy base threat scaling + E16 unarmedHomePodPenalty / canLiberateBonus
+    {
+        octi::OctiBoard b2p;
+        b2p.suppressBoardUpdateNotification(true);
+        b2p.fromPositionString(
+            "2:3:0:0:P:A:-:0:2,1,16,0:3,1,16,0:A33,A53,A46ab,B47def,B37,B77");
+        octi::BotTuningProfile baseProf =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+        octi::OctiEvalBreakdown bd100 =
+            octi::OctiBotEngine::evaluatePositionBreakdown(b2p, octi::PLAYER_A, baseProf);
+        CHECK_TRUE(bd100.oneStepBaseThreat > 0);
+        CHECK_TRUE(bd100.twoPlyBaseThreat > 0);
+
+        octi::BotTuningProfile contestedProf = baseProf;
+        contestedProf.contestedEnemyBaseThreatScalePct = 50;
+        octi::OctiEvalBreakdown bd50 =
+            octi::OctiBotEngine::evaluatePositionBreakdown(b2p, octi::PLAYER_A, contestedProf);
+        CHECK_TRUE(bd50.oneStepBaseThreat < bd100.oneStepBaseThreat);
+        CHECK_TRUE(bd50.twoPlyBaseThreat < bd100.twoPlyBaseThreat);
+        CHECK_TRUE(bd50.totalScore < bd100.totalScore);
+
+        octi::BotTuningProfile e16OffProf = baseProf;
+        e16OffProf.unarmedHomePodPenalty = 0;
+        e16OffProf.canLiberateBonus = 2500;
+        octi::OctiEvalBreakdown bdE16Off =
+            octi::OctiBotEngine::evaluatePositionBreakdown(b2p, octi::PLAYER_A, e16OffProf);
+        CHECK_EQUAL(bdE16Off.sumTerms(), bdE16Off.totalScore);
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
