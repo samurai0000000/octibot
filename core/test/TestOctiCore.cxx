@@ -2405,8 +2405,8 @@ TEST(OctiBotEngineCoreTest, OpeningBookLookupNominalBoundaryAndFaultInjection)
         b2p3, allIllegalTable, 1, enabledProf, rng, noMove));
     STRCMP_EQUAL("", noMove.c_str());
 
-    // 4. Verify full 3,173-entry generated playbook and ply-4 2P 3-Base entry (33+h 57+d 53+h 37+d -> 73+h mirrored / 33+b canonical)
-    LONGS_EQUAL(3173, static_cast<long>(octi::g_openingBookEntryCount));
+    // 4. Verify full 3,714-entry generated playbook and ply-4 2P 3-Base entry (33+h 57+d 53+h 37+d -> 73+h mirrored / 33+b canonical)
+    LONGS_EQUAL(3714, static_cast<long>(octi::g_openingBookEntryCount));
     octi::OctiBoard bPly4(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
     bPly4.getGame()->start(octi::PLAYER_A);
     bPly4.getGame()->move("33+h");
@@ -5854,7 +5854,7 @@ TEST(OctiOpeningBookAllVariants, FourPlayerBasesToWinKeyInvarianceAndStandardEnt
     bOfk.getGame()->start(octi::PLAYER_A);
     CHECK_EQUAL(0xBF20205531084330ULL, octi::OctiBotEngine::computeCanonicalOpeningHash(bOfk));
 
-    LONGS_EQUAL(3173, static_cast<long>(octi::g_openingBookEntryCount));
+    LONGS_EQUAL(3714, static_cast<long>(octi::g_openingBookEntryCount));
 }
 
 TEST(OctiOpeningBookAllVariants, CompiledOpeningBookHitsAll13VariantsAndHumanLossLines)
@@ -5866,7 +5866,8 @@ TEST(OctiOpeningBookAllVariants, CompiledOpeningBookHitsAll13VariantsAndHumanLos
     detProf.bookSelectionWindow = 0;
     bot.setTuningProfile(detProf);
 
-    // 1. Compiled-in book hits at ply 0 across all 13 variants at depth 8
+    // 1. Compiled-in book hits at ply 0 across all 13 variants at depth 8,
+    //    and deeper Task 3.3 plies hit across all 9 new variants (ply 1 for SP/SPED, plies 0..3 for ED)
     struct VariantInitCase {
         octi::OctiGameMode mode;
         octi::OctiGameBases bases;
@@ -5891,12 +5892,16 @@ TEST(OctiOpeningBookAllVariants, CompiledOpeningBookHitsAll13VariantsAndHumanLos
     for (const auto &vc : all13) {
         octi::OctiBoard b(vc.mode, vc.sp, vc.ed, vc.bases);
         b.getGame()->start(octi::PLAYER_A);
-        std::string mv;
-        int sc = 0;
-        int dp = 0;
-        CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
-        CHECK_FALSE(mv.empty());
-        LONGS_EQUAL(8, dp);
+        const int targetPlies = (!vc.sp && !vc.ed) ? 5 : (vc.sp ? 2 : 4);
+        for (int p = 0; p < targetPlies; ++p) {
+            std::string mv;
+            int sc = 0;
+            int dp = 0;
+            CHECK_TRUE(bot.probeOpeningBook(b, mv, &sc, &dp));
+            CHECK_FALSE(mv.empty());
+            LONGS_EQUAL(8, dp);
+            b.getGame()->move(mv);
+        }
     }
 
     // 2. All 4 4P variants hit identically with GAME_BASES_1 and GAME_BASES_3
