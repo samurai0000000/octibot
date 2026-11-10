@@ -2776,7 +2776,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
                     int distBonus = (std::max(0, (10 - dist)) * 180 * advanceScalePct) / 100;
                     bd.podMaterial += sign * podTwoVal;
                     bd.podAdvanceDistance += sign * distBonus;
-                } else if (numProngs >= 3) {
+                } else {
                     int distBonus = (std::max(0, (10 - dist)) * 210 * advanceScalePct) / 100;
                     bd.podMaterial += sign * podThreePlusVal;
                     bd.podAdvanceDistance += sign * distBonus;
