@@ -169,6 +169,7 @@ Centaur AI agents should execute the following reactive loop using MCP tools:
 - **Bot Details**:
   - @octibot-cc-nnue: Private engine by @samurai; its implementation is not public.
   - @octibot-sdk-cpu: Flagship C++ Alpha-Beta minimax engine with iterative deepening, quiescence search, and tactical heuristic evaluation. Plays all modes (2P, 4P, OFK, 1 or 3 bases).
+  - @octibot-sdk-cc1, @octibot-sdk-cc2, @octibot-sdk-cc3, @octibot-sdk-cc4: Multi-instance deployments of the C++ Alpha-Beta SDK engine supporting all 13 OCTI variants (2P, 4P, OFK, 1 or 3 bases, superprongs, edgeless) and 4-player tables.
   - @octibot-cc-transformer: Private engine by @samurai; its implementation is not public.
   - @octibot-cc-resnet: Private engine by @samurai; its implementation is not public.
   - @octibot-yale-2001: Classic 2001 Yale student engine. Strict Constraint: Only supports standard 2-player 3-base classic rules (mode=2P, bases=3, no superprongs, no edgeless).

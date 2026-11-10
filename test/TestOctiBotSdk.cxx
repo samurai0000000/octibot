@@ -3887,6 +3887,753 @@ TEST(OctiBotHostVariants, EmptyHostVariantsKeepsCurrentBehaviour) {
 }
 
 // ============================================================================
+// Envelope 1: Multi-Runner MCP Routing, 13-Variant Matchmaking & Schema Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotMcpMultiBotAndVariantTools) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(OctiBotMcpMultiBotAndVariantTools, MultiBotRoutingSchemaAndBatch4PMatch) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-e1-samurai";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rHelper = env->store.createRobot(ownerId, "octibot-helper", "Lobby Helper");
+    auto rCc1 = env->store.createRobot(ownerId, "octibot-sdk-cc1", "SDK CC1");
+    auto rCc2 = env->store.createRobot(ownerId, "octibot-sdk-cc2", "SDK CC2");
+    auto rCc3 = env->store.createRobot(ownerId, "octibot-sdk-cc3", "SDK CC3");
+    auto rCc4 = env->store.createRobot(ownerId, "octibot-sdk-cc4", "SDK CC4");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rHelper.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rCc1.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rCc2.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rCc3.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rCc4.status));
+
+    auto makeBotConfig = [&](const std::string &name, const std::string &token, bool lobbyOnly) {
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("robot_name", name);
+        cfg.set("bot_token", token);
+        cfg.set("verbosity", "0");
+        if (lobbyOnly) {
+            cfg.set("lobby_only", "true");
+            cfg.set("algorithm", "helper");
+            cfg.set("table_behavior", "lobby_only");
+        } else {
+            cfg.set("table_behavior", "idle");
+            cfg.set("move_control", "agent");
+            cfg.set("agent_move_timeout_ms", "5000");
+            cfg.set("time_budget_ms", "20");
+            cfg.set("max_search_depth", "1");
+        }
+        return cfg;
+    };
+
+    OctiBotConfigStore helperCfg = makeBotConfig("octibot-helper", rHelper.rawToken, true);
+    OctiBotConfigStore cc1Cfg = makeBotConfig("octibot-sdk-cc1", rCc1.rawToken, false);
+    OctiBotConfigStore cc2Cfg = makeBotConfig("octibot-sdk-cc2", rCc2.rawToken, false);
+    OctiBotConfigStore cc3Cfg = makeBotConfig("octibot-sdk-cc3", rCc3.rawToken, false);
+    OctiBotConfigStore cc4Cfg = makeBotConfig("octibot-sdk-cc4", rCc4.rawToken, false);
+
+    auto helperRunner = std::make_unique<OctiBotRunner>(std::make_unique<LobbyHelperAgent>(helperCfg), helperCfg);
+    auto cc1Runner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cc1Cfg), cc1Cfg);
+    auto cc2Runner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cc2Cfg), cc2Cfg);
+    auto cc3Runner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cc3Cfg), cc3Cfg);
+    auto cc4Runner = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cc4Cfg), cc4Cfg);
+
+    OctiBotMcpServer helperMcp(*helperRunner);
+
+    // 1. Validate all 17 MCP tool schemas have only valid Draft-07 top-level keywords (no "properties Ricardo")
+    auto tools = helperMcp.buildToolsListJson();
+    CHECK_EQUAL(17u, tools.size());
+    std::set<std::string> toolsWithBotHandle;
+    bool gameStateHasRoomId = false;
+    bool assistHasBatchAndVariants = false;
+    for (const auto &t : tools) {
+        CHECK_TRUE(t.contains("inputSchema"));
+        const auto &schema = t["inputSchema"];
+        CHECK_TRUE(schema.is_object());
+        CHECK_EQUAL("object", schema.value("type", ""));
+        for (auto it = schema.begin(); it != schema.end(); ++it) {
+            const std::string &k = it.key();
+            bool validKey = (k == "type" || k == "properties" || k == "required");
+            CHECK_TRUE_TEXT(validKey, ("Unexpected inputSchema key '" + k + "' in " + t.value("name", "")).c_str());
+        }
+        std::string tName = t.value("name", "");
+        if (schema.contains("properties") && schema["properties"].is_object()) {
+            const auto &props = schema["properties"];
+            if (props.contains("bot_handle")) {
+                toolsWithBotHandle.insert(tName);
+            }
+            if (tName == "octibot_get_game_state" && props.contains("room_id")) {
+                gameStateHasRoomId = true;
+            }
+            if (tName == "octibot_assist_match" &&
+                props.contains("bot_handles") &&
+                props.contains("super_prongs") &&
+                props.contains("edgeless") &&
+                props.contains("games") &&
+                props.contains("seat")) {
+                assistHasBatchAndVariants = true;
+            }
+        }
+    }
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_get_status") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_get_game_state") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_set_match_override") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_table_action") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_game_action") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_configure_policy") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_find_or_host_table") > 0);
+    CHECK_TRUE(toolsWithBotHandle.count("octibot_send_chat") > 0);
+    CHECK_TRUE(gameStateHasRoomId);
+    CHECK_TRUE(assistHasBatchAndVariants);
+
+    // Verify skill guide documents @octibot-sdk-cc1..cc4
+    std::string rosterGuide = OctiBotMcpServer::getSkillGuideContent("bot_roster");
+    CHECK_TRUE(rosterGuide.find("@octibot-sdk-cc1") != std::string::npos);
+    CHECK_TRUE(rosterGuide.find("@octibot-sdk-cc4") != std::string::npos);
+
+    // 2. Connect and start all 5 runners
+    std::string err;
+    CHECK_TRUE_TEXT(helperRunner->connectAndAuthenticate(err), err.c_str());
+    CHECK_TRUE_TEXT(cc1Runner->connectAndAuthenticate(err), err.c_str());
+    CHECK_TRUE_TEXT(cc2Runner->connectAndAuthenticate(err), err.c_str());
+    CHECK_TRUE_TEXT(cc3Runner->connectAndAuthenticate(err), err.c_str());
+    CHECK_TRUE_TEXT(cc4Runner->connectAndAuthenticate(err), err.c_str());
+
+    helperRunner->start();
+    cc1Runner->start();
+    cc2Runner->start();
+    cc3Runner->start();
+    cc4Runner->start();
+
+    // 3. Multi-runner status & policy routing from lobby_only helper
+    auto stDefault = nlohmann::json::parse(helperMcp.callTool("octibot_get_status", "{}"));
+    CHECK_EQUAL("octibot-helper", stDefault.value("handle", ""));
+    CHECK_TRUE(stDefault.contains("in_process_bots"));
+    CHECK_EQUAL(5u, stDefault["in_process_bots"].size());
+
+    auto stAll = nlohmann::json::parse(helperMcp.callTool("octibot_get_status", "{\"bot_handle\":\"all\"}"));
+    CHECK_TRUE(stAll.value("ok", false));
+    CHECK_EQUAL(5u, stAll["bots"].size());
+
+    auto stCc1 = nlohmann::json::parse(helperMcp.callTool("octibot_get_status", "{\"bot_handle\":\"cc1\"}"));
+    CHECK_TRUE(stCc1.value("ok", false));
+    CHECK_EQUAL("octibot-sdk-cc1", stCc1.value("handle", ""));
+    CHECK_FALSE(stCc1.value("lobby_only", true));
+
+    auto cfgRes = nlohmann::json::parse(
+        helperMcp.callTool("octibot_configure_policy", "{\"bot_handle\":\"cc2\",\"key\":\"min_move_think_ms\",\"value\":\"5\"}"));
+    CHECK_TRUE(cfgRes.contains("updated"));
+    CHECK_EQUAL("5", cc2Runner->config().getString("min_move_think_ms"));
+    CHECK_EQUAL("", helperRunner->config().getString("min_move_think_ms"));
+
+    // 4. Test 13-variant octibot_set_match_override (2P 1-base SP+ED) & octibot_table_action on cc2 from helper
+    auto ovCc2 = nlohmann::json::parse(helperMcp.callTool(
+        "octibot_set_match_override",
+        "{\"bot_handle\":\"cc2\",\"action\":\"set\",\"mode\":\"2P\",\"bases\":1,\"super_prongs\":true,\"edgeless\":true,\"seat\":2,\"games\":2}"));
+    CHECK_TRUE(ovCc2.value("ok", false));
+    std::string cc2HostedRoom = ovCc2.value("active_room_id", "");
+    CHECK_FALSE(cc2HostedRoom.empty());
+    CHECK_EQUAL(2, cc2Runner->currentSeat());
+    CHECK_TRUE(ovCc2["match_override"].value("super_prongs", false));
+    CHECK_TRUE(ovCc2["match_override"].value("edgeless", false));
+    CHECK_EQUAL(2, ovCc2["match_override"].value("remaining_games", 0));
+
+    auto lobby2p1b = nlohmann::json::parse(helperMcp.callTool("octibot_get_lobby", "{}"));
+    bool foundCc2Room = false;
+    for (const auto &t : lobby2p1b["tables"]) {
+        if (t.value("room_id", "") == cc2HostedRoom) {
+            foundCc2Room = true;
+            CHECK_EQUAL("2P", t.value("mode", ""));
+            CHECK_EQUAL(1, t.value("bases", 0));
+            CHECK_TRUE(t.value("super_prongs", false));
+            CHECK_TRUE(t.value("edgeless", false));
+            CHECK_EQUAL("WAITING_FOR_PLAYERS", t.value("phase", ""));
+            CHECK_EQUAL(1, t.value("seats_filled", 0));
+        }
+    }
+    CHECK_TRUE(foundCc2Room);
+
+    auto leaveCc2 = nlohmann::json::parse(helperMcp.callTool(
+        "octibot_table_action",
+        "{\"bot_handle\":\"cc2\",\"action\":\"leave\"}"));
+    CHECK_TRUE(leaveCc2.value("ok", false));
+    CHECK_EQUAL("", cc2Runner->currentRoomId());
+
+    // 5. Batch 4P match orchestration in a single octibot_assist_match call
+    nlohmann::json batchArgs = {
+        {"bot_handles", {"cc1", "cc2", "cc3", "cc4"}},
+        {"mode", "4P"},
+        {"bases", 1},
+        {"super_prongs", true},
+        {"edgeless", false},
+        {"games", 2}
+    };
+    auto batchRes = nlohmann::json::parse(helperMcp.callTool("octibot_assist_match", batchArgs.dump()));
+    CHECK_TRUE_TEXT(batchRes.value("ok", false), batchRes.dump().c_str());
+    CHECK_EQUAL("in_process_batch", batchRes.value("dispatch_mode", ""));
+    std::string roomId = batchRes.value("room_id", "");
+    CHECK_FALSE(roomId.empty());
+    CHECK_EQUAL(4u, batchRes["participants"].size());
+
+    std::set<int> assignedSeats;
+    for (const auto &p : batchRes["participants"]) {
+        CHECK_TRUE(p.value("ok", false));
+        CHECK_EQUAL(roomId, p.value("room_id", ""));
+        assignedSeats.insert(p.value("seat", 0));
+    }
+    CHECK_EQUAL(4u, assignedSeats.size());
+    CHECK_TRUE(assignedSeats.count(1) > 0);
+    CHECK_TRUE(assignedSeats.count(2) > 0);
+    CHECK_TRUE(assignedSeats.count(3) > 0);
+    CHECK_TRUE(assignedSeats.count(4) > 0);
+
+    // 6. Verify enriched octibot_get_lobby metadata for the 4P SP in-progress game
+    auto lobbyJson = nlohmann::json::parse(helperMcp.callTool("octibot_get_lobby", "{}"));
+    bool foundRoomInLobby = false;
+    for (const auto &t : lobbyJson["tables"]) {
+        if (t.value("room_id", "") == roomId) {
+            foundRoomInLobby = true;
+            CHECK_EQUAL("4P", t.value("mode", ""));
+            CHECK_TRUE(t.contains("bases"));
+            CHECK_TRUE(t.value("bases", 0) == 1 || t.value("bases", 0) == 3);
+            CHECK_TRUE(t.value("super_prongs", false));
+            CHECK_FALSE(t.value("edgeless", true));
+            CHECK_EQUAL("IN_PROGRESS", t.value("phase", ""));
+            CHECK_EQUAL(4, t.value("seats_filled", 0));
+            CHECK_EQUAL(4, t.value("seats_total", 0));
+            CHECK_TRUE(t.contains("seats"));
+            CHECK_EQUAL(4u, t["seats"].size());
+        }
+    }
+    CHECK_TRUE(foundRoomInLobby);
+
+    // 7. Inspect active 4P game state from lobby_only helper by room_id and by bot_handle
+    auto gsByRoom = nlohmann::json::parse(
+        helperMcp.callTool("octibot_get_game_state", "{\"room_id\":\"#" + roomId + "\"}"));
+    CHECK_EQUAL(roomId, gsByRoom.value("room_id", ""));
+    CHECK_EQUAL("4P", gsByRoom.value("mode", ""));
+    CHECK_TRUE(gsByRoom.value("bases", 0) == 1 || gsByRoom.value("bases", 0) == 3);
+    CHECK_TRUE(gsByRoom.value("super_prongs", false));
+    CHECK_FALSE(gsByRoom.value("edgeless", true));
+    CHECK_EQUAL("IN_PROGRESS", gsByRoom.value("phase", ""));
+    CHECK_EQUAL(4u, gsByRoom["seats"].size());
+    CHECK_FALSE(gsByRoom["legal_moves"].empty());
+
+    auto gsByBot = nlohmann::json::parse(
+        helperMcp.callTool("octibot_get_game_state", "{\"bot_handle\":\"cc1\"}"));
+    CHECK_EQUAL(roomId, gsByBot.value("room_id", ""));
+    CHECK_EQUAL(1, gsByBot.value("my_seat", 0));
+    CHECK_TRUE(gsByBot.value("super_prongs", false));
+
+    auto chatRes = nlohmann::json::parse(
+        helperMcp.callTool("octibot_send_chat", "{\"bot_handle\":\"cc1\",\"channel\":\"game\",\"message\":\"Good luck all 4 seats!\"}"));
+    CHECK_TRUE(chatRes.value("ok", false));
+
+    cc4Runner->stop();
+    cc3Runner->stop();
+    cc2Runner->stop();
+    cc1Runner->stop();
+    helperRunner->stop();
+}
+
+TEST(OctiBotMcpMultiBotAndVariantTools, HandleAliasesAndLegacySdkCpuCoexistence) {
+    OctiBotConfigStore helperCfg;
+    helperCfg.set("lobby_only", "true");
+    helperCfg.set("robot_name", "octibot-helper");
+    OctiBotRunner helperRunner(std::make_unique<LobbyHelperAgent>(helperCfg), helperCfg);
+    OctiBotMcpServer server(helperRunner);
+
+    OctiBotConfigStore cc1Cfg;
+    cc1Cfg.set("robot_name", "octibot-sdk-cc1");
+    OctiBotRunner cc1Runner(std::make_unique<StockAlphaBetaAgent>(cc1Cfg), cc1Cfg);
+
+    // 1. When octibot-sdk-cpu is NOT registered in-process, aliases resolve to active octibot-sdk-cc1
+    for (const std::string alias : {"cc1", "sdk-cc1", "sdk", "cpu", "sdk-cpu", "octibot-sdk-cpu", "auto"}) {
+        nlohmann::json args = {
+            {"player_handle", "alice"},
+            {"bot_handle", alias},
+            {"mode", "2P"},
+            {"bases", 3},
+            {"super_prongs", (alias == "cc1")},
+            {"edgeless", (alias == "sdk-cc1")},
+            {"seat", 2},
+            {"games", 3}
+        };
+        auto res = nlohmann::json::parse(server.callTool("octibot_assist_match", args.dump()));
+        CHECK_TRUE_TEXT(res.value("ok", false), ("Failed alias: " + alias + " -> " + res.dump()).c_str());
+        CHECK_EQUAL("in_process", res.value("dispatch_mode", ""));
+        CHECK_EQUAL("octibot-sdk-cc1", res.value("target_bot", ""));
+        CHECK_TRUE(res.contains("room_id"));
+        CHECK_TRUE(res.contains("seat"));
+        CHECK_EQUAL(3, cc1Runner.matchOverride().remainingGames);
+    }
+
+    // 2. When legacy octibot-sdk-cpu IS registered in-process, sdk/cpu/auto prefer octibot-sdk-cpu while cc1 still hits cc1
+    OctiBotConfigStore cpuCfg;
+    cpuCfg.set("robot_name", "octibot-sdk-cpu");
+    OctiBotRunner cpuRunner(std::make_unique<StockAlphaBetaAgent>(cpuCfg), cpuCfg);
+
+    for (const std::string alias : {"sdk", "cpu", "sdk-cpu", "octibot-sdk-cpu", "auto"}) {
+        nlohmann::json args = {
+            {"player_handle", "alice"},
+            {"bot_handle", alias},
+            {"mode", "2P"},
+            {"bases", 3}
+        };
+        auto res = nlohmann::json::parse(server.callTool("octibot_assist_match", args.dump()));
+        CHECK_TRUE(res.value("ok", false));
+        CHECK_EQUAL("in_process", res.value("dispatch_mode", ""));
+        CHECK_EQUAL("octibot-sdk-cpu", res.value("target_bot", ""));
+    }
+
+    nlohmann::json explicitCc1 = {
+        {"player_handle", "alice"},
+        {"bot_handle", "cc1"},
+        {"mode", "2P"},
+        {"bases", 1},
+        {"super_prongs", true},
+        {"edgeless", true}
+    };
+    auto resCc1 = nlohmann::json::parse(server.callTool("octibot_assist_match", explicitCc1.dump()));
+    CHECK_TRUE(resCc1.value("ok", false));
+    CHECK_EQUAL("octibot-sdk-cc1", resCc1.value("target_bot", ""));
+}
+
+TEST(OctiBotMcpMultiBotAndVariantTools, FaultAndBoundaryUnknownBotSpoofingAndYaleVariantGuard) {
+    OctiBotConfigStore helperCfg;
+    helperCfg.set("lobby_only", "true");
+    helperCfg.set("robot_name", "octibot-helper");
+    OctiBotRunner helperRunner(std::make_unique<LobbyHelperAgent>(helperCfg), helperCfg);
+    OctiBotMcpServer server(helperRunner);
+
+    OctiBotConfigStore cc1Cfg;
+    cc1Cfg.set("robot_name", "octibot-sdk-cc1");
+    OctiBotRunner cc1Runner(std::make_unique<StockAlphaBetaAgent>(cc1Cfg), cc1Cfg);
+
+    OctiBotConfigStore cc2Cfg;
+    cc2Cfg.set("robot_name", "octibot-sdk-cc2");
+    OctiBotRunner cc2Runner(std::make_unique<StockAlphaBetaAgent>(cc2Cfg), cc2Cfg);
+
+    // 1. Unknown bot_handle rejected cleanly with ok=false across all routed tools
+    const std::vector<std::pair<std::string, nlohmann::json>> badBotCalls = {
+        {"octibot_get_status", {{"bot_handle", "nonexistent-bot"}}},
+        {"octibot_get_game_state", {{"bot_handle", "nonexistent-bot"}}},
+        {"octibot_set_match_override", {{"bot_handle", "nonexistent-bot"}, {"action", "set"}}},
+        {"octibot_table_action", {{"bot_handle", "nonexistent-bot"}, {"action", "leave"}}},
+        {"octibot_game_action", {{"bot_handle", "nonexistent-bot"}, {"action", "resign"}}},
+        {"octibot_configure_policy", {{"bot_handle", "nonexistent-bot"}, {"key", "verbosity"}, {"value", "1"}}},
+        {"octibot_find_or_host_table", {{"bot_handle", "nonexistent-bot"}, {"auto_host", false}}},
+        {"octibot_send_chat", {{"bot_handle", "nonexistent-bot"}, {"channel", "lobby"}, {"message", "hi"}}}
+    };
+    for (const auto &call : badBotCalls) {
+        auto j = nlohmann::json::parse(server.callTool(call.first, call.second.dump()));
+        CHECK_FALSE_TEXT(j.value("ok", true), ("Expected ok=false for " + call.first).c_str());
+        CHECK_FALSE(j.value("error", "").empty());
+    }
+
+    // 2. Non-owner chat sender blocked from cross-bot control and batch bot_handles
+    helperRunner.setActiveChatSender("mallory", false);
+    for (const auto &call : std::vector<std::pair<std::string, nlohmann::json>>{
+             {"octibot_set_match_override", {{"bot_handle", "cc1"}, {"action", "set"}}},
+             {"octibot_table_action", {{"bot_handle", "cc1"}, {"action", "create"}, {"mode", "2P"}}},
+             {"octibot_table_action", {{"bot_handle", "cc1"}, {"action", "leave"}}},
+             {"octibot_game_action", {{"bot_handle", "cc1"}, {"action", "resign"}}},
+             {"octibot_configure_policy", {{"bot_handle", "cc1"}, {"key", "verbosity"}, {"value", "0"}}},
+             {"octibot_find_or_host_table", {{"bot_handle", "cc1"}, {"auto_host", true}}},
+             {"octibot_send_chat", {{"bot_handle", "cc1"}, {"channel", "lobby"}, {"message", "spoof"}}},
+             {"octibot_assist_match", {{"bot_handles", {"cc1", "cc2"}}, {"mode", "2P"}}}}) {
+        auto j = nlohmann::json::parse(server.callTool(call.first, call.second.dump()));
+        CHECK_FALSE_TEXT(j.value("ok", true), ("Expected non-owner rejection for " + call.first).c_str());
+    }
+    helperRunner.setActiveChatSender("", false);
+
+    // 3. @octibot-yale-2001 rejects super_prongs=true and edgeless=true even in 2P 3-base
+    {
+        nlohmann::json yaleSp = {
+            {"player_handle", "alice"},
+            {"bot_handle", "yale"},
+            {"mode", "2P"},
+            {"bases", 3},
+            {"super_prongs", true}
+        };
+        auto jSp = nlohmann::json::parse(server.callTool("octibot_assist_match", yaleSp.dump()));
+        CHECK_FALSE(jSp.value("ok", true));
+        CHECK_TRUE(jSp.value("error", "").find("octibot-sdk-cpu") != std::string::npos);
+
+        nlohmann::json yaleEd = {
+            {"player_handle", "alice"},
+            {"bot_handle", "octibot-yale-2001"},
+            {"mode", "2P"},
+            {"bases", 3},
+            {"edgeless", true}
+        };
+        auto jEd = nlohmann::json::parse(server.callTool("octibot_assist_match", yaleEd.dump()));
+        CHECK_FALSE(jEd.value("ok", true));
+        CHECK_TRUE(jEd.value("error", "").find("octibot-sdk-cpu") != std::string::npos);
+
+        nlohmann::json yaleBatch = {
+            {"bot_handles", {"yale", "cc1"}},
+            {"mode", "2P"},
+            {"bases", 3},
+            {"super_prongs", true}
+        };
+        auto jBatch = nlohmann::json::parse(server.callTool("octibot_assist_match", yaleBatch.dump()));
+        CHECK_FALSE(jBatch.value("ok", true));
+        CHECK_TRUE(jBatch.value("error", "").find("octibot-sdk-cpu") != std::string::npos);
+    }
+
+    // 4. Batch bot_handles boundary rejections (count < 2, >2 in 2P, duplicate bot, inactive bot, lobby_only bot)
+    for (const auto &badBatch : std::vector<nlohmann::json>{
+             {{"bot_handles", {"cc1"}}, {"mode", "2P"}},
+             {{"bot_handles", {"cc1", "cc2", "cc1"}}, {"mode", "2P"}},
+             {{"bot_handles", {"cc1", "cc1"}}, {"mode", "2P"}},
+             {{"bot_handles", {"cc1", "nonexistent-bot"}}, {"mode", "2P"}},
+             {{"bot_handles", {"cc1", "helper"}}, {"mode", "2P"}}}) {
+        auto j = nlohmann::json::parse(server.callTool("octibot_assist_match", badBatch.dump()));
+        CHECK_FALSE_TEXT(j.value("ok", true), ("Expected batch rejection for " + badBatch.dump()).c_str());
+    }
+}
+
+// ============================================================================
+// Envelope 2: Search-Backed octibot_analyze_position (4P Team-Win & Self-Capture)
+// ============================================================================
+
+TEST_GROUP(OctiBotMcpAnalyzePositionSearch) {
+    OctiBotConfigStore helperCfg;
+    std::unique_ptr<OctiBotRunner> helperRunner;
+    std::unique_ptr<OctiBotMcpServer> server;
+
+    void setup() {
+        helperCfg = OctiBotConfigStore();
+        helperCfg.set("lobby_only", "true");
+        helperCfg.set("robot_name", "octibot-helper");
+        helperRunner = std::make_unique<OctiBotRunner>(
+            std::make_unique<LobbyHelperAgent>(helperCfg), helperCfg);
+        server = std::make_unique<OctiBotMcpServer>(*helperRunner);
+    }
+
+    void teardown() {
+        server.reset();
+        helperRunner.reset();
+    }
+};
+
+TEST(OctiBotMcpAnalyzePositionSearch, MultiPlyRefutation4PSeatCWinAndSelfCaptureFlags) {
+    // 1. Multi-ply tactical refutation (2P 1-base):
+    //    A35bc can greedily step 35bc-46 to threaten empty B home 57 in 1 move (+10,900 1-ply bonus),
+    //    but 46 enters B37de's jump-capture lane: B replies 37de-55x-53 (jumping over A46bc and B54
+    //    directly onto A's home 53) to win immediately on ply 2.
+    const std::string trapFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77";
+    {
+        OctiBoard checkBoard;
+        checkBoard.fromPositionString(trapFen);
+        CHECK_TRUE(checkBoard.getGame() != nullptr);
+        CHECK_TRUE(checkBoard.getGame()->isGameStarted());
+        CHECK_FALSE(checkBoard.getGame()->isGameOver());
+
+        // Confirm 1-ply static eval ranks the blunder 35bc-46 above safe step 35bc-45
+        OctiBoard afterBlunder;
+        afterBlunder.fromPositionString(trapFen);
+        afterBlunder.getGame()->move("35bc-46");
+        int staticBlunder = OctiBotEngine::evaluatePosition(afterBlunder, PLAYER_A);
+
+        OctiBoard afterSafe;
+        afterSafe.fromPositionString(trapFen);
+        afterSafe.getGame()->move("35bc-45");
+        int staticSafe = OctiBotEngine::evaluatePosition(afterSafe, PLAYER_A);
+        CHECK_TRUE(staticBlunder > staticSafe);
+
+        // Confirm B's 2-jump reply 37de-55x-53 wins immediately after 35bc-46
+        afterBlunder.getGame()->move("37de-55x-53");
+        CHECK_TRUE(afterBlunder.getGame()->isGameOver());
+        CHECK_EQUAL(static_cast<int>(PLAYER_B), static_cast<int>(afterBlunder.getGame()->getWinner()));
+    }
+
+    nlohmann::json trapArgs = {
+        {"fen", trapFen},
+        {"depth", 3},
+        {"top_k", 5},
+        {"time_budget_ms", 5000}
+    };
+    auto trapRes = nlohmann::json::parse(server->callTool("octibot_analyze_position", trapArgs.dump()));
+    CHECK_FALSE(trapRes["top_candidates"].empty());
+    CHECK_TRUE_TEXT(trapRes["top_candidates"][0].value("move", "") != "35bc-46",
+                    ("Depth-3 search failed to refute 1-ply blunder 35bc-46: " + trapRes.dump()).c_str());
+    CHECK_TRUE_TEXT(trapRes.value("ok", false), trapRes.dump().c_str());
+    CHECK_EQUAL("2P", trapRes.value("mode", ""));
+    CHECK_EQUAL(1, trapRes.value("bases", 0));
+    CHECK_FALSE(trapRes.value("super_prongs", true));
+    CHECK_FALSE(trapRes.value("edgeless", true));
+    CHECK_EQUAL("A", trapRes.value("turn_player", ""));
+    CHECK_EQUAL(3, trapRes.value("depth_reached", 0));
+    CHECK_TRUE(trapRes.value("nodes_visited", 0ULL) > trapRes.value("total_legal_moves", 0ULL));
+    CHECK_TRUE(trapRes["top_candidates"][0].value("score", -1000000) > -50000);
+
+    // 2. Schema completeness check on octibot_analyze_position
+    auto tools = server->buildToolsListJson();
+    bool foundAnalyzeSchema = false;
+    for (const auto &t : tools) {
+        if (t.value("name", "") == "octibot_analyze_position") {
+            foundAnalyzeSchema = true;
+            const auto &props = t["inputSchema"]["properties"];
+            CHECK_TRUE(props.contains("top_k"));
+            CHECK_TRUE(props.contains("fen"));
+            CHECK_TRUE(props.contains("depth"));
+            CHECK_TRUE(props.contains("time_budget_ms"));
+            CHECK_TRUE(props.contains("bot_handle"));
+            CHECK_TRUE(props.contains("room_id"));
+            CHECK_TRUE(props.contains("mode"));
+            CHECK_TRUE(props.contains("bases"));
+            CHECK_TRUE(props.contains("super_prongs"));
+            CHECK_TRUE(props.contains("edgeless"));
+        }
+    }
+    CHECK_TRUE(foundAnalyzeSchema);
+
+    // 3. 4P Seat C (turn = C) and Seat D (turn = D) allied team victory is_base_win accuracy:
+    //    Team A+C already holds B home 37 (A37); Seat C jumps 75e-73x over D74 onto D home 73 to win.
+    const std::string fen4pSeatC =
+        "4:1:0:0:P:C:-:2:2,0,10,0:3,1,12,0:2,0,10,0:2,0,11,0:D52,A33,D74,C75e,A37,C77";
+    auto res4pC = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", fen4pSeatC}, {"depth", 3}, {"top_k", 3}}).dump()));
+    CHECK_TRUE_TEXT(res4pC.value("ok", false), res4pC.dump().c_str());
+    CHECK_EQUAL("4P", res4pC.value("mode", ""));
+    CHECK_EQUAL(1, res4pC.value("bases", 0));
+    CHECK_EQUAL("C", res4pC.value("turn_player", ""));
+    CHECK_FALSE(res4pC["top_candidates"].empty());
+    CHECK_EQUAL("75e-73x", res4pC["top_candidates"][0].value("move", ""));
+    CHECK_TRUE(res4pC["top_candidates"][0].value("is_base_win", false));
+    CHECK_TRUE(res4pC["top_candidates"][0].value("is_capture", false));
+    CHECK_TRUE(res4pC["top_candidates"][0].value("score", 0) >= 900000);
+
+    //    Team B+D already holds A home 33 (D33); Seat D jumps 75a-77x over C76 onto C home 77 to win.
+    const std::string fen4pSeatD =
+        "4:1:0:0:P:D:-:1:3,1,12,0:2,0,10,0:2,0,11,0:2,0,10,0:D33,D73,D75a,C76,B37";
+    auto res4pD = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", fen4pSeatD}, {"depth", 3}, {"top_k", 3}}).dump()));
+    CHECK_TRUE_TEXT(res4pD.value("ok", false), res4pD.dump().c_str());
+    CHECK_EQUAL("4P", res4pD.value("mode", ""));
+    CHECK_EQUAL("D", res4pD.value("turn_player", ""));
+    CHECK_FALSE(res4pD["top_candidates"].empty());
+    CHECK_EQUAL("75a-77x", res4pD["top_candidates"][0].value("move", ""));
+    CHECK_TRUE(res4pD["top_candidates"][0].value("is_base_win", false));
+    CHECK_TRUE(res4pD["top_candidates"][0].value("is_capture", false));
+    CHECK_TRUE(res4pD["top_candidates"][0].value("score", 0) >= 900000);
+
+    // 4. v2.4 self-capture vs enemy capture is_capture flag (standard + edgeless wrap):
+    //    freeProngs == 0 so reclaiming friendly A34e's prong via 33ac-35x is tactical and unpruned.
+    const std::string selfCapFen = "2:3:0:0:P:A:-:0:0,0,0,0:0,0,0,0:A33ac,B43,A34e,B57e";
+    auto resCap = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", selfCapFen}, {"depth", 2}, {"top_k", 32}}).dump()));
+    CHECK_TRUE_TEXT(resCap.value("ok", false), resCap.dump().c_str());
+    bool sawFriendlySelfCap = false;
+    bool sawEnemyCap = false;
+    for (const auto &cand : resCap["top_candidates"]) {
+        std::string m = cand.value("move", "");
+        if (m == "33ac-35x") {
+            sawFriendlySelfCap = true;
+            CHECK_FALSE_TEXT(cand.value("is_capture", true),
+                             "Friendly v2.4 self-capture 33ac-35x must have is_capture == false");
+            CHECK_FALSE(cand.value("is_base_win", true));
+        } else if (m == "33ac-53x") {
+            sawEnemyCap = true;
+            CHECK_TRUE_TEXT(cand.value("is_capture", false),
+                            "Enemy jump-capture 33ac-53x must have is_capture == true");
+            CHECK_FALSE(cand.value("is_base_win", true));
+        }
+    }
+    CHECK_TRUE(sawFriendlySelfCap);
+    CHECK_TRUE(sawEnemyCap);
+
+    // Edgeless wrap: A15ag jumps West across x=0->8->7 over enemy B95 (15ag-85x, is_capture=true)
+    // vs North over friendly A16e (15ag-17x, is_capture=false)
+    const std::string edgelessCapFen = "2:3:0:1:P:A:-:0:0,0,0,0:0,0,0,0:A15ag,B95,A16e,B57e";
+    auto resEdCap = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", edgelessCapFen}, {"depth", 2}, {"top_k", 32}}).dump()));
+    CHECK_TRUE(resEdCap.value("ok", false));
+    CHECK_TRUE(resEdCap.value("edgeless", false));
+    bool sawEdFriendlyCap = false;
+    bool sawEdEnemyCap = false;
+    for (const auto &cand : resEdCap["top_candidates"]) {
+        std::string m = cand.value("move", "");
+        if (m == "15ag-17x") {
+            sawEdFriendlyCap = true;
+            CHECK_FALSE(cand.value("is_capture", true));
+        } else if (m == "15ag-85x") {
+            sawEdEnemyCap = true;
+            CHECK_TRUE(cand.value("is_capture", false));
+        }
+    }
+    CHECK_TRUE(sawEdFriendlyCap);
+    CHECK_TRUE(sawEdEnemyCap);
+}
+
+TEST(OctiBotMcpAnalyzePositionSearch, Depth3VisitsStrictlyMoreNodesThanDepth1AndFaultHandling) {
+    // 1. Negative control: depth = 3 visits strictly more nodes than depth = 1
+    const std::string midgameFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77";
+    auto resD1 = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", midgameFen}, {"depth", 1}, {"top_k", 3}}).dump()));
+    auto resD3 = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", midgameFen}, {"depth", 3}, {"top_k", 3}}).dump()));
+    CHECK_TRUE(resD1.value("ok", false));
+    CHECK_TRUE(resD3.value("ok", false));
+    CHECK_EQUAL(1, resD1.value("depth_reached", 0));
+    CHECK_EQUAL(3, resD3.value("depth_reached", 0));
+    std::uint64_t nodesD1 = resD1.value("nodes_visited", 0ULL);
+    std::uint64_t nodesD3 = resD3.value("nodes_visited", 0ULL);
+    CHECK_TRUE(nodesD1 > 0ULL);
+    CHECK_TRUE_TEXT(nodesD3 > nodesD1,
+                    ("Expected depth=3 nodes (" + std::to_string(nodesD3) +
+                     ") > depth=1 nodes (" + std::to_string(nodesD1) + ")").c_str());
+
+    // 2. OFK custom FEN header auto-detection
+    OctiBoard ofkBoard(GAME_MODE_OFK, false, false, GAME_BASES_1);
+    ofkBoard.getGame()->start(PLAYER_A);
+    std::string ofkFen = ofkBoard.toPositionString();
+    auto resOfk = nlohmann::json::parse(server->callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"fen", ofkFen}, {"depth", 2}, {"top_k", 3}}).dump()));
+    CHECK_TRUE(resOfk.value("ok", false));
+    CHECK_EQUAL("OFK", resOfk.value("mode", ""));
+    CHECK_EQUAL(1, resOfk.value("bases", 0));
+    CHECK_FALSE(resOfk.value("super_prongs", true));
+    CHECK_FALSE(resOfk.value("edgeless", true));
+    CHECK_EQUAL("A", resOfk.value("turn_player", ""));
+    CHECK_EQUAL(3u, resOfk["top_candidates"].size());
+
+    // 3. Fault handling & live room_id / bot_handle inspection from lobby_only helper
+    TestServerEnv env;
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-e2-samurai";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env.store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rHelper = env.store.createRobot(ownerId, "octibot-helper-e2", "Lobby Helper E2");
+    auto rCc1 = env.store.createRobot(ownerId, "octibot-sdk-cc1", "SDK CC1");
+    auto rCc2 = env.store.createRobot(ownerId, "octibot-sdk-cc2", "SDK CC2");
+
+    auto makeCfg = [&](const std::string &name, const std::string &token, bool lobbyOnly) {
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env.port));
+        cfg.set("robot_name", name);
+        cfg.set("bot_token", token);
+        cfg.set("verbosity", "0");
+        if (lobbyOnly) {
+            cfg.set("lobby_only", "true");
+            cfg.set("algorithm", "helper");
+            cfg.set("table_behavior", "lobby_only");
+        } else {
+            cfg.set("table_behavior", "idle");
+            cfg.set("move_control", "agent");
+            cfg.set("agent_move_timeout_ms", "5000");
+        }
+        return cfg;
+    };
+
+    OctiBotConfigStore hCfg = makeCfg("octibot-helper-e2", rHelper.rawToken, true);
+    OctiBotConfigStore c1Cfg = makeCfg("octibot-sdk-cc1", rCc1.rawToken, false);
+    OctiBotConfigStore c2Cfg = makeCfg("octibot-sdk-cc2", rCc2.rawToken, false);
+
+    OctiBotRunner hRun(std::make_unique<LobbyHelperAgent>(hCfg), hCfg);
+    OctiBotRunner c1Run(std::make_unique<StockAlphaBetaAgent>(c1Cfg), c1Cfg);
+    OctiBotRunner c2Run(std::make_unique<StockAlphaBetaAgent>(c2Cfg), c2Cfg);
+    OctiBotMcpServer liveMcp(hRun);
+
+    std::string err;
+    CHECK_TRUE(hRun.connectAndAuthenticate(err));
+    CHECK_TRUE(c1Run.connectAndAuthenticate(err));
+    CHECK_TRUE(c2Run.connectAndAuthenticate(err));
+    hRun.start();
+    c1Run.start();
+    c2Run.start();
+
+    // Malformed FENs
+    for (const std::string &badFen : std::vector<std::string>{
+             "invalid:fen",
+             "9:3:0:0:P:A:-:0:4,0,25,0:4,0,25,0:-",
+             "OFK:3:1:0:P:A:-:0:0,0,16,0:0,0,16,0:-"}) {
+        auto jBad = nlohmann::json::parse(liveMcp.callTool(
+            "octibot_analyze_position", nlohmann::json({{"fen", badFen}}).dump()));
+        CHECK_FALSE_TEXT(jBad.value("ok", true), ("Expected ok=false for FEN: " + badFen).c_str());
+        CHECK_TRUE(jBad.value("error", "").find("Invalid FEN") != std::string::npos);
+    }
+
+    // Unknown bot_handle
+    auto jBadBot = nlohmann::json::parse(liveMcp.callTool(
+        "octibot_analyze_position", "{\"bot_handle\":\"nonexistent-bot\"}"));
+    CHECK_FALSE(jBadBot.value("ok", true));
+    CHECK_FALSE(jBadBot.value("error", "").empty());
+
+    // Nonexistent room_id on connected server
+    auto jBadRoom = nlohmann::json::parse(liveMcp.callTool(
+        "octibot_analyze_position", "{\"room_id\":\"#g-does-not-exist\"}"));
+    CHECK_FALSE(jBadRoom.value("ok", true));
+    CHECK_FALSE(jBadRoom.value("error", "").empty());
+
+    // Host and fill a live 2P 1-base superprongs room, then analyze by bot_handle and room_id
+    auto batchRes = nlohmann::json::parse(liveMcp.callTool(
+        "octibot_assist_match",
+        nlohmann::json({{"bot_handles", {"cc1", "cc2"}},
+                        {"mode", "2P"},
+                        {"bases", 1},
+                        {"super_prongs", true}}).dump()));
+    CHECK_TRUE_TEXT(batchRes.value("ok", false), batchRes.dump().c_str());
+    std::string liveRoomId = batchRes.value("room_id", "");
+    CHECK_FALSE(liveRoomId.empty());
+
+    auto byBot = nlohmann::json::parse(liveMcp.callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"bot_handle", "cc1"}, {"depth", 2}, {"top_k", 2}}).dump()));
+    CHECK_TRUE(byBot.value("ok", false));
+    CHECK_EQUAL("2P", byBot.value("mode", ""));
+    CHECK_EQUAL(1, byBot.value("bases", 0));
+    CHECK_TRUE(byBot.value("super_prongs", false));
+    CHECK_EQUAL(2u, byBot["top_candidates"].size());
+
+    auto byRoom = nlohmann::json::parse(liveMcp.callTool(
+        "octibot_analyze_position",
+        nlohmann::json({{"room_id", "#" + liveRoomId}, {"depth", 2}, {"top_k", 2}}).dump()));
+    CHECK_TRUE(byRoom.value("ok", false));
+    CHECK_EQUAL("2P", byRoom.value("mode", ""));
+    CHECK_EQUAL(1, byRoom.value("bases", 0));
+    CHECK_TRUE(byRoom.value("super_prongs", false));
+    CHECK_EQUAL(2u, byRoom["top_candidates"].size());
+
+    c2Run.stop();
+    c1Run.stop();
+    hRun.stop();
+}
+
+// ============================================================================
 
 int main(int argc, char **argv) {
 #if !defined(_WIN32)

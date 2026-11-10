@@ -79,6 +79,7 @@ public:
 private:
     std::string handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion);
     void registerHttpRoutes();
+    OctiBotRunner *resolveToolRunner(const nlohmann::json &args, std::string &errorOut);
 
     OctiBotRunner &_runner;
     OctiBotEngine _engineAnalyzer;

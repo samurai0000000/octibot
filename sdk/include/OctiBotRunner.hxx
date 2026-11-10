@@ -59,6 +59,11 @@ struct BotMatchOverride {
     bool allowRobots = false;
     std::string hostMode;
     int hostBases = 0;
+    bool hasHostSuperProngs = false;
+    bool hostSuperProngs = false;
+    bool hasHostEdgeless = false;
+    bool hostEdgeless = false;
+    int preferredSeat = 0;
     int remainingGames = 1;
 };
 
@@ -82,6 +87,9 @@ public:
     bool isSuperseded() const { return _superseded; }
     bool isLobbyOnly() const { return _lobbyOnly; }
     static OctiBotRunner *findActiveRunnerByHandle(const std::string &handle);
+    static std::vector<OctiBotRunner *> listActiveRunners();
+    static std::string resolvePrimarySdkBotHandle();
+    static std::string resolveCanonicalBotHandle(const std::string &rawHandle);
 
     // Active chat sender tracking
     std::string activeChatSenderHandle() const;
@@ -168,6 +176,7 @@ public:
     bool submitAgentMove(const std::string &moveNotation, std::string &errorOut);
     bool executeGameAction(const std::string &action, const std::string &arg, std::string &errorOut);
     bool joinRoomById(const std::string &roomId, int &outSeat, std::string &errorOut);
+    bool joinRoomById(const std::string &roomId, int preferredSeat, int &outSeat, std::string &errorOut);
     bool hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut);
     bool leaveRoomById(const std::string &roomId, std::string &errorOut);
     void requestLeaveAfterChat(const std::string &roomId, const std::string &replacementBotHandle = "");
