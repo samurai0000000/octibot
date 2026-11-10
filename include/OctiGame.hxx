@@ -95,6 +95,7 @@ struct OctiGameSnapshot {
     OctiMove lastMove;
     OctiPlayer lastPlayer = PLAYER_UNDEF;
     int searchPlyOffset = 0;
+    int nullMoveDepth = 0;
     std::vector<OctiPlyMetadata> plyMetadata;
     OctiPlyMetadata lastPlyMeta;
 };
@@ -203,6 +204,9 @@ public:
     void restoreSnapshot(const OctiGameSnapshot &snap);
     void setSearchMode(bool searchMode);
     bool isSearchMode() const;
+    bool makeNullMove(std::uint64_t *inOutHash = nullptr);
+    bool unmakeNullMove(std::uint64_t *inOutHash = nullptr);
+    bool isInNullMove() const;
 
 private:
     void notifyGameUpdated();
@@ -243,6 +247,7 @@ private:
     std::vector<OctiGameListener *> _listeners;
     bool _searchMode = false;
     int _searchPlyOffset = 0;
+    int _nullMoveDepth = 0;
 };
 
 } // namespace octi

@@ -35,6 +35,23 @@ struct BotSearchStats {
     long elapsedMs = 0;
 };
 
+struct BotSearchDiagnostics {
+    std::uint64_t pvsReSearches = 0;
+    std::uint64_t aspirationReSearches = 0;
+    std::uint64_t aspirationFailLows = 0;
+    std::uint64_t aspirationFailHighs = 0;
+    std::uint64_t killerUpdates = 0;
+    std::uint64_t killerHits = 0;
+    std::uint64_t historyUpdates = 0;
+    std::uint64_t lmrReductions = 0;
+    std::uint64_t lmrReSearches = 0;
+    std::uint64_t nullMoveTries = 0;
+    std::uint64_t nullMoveVerifications = 0;
+    std::uint64_t nullMoveCutoffs = 0;
+    std::uint64_t qsearchTtProbes = 0;
+    std::uint64_t qsearchTtHits = 0;
+};
+
 struct OpeningBookCandidate {
     const char *move;
     std::int16_t score;
@@ -65,6 +82,17 @@ struct BotTuningProfile {
     int rootScoreJitter              = 25;    // Random root score noise [-jitter, +jitter] (0 = deterministic)
     int bookSelectionWindow          = 0;     // Opening book candidate score window (0 = deterministic top move)
     bool useOpeningBook              = true;  // Probe precomputed Zobrist opening playbook before live search
+    bool usePvs                      = false; // Principal Variation Search null-window + re-search
+    int aspirationWindowCp           = 0;     // Root aspiration half-window in eval units (<= 0 = off)
+    bool useKillers                  = false; // Per-thread 2-slot killer move heuristic per ply
+    bool useHistory                  = false; // Per-thread quiet beta-cutoff history heuristic
+    int lmrMinDepth                  = 0;     // Min search depth for Late-Move Reductions (<= 0 = off)
+    int lmrMinMoveIndex              = 0;     // Min 0-based move index for LMR (<= 0 = off)
+    int nullMoveMinDepth             = 0;     // Min search depth for Null-Move Pruning (<= 0 = off)
+    int nullMoveReduction            = 2;     // Depth reduction R in null-move search (depth - 1 - R)
+    bool qsearchUseTt                = false; // Probe & store transposition table in quiescence search
+    int ttSizeLog2                   = 18;    // Transposition table size = 1 << ttSizeLog2 (clamped 12..26)
+    bool lazySmpDiversifyHelpers     = false; // Rotate helper root moves by t and stagger depth 1+((t-1)%4)
 
     // --- 2. Base Occupation & Distance Weights ---
     int capturedEnemyBaseBonus       = 28000; // Bonus per captured enemy home square (3-base / 4P)
@@ -145,6 +173,9 @@ public:
         BotSearchStats *outStats = nullptr);
 
     static std::uint64_t computePositionHashStatic(const OctiBoard &board);
+    static std::uint64_t toggleTurnHashStatic(std::uint64_t hash,
+                                              OctiPlayer fromTurn,
+                                              OctiPlayer toTurn) noexcept;
     static std::uint64_t computeCanonicalOpeningHash(const OctiBoard &board,
                                                      bool *outMirrored = nullptr);
     static std::string mirrorMoveNotation(const std::string &moveNotation,
@@ -174,13 +205,17 @@ public:
     static int branchCapForDifficulty(BotDifficulty d);
 
     std::uint64_t lookupTranspositionBestMoveKey(const OctiBoard &board) const;
+    std::size_t transpositionTableEntryCount() const noexcept { return _tt.size(); }
+    BotSearchDiagnostics lastSearchDiagnostics() const noexcept { return _lastDiagnostics; }
 
 private:
+    struct SearchThreadState;
+
     struct TranspositionEntry {
         std::uint64_t key = 0;
         std::uint64_t bestMoveKey = 0;
         std::int32_t score = 0;
-        std::int16_t depth = -1;
+        std::int16_t depth = -128;
         std::int8_t flag = 0; // 0 = exact, 1 = lowerbound, 2 = upperbound
         std::uint8_t pad = 0;
     };
@@ -195,6 +230,7 @@ public:
 
 private:
 
+    void ensureTranspositionTableSize();
     std::uint64_t nextRandom();
     std::uint64_t computePositionHash(const OctiBoard &board) const;
 
@@ -206,7 +242,8 @@ private:
                 OctiPlayer currentPerspective,
                 std::uint64_t &nodesVisited,
                 long deadlineMs,
-                bool &timedOut);
+                bool &timedOut,
+                SearchThreadState &state);
 
     int negamax(OctiBoard &scratchBoard,
                 int depth,
@@ -216,14 +253,19 @@ private:
                 OctiPlayer currentPerspective,
                 std::uint64_t &nodesVisited,
                 long deadlineMs,
-                bool &timedOut);
+                bool &timedOut,
+                SearchThreadState &state,
+                bool allowNullMove = true);
 
     BotDifficulty _difficulty;
     BotTuningProfile _profile;
     int _timeBudgetMs;
     bool _customTimeBudget;
     std::uint64_t _rngState;
+    int _ttSizeLog2;
+    std::size_t _ttMask;
     std::vector<TranspositionEntry> _tt;
+    BotSearchDiagnostics _lastDiagnostics;
     std::atomic<bool> _stopSearch{false};
     std::atomic<int> _liveDepthReached{0};
     std::atomic<std::uint64_t> _liveNodesVisited{0};

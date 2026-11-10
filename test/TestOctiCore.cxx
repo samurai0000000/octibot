@@ -6960,6 +6960,816 @@ TEST(OctiEnvelope3SpeedupTest, CompactTtMoveKeyRoundTripsAndLazySmp8ThreadsClean
     CHECK_TRUE(foundLegal);
 }
 
+// ---------------------------------------------------------------------------
+// Envelope 4 Search Improvements Unit Tests
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiEnvelope4SearchTest)
+{
+};
+
+TEST(OctiEnvelope4SearchTest, DefaultOffProfilePreservesExactNodeCountsBestMovesAndUncappedBranches)
+{
+    octi::BotTuningProfile defProf;
+    CHECK_FALSE(defProf.usePvs);
+    CHECK_EQUAL(0, defProf.aspirationWindowCp);
+    CHECK_FALSE(defProf.useKillers);
+    CHECK_FALSE(defProf.useHistory);
+    CHECK_EQUAL(0, defProf.lmrMinDepth);
+    CHECK_EQUAL(0, defProf.lmrMinMoveIndex);
+    CHECK_EQUAL(0, defProf.nullMoveMinDepth);
+    CHECK_EQUAL(2, defProf.nullMoveReduction);
+    CHECK_FALSE(defProf.qsearchUseTt);
+    CHECK_EQUAL(18, defProf.ttSizeLog2);
+    CHECK_FALSE(defProf.lazySmpDiversifyHelpers);
+
+    octi::OctiBotEngine checkEngine(octi::BotDifficulty::GRANDMASTER, 0x5EED2026ULL);
+    CHECK_EQUAL(24u, octi::OctiBotEngine::transpositionEntrySize());
+    CHECK_EQUAL(std::size_t{1} << 18, checkEngine.transpositionTableEntryCount());
+
+    // Exact depth-5 single-thread pin against Envelope 3 bench fixtures [5] and [23]
+    struct PinnedFixture {
+        const char *fen;
+        std::uint64_t expectedNodes;
+        const char *expectedBestMove;
+        int expectedScore;
+    };
+    const PinnedFixture kPinned[2] = {
+        {"2:3:0:0:P:A:-:0:4,0,22,0:4,0,22,0:A33,A53ab,A73a,B37e,B57e,B77f",
+         41596ULL, "73a+h", 2752},
+        {"OFK:1:0:0:P:A:-:0:0,0,8,0:0,0,6,0:A22,A32,A42,A64abdh,B26de,B36de,B46,B56ef",
+         45124ULL, "64abdh-65", 14350}
+    };
+
+    for (const auto &fix : kPinned) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(fix.fen);
+
+        octi::OctiBotEngine engine(octi::BotDifficulty::GRANDMASTER, 0x5EED2026ULL);
+        octi::BotTuningProfile prof =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::GRANDMASTER);
+        prof.lazySmpThreads = 1;
+        prof.useOpeningBook = false;
+        prof.rootScoreJitter = 0;
+        prof.bookSelectionWindow = 0;
+        prof.maxSearchDepth = 5;
+        prof.timeBudgetMs = 3600000;
+        engine.setTuningProfile(prof);
+        engine.setTimeBudgetMs(3600000);
+
+        octi::BotSearchStats stats;
+        std::string best = engine.chooseMove(board, &stats);
+        CHECK_EQUAL(5, stats.depthReached);
+        CHECK_EQUAL(fix.expectedNodes, stats.nodesVisited);
+        STRCMP_EQUAL(fix.expectedBestMove, best.c_str());
+        CHECK_EQUAL(fix.expectedScore, stats.bestScore);
+
+        octi::BotSearchDiagnostics diag = engine.lastSearchDiagnostics();
+        CHECK_EQUAL(0ULL, diag.pvsReSearches);
+        CHECK_EQUAL(0ULL, diag.aspirationReSearches);
+        CHECK_EQUAL(0ULL, diag.killerUpdates);
+        CHECK_EQUAL(0ULL, diag.historyUpdates);
+        CHECK_EQUAL(0ULL, diag.lmrReductions);
+        CHECK_EQUAL(0ULL, diag.nullMoveTries);
+        CHECK_EQUAL(0ULL, diag.qsearchTtProbes);
+    }
+
+    // Verify rootBranchCap <= 0 and treeBranchCap <= 0 mean "all legal moves" (uncapped)
+    octi::OctiBoard wideBoard(octi::GAME_MODE_2);
+    wideBoard.suppressBoardUpdateNotification(true);
+    wideBoard.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,0,12,0:2,0,12,0:"
+        "A33abch,A53abgh,A73abf,A44abcdefgh,A64abch,B37def,B57def,B77def");
+    std::vector<octi::OctiMove> rawLegal = wideBoard.getGame()->generateLegalMoves();
+    CHECK_TRUE(rawLegal.size() > 48u);
+
+    octi::OctiBotEngine uncappedEngine(octi::BotDifficulty::TACTICAL);
+    octi::BotTuningProfile uncappedProf = uncappedEngine.tuningProfile();
+    uncappedProf.useOpeningBook = false;
+    uncappedProf.rootScoreJitter = 0;
+    uncappedProf.lazySmpThreads = 1;
+    uncappedProf.compositeMoveMaxPly = -1;
+    uncappedProf.rootBranchCap = 0;
+    uncappedProf.treeBranchCap = 0;
+    uncappedEngine.setTuningProfile(uncappedProf);
+
+    std::vector<octi::BookMoveScore> allScored =
+        uncappedEngine.searchTopMovesForBook(wideBoard, 1, 0, 512);
+    CHECK_TRUE(allScored.size() > 48u);
+}
+
+TEST(OctiEnvelope4SearchTest, MakeAndUnmakeNullMoveZobristInvariantsAndPruningGuards)
+{
+    // 1. Rejected outside search mode and before game start
+    {
+        octi::OctiBoard b2(octi::GAME_MODE_2);
+        octi::OctiGame *g2 = b2.getGame();
+        g2->setSearchMode(true);
+        CHECK_FALSE(g2->makeNullMove()); // not started yet
+
+        g2->setSearchMode(false);
+        g2->start(octi::PLAYER_A);
+        std::uint64_t hBefore = octi::OctiBotEngine::computePositionHashStatic(b2);
+        std::uint64_t hTrack = hBefore;
+        CHECK_FALSE(g2->makeNullMove(&hTrack));
+        CHECK_FALSE(g2->isInNullMove());
+        CHECK_EQUAL(octi::PLAYER_A, g2->getTurn());
+        CHECK_EQUAL(hBefore, hTrack);
+
+        // Now enable search mode: makeNullMove & unmakeNullMove must round-trip cleanly
+        g2->setSearchMode(true);
+        int movesBefore = g2->getNumMoves();
+        CHECK_TRUE(g2->makeNullMove(&hTrack));
+        CHECK_TRUE(g2->isInNullMove());
+        CHECK_EQUAL(octi::PLAYER_B, g2->getTurn());
+        CHECK_EQUAL(movesBefore + 1, g2->getNumMoves());
+        CHECK_TRUE(hTrack != hBefore);
+        CHECK_EQUAL(octi::OctiBotEngine::computePositionHashStatic(b2), hTrack);
+
+        // Snapshot round-trip inside active null move preserves isInNullMove()
+        octi::OctiGameSnapshot snap = g2->captureSnapshot();
+        g2->move("57+e");
+        g2->restoreSnapshot(snap);
+        CHECK_TRUE(g2->isInNullMove());
+        CHECK_EQUAL(octi::PLAYER_B, g2->getTurn());
+
+        CHECK_TRUE(g2->unmakeNullMove(&hTrack));
+        CHECK_FALSE(g2->isInNullMove());
+        CHECK_EQUAL(octi::PLAYER_A, g2->getTurn());
+        CHECK_EQUAL(movesBefore, g2->getNumMoves());
+        CHECK_EQUAL(hBefore, hTrack);
+        CHECK_EQUAL(hBefore, octi::OctiBotEngine::computePositionHashStatic(b2));
+        CHECK_FALSE(g2->unmakeNullMove(&hTrack)); // extra unmake rejected
+    }
+
+    // 2. Works identically in GAME_MODE_OFK search mode
+    {
+        octi::OctiBoard bOfk(octi::GAME_MODE_OFK);
+        octi::OctiGame *gOfk = bOfk.getGame();
+        gOfk->start(octi::PLAYER_A);
+        gOfk->setSearchMode(true);
+        std::uint64_t h0 = octi::OctiBotEngine::computePositionHashStatic(bOfk);
+        std::uint64_t hInc = h0;
+        CHECK_TRUE(gOfk->makeNullMove(&hInc));
+        CHECK_EQUAL(octi::PLAYER_B, gOfk->getTurn());
+        CHECK_EQUAL(octi::OctiBotEngine::computePositionHashStatic(bOfk), hInc);
+        CHECK_TRUE(gOfk->unmakeNullMove(&hInc));
+        CHECK_EQUAL(octi::PLAYER_A, gOfk->getTurn());
+        CHECK_EQUAL(h0, hInc);
+    }
+
+    // 3. Strictly rejected in GAME_MODE_4 even when searchMode is true
+    {
+        octi::OctiBoard b4(octi::GAME_MODE_4);
+        octi::OctiGame *g4 = b4.getGame();
+        g4->start(octi::PLAYER_A);
+        g4->setSearchMode(true);
+        std::uint64_t h0 = octi::OctiBotEngine::computePositionHashStatic(b4);
+        std::uint64_t hInc = h0;
+        CHECK_FALSE(g4->makeNullMove(&hInc));
+        CHECK_FALSE(g4->isInNullMove());
+        CHECK_EQUAL(octi::PLAYER_A, g4->getTurn());
+        CHECK_EQUAL(h0, hInc);
+
+        octi::OctiBotEngine bot4(octi::BotDifficulty::TACTICAL);
+        octi::BotTuningProfile p4 = bot4.tuningProfile();
+        p4.useOpeningBook = false;
+        p4.rootScoreJitter = 0;
+        p4.lazySmpThreads = 1;
+        p4.maxSearchDepth = 3;
+        p4.rootBranchCap = 10;
+        p4.treeBranchCap = 10;
+        p4.nullMoveMinDepth = 2;
+        p4.nullMoveReduction = 2;
+        p4.timeBudgetMs = 30000;
+        bot4.setTuningProfile(p4);
+        bot4.chooseMove(b4);
+        CHECK_EQUAL(0ULL, bot4.lastSearchDiagnostics().nullMoveTries);
+    }
+
+    // 4. Disabled when side to move has freePods == 0 AND < 2 armed pods on board
+    {
+        octi::OctiBoard bLowMat(octi::GAME_MODE_2);
+        bLowMat.suppressBoardUpdateNotification(true);
+        bLowMat.fromPositionString("2:3:0:0:P:A:-:0:0,0,6,0:0,0,6,0:A44ab,A33,B56ef,B77");
+
+        octi::OctiBotEngine botLow(octi::BotDifficulty::TACTICAL);
+        octi::BotTuningProfile pLow = botLow.tuningProfile();
+        pLow.useOpeningBook = false;
+        pLow.rootScoreJitter = 0;
+        pLow.lazySmpThreads = 1;
+        pLow.maxSearchDepth = 4;
+        pLow.rootBranchCap = 12;
+        pLow.treeBranchCap = 12;
+        pLow.nullMoveMinDepth = 2;
+        pLow.nullMoveReduction = 2;
+        pLow.timeBudgetMs = 30000;
+        botLow.setTuningProfile(pLow);
+        botLow.chooseMove(bLowMat);
+        CHECK_EQUAL(0ULL, botLow.lastSearchDiagnostics().nullMoveTries);
+    }
+
+    // 5. Active with verification search in normal 2P midgame
+    {
+        octi::OctiBoard bMid(octi::GAME_MODE_2);
+        bMid.suppressBoardUpdateNotification(true);
+        bMid.fromPositionString(
+            "2:3:0:0:P:A:-:0:3,0,18,0:3,0,18,0:A44abh,A54ab,A73a,B37de,B57ef,B77f");
+
+        octi::BotTuningProfile baseP =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+        baseP.useOpeningBook = false;
+        baseP.rootScoreJitter = 0;
+        baseP.lazySmpThreads = 1;
+        baseP.maxSearchDepth = 4;
+        baseP.rootBranchCap = 16;
+        baseP.treeBranchCap = 14;
+        baseP.timeBudgetMs = 30000;
+
+        octi::OctiBotEngine botOff(octi::BotDifficulty::TACTICAL);
+        botOff.setTuningProfile(baseP);
+        octi::BotSearchStats statsOff;
+        botOff.chooseMove(bMid, &statsOff);
+        CHECK_EQUAL(0ULL, botOff.lastSearchDiagnostics().nullMoveTries);
+
+        octi::OctiBotEngine botOn(octi::BotDifficulty::TACTICAL);
+        octi::BotTuningProfile onP = baseP;
+        onP.nullMoveMinDepth = 2;
+        onP.nullMoveReduction = 2;
+        botOn.setTuningProfile(onP);
+        octi::BotSearchStats statsOn;
+        std::string mvOn = botOn.chooseMove(bMid, &statsOn);
+        CHECK_FALSE(mvOn.empty());
+
+        octi::BotSearchDiagnostics diagOn = botOn.lastSearchDiagnostics();
+        CHECK_TRUE(diagOn.nullMoveTries > 0ULL);
+        CHECK_TRUE(diagOn.nullMoveVerifications > 0ULL);
+        CHECK_TRUE(diagOn.nullMoveCutoffs > 0ULL);
+        CHECK_TRUE(statsOn.nodesVisited < statsOff.nodesVisited);
+    }
+}
+
+TEST(OctiEnvelope4SearchTest, PvsReSearchesOnFailHighAndMatchesFullWindowAlphaBeta)
+{
+    // Position where shallow d=1 choice gets tactically refuted at d=2/d=3, so a move at
+    // mvIdx >= 1 beats move 0's alpha under the PVS null window and triggers full re-search.
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:"
+        "B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37");
+
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 1;
+    prof.compositeMoveMaxPly = -1;
+    prof.maxQuiesceDepth = 2;
+    prof.quiesceBranchCap = 0;
+    prof.rootBranchCap = 0;
+    prof.treeBranchCap = 0;
+    prof.maxSearchDepth = 3;
+    prof.timeBudgetMs = 60000;
+    prof.moveOrderCaptureBonus = -16000;
+    prof.moveOrderLeapfrogBonus = -1200;
+
+    octi::OctiBotEngine abEngine(octi::BotDifficulty::TACTICAL);
+    abEngine.setTuningProfile(prof);
+    octi::BotSearchStats abStats;
+    std::string abBest = abEngine.chooseMove(board, &abStats);
+    CHECK_EQUAL(0ULL, abEngine.lastSearchDiagnostics().pvsReSearches);
+
+    octi::OctiBotEngine pvsEngine(octi::BotDifficulty::TACTICAL);
+    octi::BotTuningProfile pvsProf = prof;
+    pvsProf.usePvs = true;
+    pvsEngine.setTuningProfile(pvsProf);
+    octi::BotSearchStats pvsStats;
+    std::string pvsBest = pvsEngine.chooseMove(board, &pvsStats);
+
+    CHECK_TRUE(pvsEngine.lastSearchDiagnostics().pvsReSearches > 0ULL);
+    CHECK_TRUE(pvsStats.nodesVisited < abStats.nodesVisited);
+    CHECK_EQUAL(abStats.bestScore, pvsStats.bestScore);
+    STRCMP_EQUAL(abBest.c_str(), pvsBest.c_str());
+}
+
+TEST(OctiEnvelope4SearchTest, AspirationWindowWidensOnFailLowAndFailHighAndMatchesFullWindow)
+{
+    const char *kFens[3] = {
+        "2:3:0:0:P:A:-:0:3,0,18,0:3,0,18,0:A44abh,A55ab,A73a,B46def,B57ef,B77f",
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37",
+        "OFK:1:0:0:P:A:-:0:0,0,8,0:0,0,6,0:A22,A32,A42,A64abdh,B26de,B36de,B46,B56ef"
+    };
+
+    std::uint64_t totalFailLows = 0;
+    std::uint64_t totalFailHighs = 0;
+    std::uint64_t totalReSearches = 0;
+
+    for (const char *fen : kFens) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(fen);
+
+        octi::BotTuningProfile fullProf =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+        fullProf.useOpeningBook = false;
+        fullProf.rootScoreJitter = 0;
+        fullProf.lazySmpThreads = 1;
+        fullProf.compositeMoveMaxPly = -1;
+        fullProf.rootBranchCap = 18;
+        fullProf.treeBranchCap = 14;
+        fullProf.maxSearchDepth = 3;
+        fullProf.timeBudgetMs = 60000;
+
+        octi::OctiBotEngine fullEngine(octi::BotDifficulty::TACTICAL);
+        fullEngine.setTuningProfile(fullProf);
+        octi::BotSearchStats fullStats;
+        std::string fullMove = fullEngine.chooseMove(board, &fullStats);
+        CHECK_EQUAL(0ULL, fullEngine.lastSearchDiagnostics().aspirationReSearches);
+
+        octi::OctiBotEngine aspEngine(octi::BotDifficulty::TACTICAL);
+        octi::BotTuningProfile aspProf = fullProf;
+        aspProf.aspirationWindowCp = 5; // Narrow 5-cp window forces fail-low & fail-high
+        aspEngine.setTuningProfile(aspProf);
+        octi::BotSearchStats aspStats;
+        std::string aspMove = aspEngine.chooseMove(board, &aspStats);
+
+        CHECK_EQUAL(fullStats.bestScore, aspStats.bestScore);
+        STRCMP_EQUAL(fullMove.c_str(), aspMove.c_str());
+
+        octi::BotSearchDiagnostics d = aspEngine.lastSearchDiagnostics();
+        totalFailLows += d.aspirationFailLows;
+        totalFailHighs += d.aspirationFailHighs;
+        totalReSearches += d.aspirationReSearches;
+    }
+
+    CHECK_TRUE(totalFailLows > 0ULL);
+    CHECK_TRUE(totalFailHighs > 0ULL);
+    CHECK_TRUE(totalReSearches >= totalFailLows + totalFailHighs);
+}
+
+TEST(OctiEnvelope4SearchTest, KillersAndHistoryUpdateOnQuietCutoffsAndLazySmp8ThreadsRaceFree)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,0,16,0:3,0,16,0:A44abh,A53ab,A73a,B46def,B57ef,B77f");
+
+    // 1. Single-thread deterministic check of killer updates, killer hits, and history updates
+    {
+        octi::OctiBotEngine engine(octi::BotDifficulty::TACTICAL);
+        octi::BotTuningProfile prof = engine.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.rootScoreJitter = 0;
+        prof.lazySmpThreads = 1;
+        prof.maxSearchDepth = 4;
+        prof.rootBranchCap = 16;
+        prof.treeBranchCap = 14;
+        prof.useKillers = true;
+        prof.useHistory = true;
+        prof.timeBudgetMs = 60000;
+        engine.setTuningProfile(prof);
+
+        octi::BotSearchStats stats;
+        std::string best = engine.chooseMove(board, &stats);
+        CHECK_FALSE(best.empty());
+        CHECK_EQUAL(4, stats.depthReached);
+
+        octi::BotSearchDiagnostics diag = engine.lastSearchDiagnostics();
+        CHECK_TRUE(diag.killerUpdates > 0ULL);
+        CHECK_TRUE(diag.killerHits > 0ULL);
+        CHECK_TRUE(diag.historyUpdates > 0ULL);
+    }
+
+    // 2. 8-thread Lazy SMP with per-thread killer/history tables and diversified helpers
+    {
+        octi::OctiBotEngine smpEngine(octi::BotDifficulty::MASTER);
+        octi::BotTuningProfile smpProf = smpEngine.tuningProfile();
+        smpProf.useOpeningBook = false;
+        smpProf.rootScoreJitter = 0;
+        smpProf.lazySmpThreads = 8;
+        smpProf.lazySmpDiversifyHelpers = true;
+        smpProf.usePvs = true;
+        smpProf.aspirationWindowCp = 250;
+        smpProf.useKillers = true;
+        smpProf.useHistory = true;
+        smpProf.lmrMinDepth = 3;
+        smpProf.lmrMinMoveIndex = 3;
+        smpProf.nullMoveMinDepth = 3;
+        smpProf.nullMoveReduction = 2;
+        smpProf.qsearchUseTt = true;
+        smpProf.maxSearchDepth = 6;
+        smpProf.timeBudgetMs = 550; // >= 500ms spawns all 7 helper threads
+        smpEngine.setTuningProfile(smpProf);
+
+        octi::BotSearchStats smpStats;
+        std::string smpBest = smpEngine.chooseMove(board, &smpStats);
+        CHECK_FALSE(smpBest.empty());
+        CHECK_TRUE(smpStats.depthReached >= 1);
+        CHECK_TRUE(smpStats.nodesVisited > 50ULL);
+
+        octi::BotSearchDiagnostics smpDiag = smpEngine.lastSearchDiagnostics();
+        CHECK_TRUE(smpDiag.killerUpdates > 0ULL);
+        CHECK_TRUE(smpDiag.historyUpdates > 0ULL);
+
+        std::vector<octi::OctiMove> legal = board.getGame()->generateLegalMoves();
+        bool isLegal = false;
+        for (const auto &m : legal) {
+            if (m.asString() == smpBest) {
+                isLegal = true;
+                break;
+            }
+        }
+        CHECK_TRUE(isLegal);
+    }
+}
+
+TEST(OctiEnvelope4SearchTest, LmrReducesLateQuietMovesAndReSearchesWhenBeatingAlpha)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:B:-:0:1,0,20,0:4,0,17,0:"
+        "A33c,A53,A73,A34ab,A54a,A75b,B56cdef,B57ef,B77ef");
+
+    octi::OctiBotEngine engine(octi::BotDifficulty::TACTICAL);
+    octi::BotTuningProfile prof = engine.tuningProfile();
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 1;
+    prof.compositeMoveMaxPly = -1;
+    prof.rootBranchCap = 12;
+    prof.treeBranchCap = 12;
+    prof.maxSearchDepth = 4; // Root d=4 enters interior negamax at depth=3 >= lmrMinDepth
+    prof.lmrMinDepth = 3;
+    prof.lmrMinMoveIndex = 2; // Reduce quiet moves from index 2 at interior depth >= 3
+    prof.timeBudgetMs = 60000;
+    engine.setTuningProfile(prof);
+
+    octi::BotSearchStats stats;
+    std::string best = engine.chooseMove(board, &stats);
+    CHECK_FALSE(best.empty());
+    CHECK_EQUAL(4, stats.depthReached);
+
+    octi::BotSearchDiagnostics diag = engine.lastSearchDiagnostics();
+    CHECK_TRUE(diag.lmrReductions > 0ULL);
+    CHECK_TRUE(diag.lmrReSearches > 0ULL);
+    CHECK_TRUE(diag.lmrReductions > diag.lmrReSearches);
+}
+
+TEST(OctiEnvelope4SearchTest, QuiescenceTtReducesNodesOnTranspositionsAndTtSizeLog2ResizesCleanly)
+{
+    // Two independent jump-capture lanes (A34ab->36x and A64ab->66x, plus B counter-captures)
+    // transpose in quiescence search depending on capture order.
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,0,12,0:2,0,12,0:"
+        "A34ab,A64ab,A53a,B35ef,B65ef,B47def,B77def");
+
+    octi::BotTuningProfile baseProf =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+    baseProf.useOpeningBook = false;
+    baseProf.rootScoreJitter = 0;
+    baseProf.lazySmpThreads = 1;
+    baseProf.compositeMoveMaxPly = -1;
+    baseProf.maxSearchDepth = 2;
+    baseProf.maxQuiesceDepth = 5;
+    baseProf.quiesceBranchCap = 0;
+    baseProf.rootBranchCap = 24;
+    baseProf.treeBranchCap = 24;
+    baseProf.timeBudgetMs = 60000;
+
+    octi::OctiBotEngine qOffEngine(octi::BotDifficulty::TACTICAL);
+    qOffEngine.setTuningProfile(baseProf);
+    octi::BotSearchStats statsOff;
+    std::string moveOff = qOffEngine.chooseMove(board, &statsOff);
+    CHECK_EQUAL(0ULL, qOffEngine.lastSearchDiagnostics().qsearchTtProbes);
+    CHECK_EQUAL(0ULL, qOffEngine.lastSearchDiagnostics().qsearchTtHits);
+
+    octi::OctiBotEngine qOnEngine(octi::BotDifficulty::TACTICAL);
+    octi::BotTuningProfile onProf = baseProf;
+    onProf.qsearchUseTt = true;
+    qOnEngine.setTuningProfile(onProf);
+    octi::BotSearchStats statsOn;
+    std::string moveOn = qOnEngine.chooseMove(board, &statsOn);
+
+    octi::BotSearchDiagnostics diagOn = qOnEngine.lastSearchDiagnostics();
+    CHECK_TRUE(diagOn.qsearchTtProbes > 0ULL);
+    CHECK_TRUE(diagOn.qsearchTtHits > 0ULL);
+    CHECK_TRUE(statsOn.nodesVisited < statsOff.nodesVisited);
+    CHECK_EQUAL(statsOff.bestScore, statsOn.bestScore);
+    STRCMP_EQUAL(moveOff.c_str(), moveOn.c_str());
+
+    // Verify dynamic TT resizing via ttSizeLog2 and bounds clamping
+    CHECK_EQUAL(std::size_t{1} << 18, qOnEngine.transpositionTableEntryCount());
+    onProf.ttSizeLog2 = 20;
+    qOnEngine.setTuningProfile(onProf);
+    CHECK_EQUAL(std::size_t{1} << 20, qOnEngine.transpositionTableEntryCount());
+
+    onProf.ttSizeLog2 = 8; // Clamped to MIN_TT_SIZE_LOG2 = 12
+    qOnEngine.setTuningProfile(onProf);
+    CHECK_EQUAL(std::size_t{1} << 12, qOnEngine.transpositionTableEntryCount());
+}
+
+namespace {
+
+static const char *const kE3bRef24Fens[24] = {
+    "2:3:1:0:P:B:-:0:4,0,17,0:4,0,18,0:A33abh,B53ade!,B53e,B37def,A77a!be,A77ab",
+    "2:3:1:0:P:B:-:0:3,0,16,0:4,0,12,0:A42abfh,B72abde!,A53h,B73e,B76defg,A37a!beh,A57abch",
+    "2:3:1:0:P:B:-:0:4,0,20,0:4,1,19,0:B52ade!,A33ab,B37def,A77a!eh,A77",
+    "2:3:1:0:P:A:-:0:4,0,17,0:4,0,17,0:B72ae!f,A53abh,B73ef,A37ab,B57def,A38a!be",
+    "2:3:1:0:P:A:-:0:4,0,23,0:4,1,23,0:A33,A53a,B34e!,B57e,A78a!",
+    "2:3:1:0:P:B:-:0:4,0,18,0:4,1,18,0:B33ade!h,B73efg,A37abc,A77a!bde,A77",
+    "2:1:1:0:P:B:-:0:4,1,21,0:4,0,24,0:B32e!,A53ab,A73a,B57,B77e!",
+    "2:1:1:0:P:B:-:0:4,0,22,0:4,0,24,0:A33b!,A53,A73ah,B34e!,B57,B77",
+    "2:1:1:0:P:B:-:0:4,1,19,0:4,0,22,0:B32e!,A53adh,A73ah,B66d!ef,B77",
+    "2:1:1:0:P:B:-:0:4,2,19,1:4,1,23,0:A71abdh,B32e!,B77de",
+    "2:1:1:0:P:B:-:0:4,1,20,0:4,0,23,0:B32e!,A53abh,A73a,B57e!f,B77",
+    "2:1:1:0:P:B:-:0:4,1,20,0:4,0,23,0:B32e!,A53ah,A73ah,B57e!f,B77",
+    "4:3:1:0:P:A:-:0:3,0,11,0:2,2,10,0:2,1,10,0:3,0,9,0:C27fg!,A38a!be!,D78a!eh",
+    "4:3:1:0:P:D:-:3:3,1,11,0:0,4,10,0:2,0,9,0:2,0,10,1:D33ab!g!h,D73,C37cfg!,C77",
+    "4:3:1:0:P:D:-:2:0,3,10,0:2,2,9,0:3,0,11,0:3,0,10,0:D23acg!h!,A33,C37ce!fg!",
+    "4:3:1:0:P:D:-:1:3,1,10,0:2,2,7,0:3,0,12,1:3,0,9,0:D33abfg!h!,C36efg!h",
+    "4:3:1:0:P:C:-:3:3,1,10,1:2,2,11,1:2,0,8,0:2,1,7,0:D33agh,C66efg,C37ce!fg!",
+    "4:3:1:0:P:C:-:2:3,0,11,0:3,1,10,0:3,0,9,0:3,0,9,0:D73a!gh,A37a!bc!,C77e!fg",
+    "2:3:1:1:P:A:-:0:4,0,15,0:4,0,14,0:B33cde!f,A73abh,A44abh,B65defg,A37a!bch,B77def",
+    "2:3:1:1:P:A:-:0:4,0,17,0:4,0,17,0:B53ade!,B53ef,A73abh,A37ab,B77def,A38a!be",
+    "2:3:1:1:P:B:-:0:4,0,25,0:2,4,14,0:B86bdef!,A37ab,A57abcf!h,A57",
+    "2:3:1:1:P:B:-:0:2,0,6,0:3,0,7,0:B53cde!fg,A73abch,A24abh,A34abch,A35abch,B95cdef,B36cdef,B37cdefg,A57a!bch",
+    "2:3:1:1:P:B:-:0:4,0,18,0:4,0,19,0:B33de,B33,A74a!bde,B36ae!fh,A77abh,A77",
+    "2:3:1:1:P:B:-:0:4,1,21,0:4,1,21,0:B32ade!,A73a,A57a!eh,B77d"
+};
+
+struct E3bSpVariantSpec {
+    octi::OctiGameMode mode;
+    bool edgeless;
+    octi::OctiGameBases bases;
+};
+
+static const E3bSpVariantSpec kE3bSpVariants8[8] = {
+    { octi::GAME_MODE_2, false, octi::GAME_BASES_3 },
+    { octi::GAME_MODE_2, true,  octi::GAME_BASES_3 },
+    { octi::GAME_MODE_2, false, octi::GAME_BASES_1 },
+    { octi::GAME_MODE_2, true,  octi::GAME_BASES_1 },
+    { octi::GAME_MODE_4, false, octi::GAME_BASES_3 },
+    { octi::GAME_MODE_4, true,  octi::GAME_BASES_3 },
+    { octi::GAME_MODE_4, false, octi::GAME_BASES_1 },
+    { octi::GAME_MODE_4, true,  octi::GAME_BASES_1 }
+};
+
+std::uint64_t e3bFnvMix64(std::uint64_t h, std::uint64_t v)
+{
+    for (int b = 0; b < 8; ++b) {
+        h ^= ((v >> (b * 8)) & 0xFFULL);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+std::uint64_t e3bHashMoveListOpsAndKeys(const std::vector<octi::OctiMove> &moves)
+{
+    std::uint64_t h = 14695981039346656037ULL;
+    h = e3bFnvMix64(h, static_cast<std::uint64_t>(moves.size()));
+    for (const auto &m : moves) {
+        h = e3bFnvMix64(h, m.structuralKey());
+        const auto &ops = m.getOps();
+        h = e3bFnvMix64(h, static_cast<std::uint64_t>(ops.size()));
+        for (const auto &op : ops) {
+            std::uint64_t packed =
+                static_cast<std::uint64_t>(op.x0 & 0xFF) |
+                (static_cast<std::uint64_t>(op.y0 & 0xFF) << 8) |
+                (static_cast<std::uint64_t>(static_cast<unsigned char>(op.addProngDir)) << 16) |
+                (static_cast<std::uint64_t>(static_cast<unsigned char>(op.rmProngDir)) << 24) |
+                ((op.addPod ? 1ULL : 0ULL) << 32) |
+                ((op.liberate ? 1ULL : 0ULL) << 33) |
+                ((op.superProng ? 1ULL : 0ULL) << 34) |
+                ((op.isSuperProngBonusMove ? 1ULL : 0ULL) << 35) |
+                (static_cast<std::uint64_t>(op.hops.size() & 0xFFF) << 36);
+            h = e3bFnvMix64(h, packed);
+            h = e3bFnvMix64(h, static_cast<std::uint64_t>(op.pod.rawConfig()));
+            for (const auto &hop : op.hops) {
+                std::uint64_t hp =
+                    static_cast<std::uint64_t>(hop.x & 0xFF) |
+                    (static_cast<std::uint64_t>(hop.y & 0xFF) << 8) |
+                    ((hop.capture ? 1ULL : 0ULL) << 16);
+                h = e3bFnvMix64(h, hp);
+            }
+        }
+    }
+    return h;
+}
+
+std::string e3bJoinMoveStrings(const std::vector<octi::OctiMove> &moves)
+{
+    std::string out;
+    for (std::size_t i = 0; i < moves.size(); ++i) {
+        if (i > 0) {
+            out.push_back(' ');
+        }
+        out += moves[i].asString();
+    }
+    return out;
+}
+
+std::filesystem::path e3bResolveGoldenFixturePath()
+{
+    std::error_code ec;
+    std::filesystem::path fromSource =
+        std::filesystem::path(__FILE__).parent_path() / "fixtures" / "sp_movegen_golden.tsv";
+    if (std::filesystem::exists(fromSource, ec)) {
+        return fromSource;
+    }
+    const char *const kRelCandidates[] = {
+        "test/fixtures/sp_movegen_golden.tsv",
+        "../test/fixtures/sp_movegen_golden.tsv",
+        "core/test/fixtures/sp_movegen_golden.tsv"
+    };
+    for (const char *rel : kRelCandidates) {
+        std::filesystem::path p(rel);
+        if (std::filesystem::exists(p, ec)) {
+            return p;
+        }
+    }
+    return fromSource;
+}
+
+struct E3bGoldenRecord {
+    int index = -1;
+    std::string fen;
+    std::string legalOpsHashHex;
+    std::string legalJoined;
+    std::string tacticalOpsHashHex;
+    std::string tacticalJoined;
+};
+
+} // namespace
+
+TEST_GROUP(OctiEnvelope3bSpMoveGenTest)
+{
+};
+
+TEST(OctiEnvelope3bSpMoveGenTest, GoldenMoveListOrderOpsAndStringsAcrossRef24And1000RandomPlayouts)
+{
+    std::filesystem::path goldenPath = e3bResolveGoldenFixturePath();
+    std::ifstream ifs(goldenPath);
+    CHECK_TEXT(ifs.is_open(), "Failed to open sp_movegen_golden.tsv fixture");
+
+    std::vector<E3bGoldenRecord> golden;
+    golden.reserve(1024);
+    std::string rawLine;
+    while (std::getline(ifs, rawLine)) {
+        if (rawLine.empty() || rawLine[0] == '#') {
+            continue;
+        }
+        std::vector<std::string> cols;
+        cols.reserve(6);
+        std::size_t start = 0;
+        while (true) {
+            std::size_t tab = rawLine.find('\t', start);
+            if (tab == std::string::npos) {
+                cols.push_back(rawLine.substr(start));
+                break;
+            }
+            cols.push_back(rawLine.substr(start, tab - start));
+            start = tab + 1;
+        }
+        CHECK_EQUAL(6u, cols.size());
+        E3bGoldenRecord rec;
+        rec.index = std::stoi(cols[0]);
+        rec.fen = std::move(cols[1]);
+        rec.legalOpsHashHex = std::move(cols[2]);
+        rec.legalJoined = std::move(cols[3]);
+        rec.tacticalOpsHashHex = std::move(cols[4]);
+        rec.tacticalJoined = std::move(cols[5]);
+        golden.push_back(std::move(rec));
+    }
+    CHECK_EQUAL(1024u, golden.size());
+
+    std::size_t cursor = 0;
+    auto verifyPositionAgainstGolden = [&](const octi::OctiBoard &board, bool parseEveryMoveString) {
+        CHECK_TRUE(cursor < golden.size());
+        const E3bGoldenRecord &exp = golden[cursor];
+        CHECK_EQUAL(static_cast<int>(cursor), exp.index);
+
+        std::string actualFen = board.toPositionString();
+        STRCMP_EQUAL(exp.fen.c_str(), actualFen.c_str());
+
+        const octi::OctiGame *game = board.getGame();
+        CHECK_TRUE(game != nullptr);
+
+        std::vector<octi::OctiMove> legal;
+        game->generateLegalMoves(legal);
+        std::string actualLegalJoined = e3bJoinMoveStrings(legal);
+        CHECK_TRUE(actualLegalJoined == exp.legalJoined);
+
+        std::ostringstream lHashHex;
+        lHashHex << std::hex << e3bHashMoveListOpsAndKeys(legal);
+        STRCMP_EQUAL(exp.legalOpsHashHex.c_str(), lHashHex.str().c_str());
+
+        if (parseEveryMoveString) {
+            std::istringstream ms(exp.legalJoined);
+            std::string tok;
+            std::size_t mIdx = 0;
+            while (ms >> tok) {
+                CHECK_TRUE(mIdx < legal.size());
+                STRCMP_EQUAL(tok.c_str(), legal[mIdx].asString().c_str());
+                octi::OctiMove parsed(tok);
+                CHECK_EQUAL(parsed.structuralKey(), legal[mIdx].structuralKey());
+                CHECK_EQUAL(legal[mIdx].getOps().size(), parsed.getOps().size());
+                for (std::size_t opIdx = 0; opIdx < parsed.getOps().size(); ++opIdx) {
+                    const octi::OctiMoveOp &opA = legal[mIdx].getOps()[opIdx];
+                    const octi::OctiMoveOp &opB = parsed.getOps()[opIdx];
+                    CHECK_EQUAL(opA.x0, opB.x0);
+                    CHECK_EQUAL(opA.y0, opB.y0);
+                    CHECK_EQUAL(opA.pod.rawConfig() & 0xFFFFu,
+                                opB.pod.rawConfig() & 0xFFFFu);
+                    CHECK_EQUAL(opA.addPod, opB.addPod);
+                    CHECK_EQUAL(opA.liberate, opB.liberate);
+                    CHECK_EQUAL(opA.addProngDir, opB.addProngDir);
+                    CHECK_EQUAL(opA.rmProngDir, opB.rmProngDir);
+                    CHECK_EQUAL(opA.superProng, opB.superProng);
+                    CHECK_EQUAL(opA.isSuperProngBonusMove, opB.isSuperProngBonusMove);
+                    CHECK_TRUE(opA.hops == opB.hops);
+                }
+                ++mIdx;
+            }
+            CHECK_EQUAL(legal.size(), mIdx);
+        }
+
+        std::vector<octi::OctiMove> tactical;
+        game->generateTacticalMoves(tactical);
+        std::string actualTacticalJoined = e3bJoinMoveStrings(tactical);
+        CHECK_TRUE(actualTacticalJoined == exp.tacticalJoined);
+
+        std::ostringstream tHashHex;
+        tHashHex << std::hex << e3bHashMoveListOpsAndKeys(tactical);
+        STRCMP_EQUAL(exp.tacticalOpsHashHex.c_str(), tHashHex.str().c_str());
+
+        ++cursor;
+    };
+
+    // 1. All 24 reference superprong bench positions (with full OctiMove string round-trip equality)
+    for (int i = 0; i < 24; ++i) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(kE3bRef24Fens[i]);
+        verifyPositionAgainstGolden(board, true);
+    }
+
+    // 2. 1,000 positions from seeded random superprong playouts across the 8 superprong variants (125 each)
+    for (int v = 0; v < 8; ++v) {
+        const E3bSpVariantSpec &cfg = kE3bSpVariants8[v];
+        std::mt19937_64 rng(0xE3B502026ULL + static_cast<std::uint64_t>(v) * 0x9E3779B97F4A7C15ULL);
+        int collected = 0;
+        while (collected < 125) {
+            octi::OctiBoard board(cfg.mode, true, cfg.edgeless, cfg.bases);
+            board.suppressBoardUpdateNotification(true);
+            octi::OctiGame *game = board.getGame();
+            game->setSearchMode(true);
+            game->start(octi::PLAYER_A);
+
+            int ply = 0;
+            while (ply < 160 && !game->isGameOver() && collected < 125) {
+                std::vector<octi::OctiMove> legal;
+                game->generateLegalMoves(legal);
+                if (legal.empty()) {
+                    break;
+                }
+                if (ply >= 4 && ((ply - 4) % 3 == 0)) {
+                    verifyPositionAgainstGolden(board, (collected % 25 == 0));
+                    ++collected;
+                    if (collected >= 125) {
+                        break;
+                    }
+                }
+                std::size_t pickIdx = 0;
+                if (game->getFreeSuperProngs(game->getTurn()) > 0 && (rng() & 1ULL) != 0ULL) {
+                    std::vector<std::size_t> spArmIdx;
+                    for (std::size_t mi = 0; mi < legal.size(); ++mi) {
+                        const auto &ops = legal[mi].getOps();
+                        if (ops.size() == 1 && ops[0].superProng && ops[0].addProngDir != octi::DIR_UNDEF) {
+                            spArmIdx.push_back(mi);
+                        }
+                    }
+                    if (!spArmIdx.empty()) {
+                        pickIdx = spArmIdx[static_cast<std::size_t>(rng() % spArmIdx.size())];
+                    } else {
+                        pickIdx = static_cast<std::size_t>(rng() % legal.size());
+                    }
+                } else {
+                    pickIdx = static_cast<std::size_t>(rng() % legal.size());
+                }
+                game->move(legal[pickIdx]);
+                ++ply;
+            }
+        }
+    }
+
+    CHECK_EQUAL(1024u, cursor);
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
