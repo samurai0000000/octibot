@@ -555,6 +555,22 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.lazySmpThreads = config.getInt("lazy_smp_threads", profile.lazySmpThreads);
     profile.compositeMoveMaxPly = config.getInt("composite_move_max_ply", profile.compositeMoveMaxPly);
     profile.rootScoreJitter = config.getInt("root_score_jitter", profile.rootScoreJitter);
+    profile.bookSelectionWindow = config.getInt("book_selection_window", profile.bookSelectionWindow);
+    profile.useOpeningBook = config.getBool("use_opening_book", profile.useOpeningBook);
+    profile.usePvs = config.getBool("use_pvs", profile.usePvs);
+    profile.aspirationWindowCp = config.getInt("aspiration_window_cp", profile.aspirationWindowCp);
+    profile.useKillers = config.getBool("use_killers", profile.useKillers);
+    profile.useHistory = config.getBool("use_history", profile.useHistory);
+    profile.lmrMinDepth = config.getInt("lmr_min_depth", profile.lmrMinDepth);
+    profile.lmrMinMoveIndex = config.getInt("lmr_min_move_index", profile.lmrMinMoveIndex);
+    profile.nullMoveMinDepth = config.getInt("null_move_min_depth", profile.nullMoveMinDepth);
+    profile.nullMoveReduction = config.getInt("null_move_reduction", profile.nullMoveReduction);
+    profile.qsearchUseTt = config.getBool("qsearch_use_tt", profile.qsearchUseTt);
+    profile.ttSizeLog2 = config.getInt("tt_size_log2", profile.ttSizeLog2);
+    profile.lazySmpDiversifyHelpers =
+        config.getBool("lazy_smp_stagger_helpers", profile.lazySmpDiversifyHelpers);
+    profile.lazySmpDiversifyHelpers =
+        config.getBool("lazy_smp_diversify_helpers", profile.lazySmpDiversifyHelpers);
 
     profile.capturedEnemyBaseBonus = config.getInt("captured_enemy_base_bonus", profile.capturedEnemyBaseBonus);
     profile.lostAlliedBasePenalty = config.getInt("lost_allied_base_penalty", profile.lostAlliedBasePenalty);

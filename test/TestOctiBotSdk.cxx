@@ -240,6 +240,19 @@ tree_branch_cap = 30
 lazy_smp_threads = 4
 composite_move_max_ply = 2
 root_score_jitter = 10
+book_selection_window = 35
+use_opening_book = false
+use_pvs = true
+aspiration_window_cp = 150
+use_killers = true
+use_history = true
+lmr_min_depth = 3
+lmr_min_move_index = 4
+null_move_min_depth = 3
+null_move_reduction = 3
+qsearch_use_tt = true
+tt_size_log2 = 20
+lazy_smp_diversify_helpers = true
 captured_enemy_base_bonus = 30000
 lost_allied_base_penalty = 35000
 neutral_octi_square_bonus = 4500
@@ -295,6 +308,19 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(4, profile.lazySmpThreads);
     CHECK_EQUAL(2, profile.compositeMoveMaxPly);
     CHECK_EQUAL(10, profile.rootScoreJitter);
+    CHECK_EQUAL(35, profile.bookSelectionWindow);
+    CHECK_FALSE(profile.useOpeningBook);
+    CHECK_TRUE(profile.usePvs);
+    CHECK_EQUAL(150, profile.aspirationWindowCp);
+    CHECK_TRUE(profile.useKillers);
+    CHECK_TRUE(profile.useHistory);
+    CHECK_EQUAL(3, profile.lmrMinDepth);
+    CHECK_EQUAL(4, profile.lmrMinMoveIndex);
+    CHECK_EQUAL(3, profile.nullMoveMinDepth);
+    CHECK_EQUAL(3, profile.nullMoveReduction);
+    CHECK_TRUE(profile.qsearchUseTt);
+    CHECK_EQUAL(20, profile.ttSizeLog2);
+    CHECK_TRUE(profile.lazySmpDiversifyHelpers);
     CHECK_EQUAL(30000, profile.capturedEnemyBaseBonus);
     CHECK_EQUAL(35000, profile.lostAlliedBasePenalty);
     CHECK_EQUAL(4500, profile.neutralOctiSquareBonus);
