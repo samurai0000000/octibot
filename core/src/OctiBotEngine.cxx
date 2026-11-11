@@ -1832,6 +1832,7 @@ OctiBotEngine::OctiBotEngine(BotDifficulty difficulty, std::uint64_t rngSeed)
     , _ttMask((std::size_t{1} << _ttSizeLog2) - 1)
     , _tt(std::size_t{1} << _ttSizeLog2)
     , _lastDiagnostics()
+    , _leafEvaluator(nullptr)
 {
 }
 
@@ -1845,6 +1846,7 @@ OctiBotEngine::OctiBotEngine(const OctiBotEngine &other)
     , _ttMask(other._ttMask)
     , _tt(other._tt)
     , _lastDiagnostics(other._lastDiagnostics)
+    , _leafEvaluator(other._leafEvaluator)
     , _stopSearch(false)
     , _liveDepthReached(other._liveDepthReached.load(std::memory_order_relaxed))
     , _liveNodesVisited(other._liveNodesVisited.load(std::memory_order_relaxed))
@@ -1864,6 +1866,7 @@ OctiBotEngine &OctiBotEngine::operator=(const OctiBotEngine &other)
         _ttMask = other._ttMask;
         _tt = other._tt;
         _lastDiagnostics = other._lastDiagnostics;
+        _leafEvaluator = other._leafEvaluator;
         _stopSearch.store(false, std::memory_order_relaxed);
         _liveDepthReached.store(other._liveDepthReached.load(std::memory_order_relaxed), std::memory_order_relaxed);
         _liveNodesVisited.store(other._liveNodesVisited.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -1935,6 +1938,16 @@ void OctiBotEngine::setTuningProfile(const BotTuningProfile &profile)
 const BotTuningProfile &OctiBotEngine::tuningProfile() const
 {
     return _profile;
+}
+
+void OctiBotEngine::setLeafEvaluator(const OctiLeafEvaluator *evaluator)
+{
+    _leafEvaluator = evaluator;
+}
+
+const OctiLeafEvaluator *OctiBotEngine::leafEvaluator() const
+{
+    return _leafEvaluator;
 }
 
 BotTuningProfile OctiBotEngine::defaultProfileForDifficulty(BotDifficulty difficulty)
@@ -3239,7 +3252,7 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
             (deadlineMs < std::numeric_limits<long>::max() &&
              steadyClockMs() >= deadlineMs)) {
             timedOut = true;
-            return evaluatePosition(scratchBoard, currentPerspective, _profile);
+            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
         }
     }
 
@@ -3325,7 +3338,7 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
         }
     }
 
-    int standPat = evaluatePosition(scratchBoard, currentPerspective, _profile);
+    int standPat = evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
     if (standPat >= beta) {
         if (useQsearchTt) {
             storeQuiesceTt(0, standPat, 1, 0ULL);
@@ -3442,7 +3455,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             (deadlineMs < std::numeric_limits<long>::max() &&
              steadyClockMs() >= deadlineMs)) {
             timedOut = true;
-            return evaluatePosition(scratchBoard, currentPerspective, _profile);
+            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
         }
     }
 
@@ -3463,7 +3476,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             return quiesce(scratchBoard, 0, ply, alpha, beta, currentPerspective,
                            nodesVisited, deadlineMs, timedOut, state);
         }
-        return evaluatePosition(scratchBoard, currentPerspective, _profile);
+        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
     }
 
     const bool useTtLock = (_profile.lazySmpThreads > 1);
@@ -3548,7 +3561,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         }
 
         if (canNullMoveMaterial) {
-            int staticEval = evaluatePosition(scratchBoard, currentPerspective, _profile);
+            int staticEval = evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
             if (staticEval >= beta) {
                 int r = std::max(1, _profile.nullMoveReduction);
                 int nullDepth = std::max(0, depth - 1 - r);
@@ -3585,7 +3598,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
 
     std::vector<OctiMove> rawMoves = game->generateLegalMoves();
     if (rawMoves.empty()) {
-        return evaluatePosition(scratchBoard, currentPerspective, _profile);
+        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
     }
 
     std::size_t maxBranch = (_profile.treeBranchCap > 0)
