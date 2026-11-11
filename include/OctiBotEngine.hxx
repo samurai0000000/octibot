@@ -210,6 +210,15 @@ struct OctiEvalBreakdown {
     }
 };
 
+class OctiLeafEvaluator
+{
+public:
+    virtual ~OctiLeafEvaluator() = default;
+    virtual int evaluateLeaf(const OctiBoard &board,
+                             OctiPlayer perspective,
+                             int heuristicScore) const = 0;
+};
+
 class OctiBotEngine {
 public:
     explicit OctiBotEngine(BotDifficulty difficulty = BotDifficulty::TACTICAL,
@@ -224,6 +233,9 @@ public:
     void setTuningProfile(const BotTuningProfile &profile);
     const BotTuningProfile &tuningProfile() const;
     static BotTuningProfile defaultProfileForDifficulty(BotDifficulty difficulty);
+
+    void setLeafEvaluator(const OctiLeafEvaluator *evaluator);
+    const OctiLeafEvaluator *leafEvaluator() const;
 
     void setTimeBudgetMs(int maxTimeMs);
     int timeBudgetMs() const;
@@ -322,6 +334,15 @@ private:
     std::uint64_t nextRandom();
     std::uint64_t computePositionHash(const OctiBoard &board) const;
 
+    int evaluateLeafOrHeuristic(const OctiBoard &board,
+                                OctiPlayer perspective) const
+    {
+        int h = evaluatePosition(board, perspective, _profile);
+        return _leafEvaluator
+            ? _leafEvaluator->evaluateLeaf(board, perspective, h)
+            : h;
+    }
+
     int quiesce(OctiBoard &scratchBoard,
                 int qDepth,
                 int ply,
@@ -354,6 +375,7 @@ private:
     std::size_t _ttMask;
     std::vector<TranspositionEntry> _tt;
     BotSearchDiagnostics _lastDiagnostics;
+    const OctiLeafEvaluator *_leafEvaluator = nullptr;
     std::atomic<bool> _stopSearch{false};
     std::atomic<int> _liveDepthReached{0};
     std::atomic<std::uint64_t> _liveNodesVisited{0};

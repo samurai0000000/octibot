@@ -7916,6 +7916,186 @@ TEST(OctiEnvelope5EvalTest, CandidateTuningProfileFieldsModifyTargetTermsAndPres
     }
 }
 
+namespace {
+
+class ConstantOffsetLeafEvaluator : public octi::OctiLeafEvaluator
+{
+public:
+    explicit ConstantOffsetLeafEvaluator(int offset)
+        : _offset(offset)
+    {
+    }
+
+    int evaluateLeaf(const octi::OctiBoard &board,
+                     octi::OctiPlayer perspective,
+                     int heuristicScore) const override
+    {
+        (void) board;
+        (void) perspective;
+        _calls.fetch_add(1, std::memory_order_relaxed);
+        return heuristicScore + _offset;
+    }
+
+    int calls() const noexcept
+    {
+        return _calls.load(std::memory_order_relaxed);
+    }
+
+private:
+    int _offset;
+    mutable std::atomic<int> _calls{0};
+};
+
+class ThreadRecordingLeafEvaluator : public octi::OctiLeafEvaluator
+{
+public:
+    int evaluateLeaf(const octi::OctiBoard &board,
+                     octi::OctiPlayer perspective,
+                     int heuristicScore) const override
+    {
+        (void) board;
+        (void) perspective;
+        _calls.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(_mtx);
+        _threads.insert(std::this_thread::get_id());
+        return heuristicScore;
+    }
+
+    int calls() const noexcept
+    {
+        return _calls.load(std::memory_order_relaxed);
+    }
+
+    std::size_t uniqueThreadCount() const
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        return _threads.size();
+    }
+
+private:
+    mutable std::atomic<int> _calls{0};
+    mutable std::mutex _mtx;
+    mutable std::set<std::thread::id> _threads;
+};
+
+} // namespace
+
+TEST_GROUP(OctiLeafEvaluatorHookTest)
+{
+};
+
+TEST(OctiLeafEvaluatorHookTest, NullLeafEvaluatorPreservesSearchMovesScoresAndNodes)
+{
+    const char *fens[] = {
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37",
+        "OFK:1:0:0:P:A:-:0:0,1,8,0:0,0,9,0:A22,A32,A42,B44cef,B26d,B56,B47bde",
+        "2:3:1:0:P:A:-:0:3,0,16,1:3,0,16,1:A33ab,A53a,B37ef,B57e"
+    };
+
+    for (const char *fen : fens) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(fen);
+
+        octi::BotTuningProfile prof =
+            octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+        prof.useOpeningBook = false;
+        prof.rootScoreJitter = 0;
+        prof.lazySmpThreads = 1;
+        prof.maxSearchDepth = 4;
+        prof.timeBudgetMs = 60000;
+
+        octi::OctiBotEngine engDefault(octi::BotDifficulty::MASTER, 0x12345678ULL);
+        CHECK_TRUE(engDefault.leafEvaluator() == nullptr);
+        engDefault.setTuningProfile(prof);
+        octi::BotSearchStats statsDefault;
+        std::string mvDefault = engDefault.chooseMove(board, &statsDefault);
+
+        ConstantOffsetLeafEvaluator zeroEval(0);
+        octi::OctiBotEngine engZero(octi::BotDifficulty::MASTER, 0x12345678ULL);
+        engZero.setTuningProfile(prof);
+        engZero.setLeafEvaluator(&zeroEval);
+        CHECK_TRUE(engZero.leafEvaluator() == &zeroEval);
+
+        octi::OctiBotEngine engCopied(engZero);
+        CHECK_TRUE(engCopied.leafEvaluator() == &zeroEval);
+        engCopied.setLeafEvaluator(nullptr);
+        CHECK_TRUE(engCopied.leafEvaluator() == nullptr);
+
+        octi::BotSearchStats statsZero;
+        std::string mvZero = engZero.chooseMove(board, &statsZero);
+        CHECK_TRUE(zeroEval.calls() > 0);
+        STRCMP_EQUAL(mvDefault.c_str(), mvZero.c_str());
+        CHECK_EQUAL(statsDefault.bestScore, statsZero.bestScore);
+        CHECK_EQUAL(statsDefault.depthReached, statsZero.depthReached);
+        CHECK_EQUAL(statsDefault.nodesVisited, statsZero.nodesVisited);
+    }
+}
+
+TEST(OctiLeafEvaluatorHookTest, ConstantOffsetLeafEvaluatorShiftsLeafAndRootScores)
+{
+    octi::OctiBoard board;
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37");
+
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 1;
+    prof.maxSearchDepth = 1;
+    prof.maxQuiesceDepth = 0;
+    prof.timeBudgetMs = 60000;
+
+    octi::OctiBotEngine engBase(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    engBase.setTuningProfile(prof);
+    octi::BotSearchStats statsBase;
+    std::string mvBase = engBase.chooseMove(board, &statsBase);
+
+    ConstantOffsetLeafEvaluator plus321(321);
+    octi::OctiBotEngine engShift(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    engShift.setTuningProfile(prof);
+    engShift.setLeafEvaluator(&plus321);
+    octi::BotSearchStats statsShift;
+    std::string mvShift = engShift.chooseMove(board, &statsShift);
+
+    CHECK_TRUE(plus321.calls() > 0);
+    STRCMP_EQUAL(mvBase.c_str(), mvShift.c_str());
+    // At depth 1 with maxQuiesceDepth = 0 in 2P, root negates opponent's leaf score (+321 -> -321)
+    CHECK_EQUAL(statsBase.bestScore - 321, statsShift.bestScore);
+}
+
+TEST(OctiLeafEvaluatorHookTest, LazySmpEightThreadsInvokeLeafEvaluatorConcurrentlyWithoutRaces)
+{
+    octi::OctiBoard board;
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37");
+
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 8;
+    prof.maxSearchDepth = 20;
+    prof.timeBudgetMs = 600;
+
+    ThreadRecordingLeafEvaluator recorder;
+    octi::OctiBotEngine eng(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+    eng.setTuningProfile(prof);
+    eng.setLeafEvaluator(&recorder);
+
+    octi::BotSearchStats stats;
+    std::string bestMove = eng.chooseMove(board, &stats);
+    CHECK_FALSE(bestMove.empty());
+    CHECK_TRUE(recorder.calls() > 100);
+    unsigned int hw = std::thread::hardware_concurrency();
+    if (hw >= 2) {
+        CHECK_TRUE(recorder.uniqueThreadCount() >= 2);
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
