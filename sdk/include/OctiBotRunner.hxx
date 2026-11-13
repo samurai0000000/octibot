@@ -67,6 +67,26 @@ struct BotMatchOverride {
     int remainingGames = 1;
 };
 
+enum class PendingSseActionType {
+    APPLY_SIBLING_LOBBY_OVERRIDE,
+    APPLY_SIBLING_GAME_OVERRIDE,
+    APPLY_COMMAND_JOIN_OVERRIDE,
+    APPLY_OWNER_DIRECTIVE_OVERRIDE,
+    LEAVE_INCOMPATIBLE_WAITING_ROOM,
+    LEAVE_ROOM
+};
+
+struct PendingSseAction {
+    PendingSseActionType type = PendingSseActionType::LEAVE_ROOM;
+    BotMatchOverride overrideReq;
+    std::string senderHandle;
+    std::string originalText;
+    std::string roomId;
+    std::string replyText;
+    std::string parsedPlayer;
+    std::string parsedRoom;
+};
+
 class OctiBotRunner {
 public:
     static constexpr std::size_t kMaxLogLines = 5000;
@@ -79,6 +99,10 @@ public:
     ~OctiBotRunner();
 
     bool connectAndAuthenticate(std::string &errorOut);
+    bool reclaimIfUnused(std::string &errorOut);
+    int reclaimSupersededIntervalMs() const;
+    bool hasReusableNamedToken() const;
+    std::int64_t supersededAtMs() const { return _supersededAtMs.load(); }
     void start();
     void run();
     void stop();
@@ -112,6 +136,7 @@ public:
     OctiBotPolicyEngine &policyEngine() { return _policy; }
     OctiBotConversationEngine &conversationEngine() { return _conversation; }
     OctiNetworkClient &networkClient() { return _client; }
+    const OctiNetworkClient &networkClient() const { return _client; }
     OctiBotAgent *agent() { return _agent.get(); }
 
     std::string currentRoomId() const;
@@ -203,6 +228,8 @@ public:
 private:
     void loopStep();
     void pollRecentLobbyChat();
+    void enqueuePendingSseAction(PendingSseAction action);
+    void drainPendingSseActions();
     void handleLobbySseEvent(const std::string &eventType, const std::string &data);
     void handleGameSseEvent(const std::string &eventType, const std::string &data);
     void playEngineTurn();
@@ -220,6 +247,7 @@ private:
 
     std::atomic<bool> _running{false};
     std::atomic<bool> _superseded{false};
+    std::atomic<std::int64_t> _supersededAtMs{0};
     std::unique_ptr<std::thread> _workerThread;
 
     std::string _moveControl = "engine"; // "engine" or "agent"
@@ -273,6 +301,9 @@ private:
     std::int64_t _excludedPlayerUntilMs = 0;
     std::int64_t _lastProcessedLobbyChatSeq = 0;
     std::int64_t _lastLobbyChatPollMs = 0;
+    std::deque<PendingSseAction> _pendingSseActions;
+    std::int64_t _matchOverrideJoinGraceUntilMs = 0;
+    std::int64_t _lastLobbyStreamRestartMs = 0;
 
     std::mutex _eventMutex;
     std::condition_variable _eventCv;
@@ -316,6 +347,7 @@ public:
                      const std::string &customEndpoint = "");
 
     void stop();
+    bool tickSupervisor();
     void waitForAll();
 
     const std::vector<std::unique_ptr<OctiBotRunner>> &runners() const { return _runners; }
@@ -325,6 +357,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<OctiBotRunner>> _runners;
+    std::map<OctiBotRunner *, std::int64_t> _lastReclaimAttemptMs;
 #if !defined(OCTIBOT_MINIMAL)
     std::vector<std::unique_ptr<OctiBotMcpServer>> _mcpServers;
 #endif

@@ -4676,6 +4676,763 @@ TEST(OctiBotMcpAnalyzePositionSearch, Depth3VisitsStrictlyMoreNodesThanDepth1And
 }
 
 // ============================================================================
+// Lobby Chat Match-Directive SSE Deadlock & Two-Mention UX Regression Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotLobbyDirectiveSseTest) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(OctiBotLobbyDirectiveSseTest, OwnerTwoBotDirectiveWhileSeatedInAutoTablesDoesNotDeadlock) {
+    auto runTwoBotScenario = [](const std::string &aiBackend) {
+        TestServerEnv subEnv;
+        VerifiedClaims claims;
+        claims.provider = "google";
+        claims.sub = "sub-sse-owner-" + aiBackend;
+        claims.name = "samurai";
+        claims.email = "samurai@selfso.com";
+        auto loginRes = subEnv.store.loginWithSso(claims, "test-agent");
+        int64_t ownerId = loginRes.profile.playerId;
+        std::string ownerHandle = loginRes.profile.handle;
+        CHECK_TRUE(ownerId > 0);
+        CHECK_FALSE(loginRes.sessionToken.empty());
+
+        OctiNetworkClient ownerClient;
+        ownerClient.setEndpoint("127.0.0.1", subEnv.port);
+        ownerClient.setSessionToken(loginRes.sessionToken);
+
+        auto rBot1 = subEnv.store.createRobot(ownerId, "octibot-sdk-cc1", "Bot 1");
+        auto rBot2 = subEnv.store.createRobot(ownerId, "octibot-sdk-cc2", "Bot 2");
+        CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot1.status));
+        CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot2.status));
+
+        auto makeCfg = [&](const std::string &name, const std::string &token) {
+            OctiBotConfigStore cfg;
+            cfg.set("server_host", "127.0.0.1");
+            cfg.set("server_port", std::to_string(subEnv.port));
+            cfg.set("robot_name", name);
+            cfg.set("bot_token", token);
+            cfg.set("table_behavior", "auto");
+            cfg.set("opponent_filter", "humans_only");
+            cfg.set("override_join_grace_ms", "1500");
+            cfg.set("ai_cli_backend", aiBackend);
+            cfg.set("ai_cli_executable", "/bin/true");
+            cfg.set("ai_proactive_commentary", "false");
+            cfg.set("time_budget_ms", "25");
+            cfg.set("max_search_depth", "2");
+            cfg.set("min_move_think_ms", "0");
+            cfg.set("verbosity", "0");
+            return cfg;
+        };
+
+        OctiBotConfigStore cfg1 = makeCfg("octibot-sdk-cc1", rBot1.rawToken);
+        OctiBotConfigStore cfg2 = makeCfg("octibot-sdk-cc2", rBot2.rawToken);
+
+        auto bot1 = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cfg1), cfg1);
+        auto bot2 = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cfg2), cfg2);
+
+        std::string err;
+        CHECK_TRUE_TEXT(bot1->connectAndAuthenticate(err), err.c_str());
+        CHECK_TRUE_TEXT(bot2->connectAndAuthenticate(err), err.c_str());
+        bot1->start();
+        bot2->start();
+
+        // Wait until BOTH runners open separate allow_robots=false waiting tables with active lobbyStream + gameStream
+        for (int i = 0; i < 120; ++i) {
+            if (!bot1->currentRoomId().empty() &&
+                !bot2->currentRoomId().empty() &&
+                bot1->currentRoomId() != bot2->currentRoomId() &&
+                bot1->currentPhase() == "WAITING_FOR_PLAYERS" &&
+                bot2->currentPhase() == "WAITING_FOR_PLAYERS" &&
+                bot1->networkClient().isLobbyEventStreamActive() &&
+                bot1->networkClient().isGameEventStreamActive() &&
+                bot2->networkClient().isLobbyEventStreamActive() &&
+                bot2->networkClient().isGameEventStreamActive()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+
+        std::string initRoom1 = bot1->currentRoomId();
+        std::string initRoom2 = bot2->currentRoomId();
+        CHECK_FALSE(initRoom1.empty());
+        CHECK_FALSE(initRoom2.empty());
+        CHECK_TRUE(initRoom1 != initRoom2);
+        CHECK_EQUAL("WAITING_FOR_PLAYERS", bot1->currentPhase());
+        CHECK_EQUAL("WAITING_FOR_PLAYERS", bot2->currentPhase());
+        CHECK_TRUE(bot1->networkClient().isLobbyEventStreamActive());
+        CHECK_TRUE(bot1->networkClient().isGameEventStreamActive());
+        CHECK_TRUE(bot2->networkClient().isLobbyEventStreamActive());
+        CHECK_TRUE(bot2->networkClient().isGameEventStreamActive());
+
+        auto gvInit1 = ownerClient.fetchGameView(initRoom1);
+        auto gvInit2 = ownerClient.fetchGameView(initRoom2);
+        CHECK_TRUE(gvInit1.ok);
+        CHECK_TRUE(gvInit2.ok);
+        CHECK_FALSE(gvInit1.data.allowRobots);
+        CHECK_FALSE(gvInit2.data.allowRobots);
+
+        std::int64_t chatSeqBefore = 0;
+        auto lobbyBefore = ownerClient.fetchLobbyState();
+        if (lobbyBefore.ok) {
+            chatSeqBefore = lobbyBefore.data.latestSeq;
+        }
+
+        auto postRes = ownerClient.postLobbyChat("@octibot-sdk-cc1 play a match with @octibot-sdk-cc2");
+        CHECK_TRUE(postRes.ok);
+
+        std::string matchRoomId;
+        bool reachedInProgressWithPlies = false;
+        auto waitStart = std::chrono::steady_clock::now();
+        while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - waitStart).count() < 5000) {
+            std::string r1 = bot1->currentRoomId();
+            std::string r2 = bot2->currentRoomId();
+            if (!r1.empty() && r1 == r2 && r1 != initRoom1 && r1 != initRoom2) {
+                matchRoomId = r1;
+                auto gvMatch = ownerClient.fetchGameView(matchRoomId);
+                if (gvMatch.ok && gvMatch.data.allowRobots &&
+                    (gvMatch.data.phase == "IN_PROGRESS" || gvMatch.data.phase == "FINISHED" ||
+                     gvMatch.data.phase == "GAME_OVER") &&
+                    gvMatch.data.plyCount >= 2) {
+                    reachedInProgressWithPlies = true;
+                    break;
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+
+        CHECK_FALSE_TEXT(matchRoomId.empty(),
+                         ("Expected shared allow_robots=true room for backend=" + aiBackend).c_str());
+        CHECK_TRUE_TEXT(reachedInProgressWithPlies,
+                        ("Expected IN_PROGRESS with >=2 plies for backend=" + aiBackend).c_str());
+
+        // Verify lobby chat acknowledgments from both @octibot-sdk-cc1 and @octibot-sdk-cc2
+        bool sawBot1OwnerAck = false;
+        bool sawBot2LobbyAck = false;
+        for (int attempt = 0; attempt < 20 && (!sawBot1OwnerAck || !sawBot2LobbyAck); ++attempt) {
+            auto lobbyAfter = ownerClient.fetchLobbyState();
+            if (lobbyAfter.ok) {
+                for (const auto &c : lobbyAfter.data.recentChat) {
+                    if (c.seq <= chatSeqBefore) {
+                        continue;
+                    }
+                    if (c.handle == "octibot-sdk-cc1" &&
+                        c.text.find("@" + ownerHandle + " On it!") != std::string::npos) {
+                        sawBot1OwnerAck = true;
+                    }
+                    if (c.handle == "octibot-sdk-cc2" &&
+                        c.text.find("On my way!") != std::string::npos &&
+                        c.text.find(matchRoomId) != std::string::npos) {
+                        sawBot2LobbyAck = true;
+                    }
+                }
+            }
+            if (!sawBot1OwnerAck || !sawBot2LobbyAck) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            }
+        }
+        CHECK_TRUE_TEXT(sawBot1OwnerAck, "Missing '@<owner> On it!' lobby ack from mentions[0]");
+        CHECK_TRUE_TEXT(sawBot2LobbyAck, "Missing lobby join ack from mentions[1]");
+
+        // Verify game chat ack from @octibot-sdk-cc2 inside matchRoomId
+        bool sawBot2GameAck = false;
+        auto gameEvs = ownerClient.pollGameEvents(matchRoomId, 0, 100);
+        if (gameEvs.ok) {
+            for (const auto &ev : gameEvs.data) {
+                if ((ev.event == "CHAT" || ev.event == "BOARD_CHAT") &&
+                    ev.dataJson.find("octibot-sdk-cc2") != std::string::npos &&
+                    ev.dataJson.find("Joined your table #" + matchRoomId) != std::string::npos) {
+                    sawBot2GameAck = true;
+                    break;
+                }
+            }
+        }
+        CHECK_TRUE_TEXT(sawBot2GameAck, "Missing game chat join ack from mentions[1]");
+
+        // Assert stop() on both runners completes cleanly in < 1000 ms
+        auto stopStart = std::chrono::steady_clock::now();
+        bot1->stop();
+        bot2->stop();
+        auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - stopStart).count();
+        CHECK_TRUE_TEXT(stopMs < 1000,
+                        ("stop() took " + std::to_string(stopMs) + " ms (>= 1000 ms)").c_str());
+    };
+
+    runTwoBotScenario("agy");
+    runTwoBotScenario("none");
+}
+
+TEST(OctiBotLobbyDirectiveSseTest, PassiveSecondMentionLeavesHumanTableAndHostsWhenFirstMentionOffline) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-sse-owner-2";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    OctiNetworkClient ownerClient;
+    ownerClient.setEndpoint("127.0.0.1", env->port);
+    ownerClient.setSessionToken(loginRes.sessionToken);
+
+    auto rBot1 = env->store.createRobot(ownerId, "octibot-sdk-cc1", "Offline Bot 1");
+    auto rBot2 = env->store.createRobot(ownerId, "octibot-sdk-cc2", "Online Bot 2");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot1.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot2.status));
+
+    OctiBotConfigStore cfg2;
+    cfg2.set("server_host", "127.0.0.1");
+    cfg2.set("server_port", std::to_string(env->port));
+    cfg2.set("robot_name", "octibot-sdk-cc2");
+    cfg2.set("bot_token", rBot2.rawToken);
+    cfg2.set("table_behavior", "auto");
+    cfg2.set("opponent_filter", "humans_only");
+    cfg2.set("override_join_grace_ms", "300");
+    cfg2.set("verbosity", "0");
+
+    auto bot2 = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cfg2), cfg2);
+    std::string err;
+    CHECK_TRUE_TEXT(bot2->connectAndAuthenticate(err), err.c_str());
+    bot2->start();
+
+    for (int i = 0; i < 120; ++i) {
+        if (!bot2->currentRoomId().empty() &&
+            bot2->currentPhase() == "WAITING_FOR_PLAYERS" &&
+            bot2->networkClient().isLobbyEventStreamActive() &&
+            bot2->networkClient().isGameEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+
+    std::string initHumanRoom = bot2->currentRoomId();
+    CHECK_FALSE(initHumanRoom.empty());
+    auto gvInit = ownerClient.fetchGameView(initHumanRoom);
+    CHECK_TRUE(gvInit.ok);
+    CHECK_FALSE(gvInit.data.allowRobots);
+
+    auto postRes = ownerClient.postLobbyChat("@octibot-sdk-cc1 play a match with @octibot-sdk-cc2");
+    CHECK_TRUE(postRes.ok);
+
+    std::string hostedChallengeRoom;
+    bool sawLobbyInvite = false;
+    auto waitStart = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - waitStart).count() < 3000) {
+        std::string curRoom = bot2->currentRoomId();
+        if (!curRoom.empty() && curRoom != initHumanRoom) {
+            auto gvNew = ownerClient.fetchGameView(curRoom);
+            if (gvNew.ok && gvNew.data.allowRobots && gvNew.data.phase == "WAITING_FOR_PLAYERS") {
+                hostedChallengeRoom = curRoom;
+                auto lobbyState = ownerClient.fetchLobbyState();
+                if (lobbyState.ok) {
+                    std::string expectedInvite =
+                        "@octibot-sdk-cc1 Let's play a match! Join my table #" + hostedChallengeRoom;
+                    for (const auto &c : lobbyState.data.recentChat) {
+                        if (c.handle == "octibot-sdk-cc2" &&
+                            c.text.find(expectedInvite) != std::string::npos) {
+                            sawLobbyInvite = true;
+                            break;
+                        }
+                    }
+                }
+                if (sawLobbyInvite) {
+                    break;
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+
+    CHECK_FALSE_TEXT(hostedChallengeRoom.empty(),
+                     "Expected mentions[1] to leave human-only table and host allow_robots=true table");
+    CHECK_TRUE_TEXT(sawLobbyInvite,
+                    "Expected mentions[1] to post challenge invite in lobby chat");
+
+    auto stopStart = std::chrono::steady_clock::now();
+    bot2->stop();
+    auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - stopStart).count();
+    CHECK_TRUE(stopMs < 1000);
+}
+
+TEST(OctiBotLobbyDirectiveSseTest, OwnerTwoBotDirectiveFailurePostsLobbyError) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-sse-owner-3";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    std::string ownerHandle = loginRes.profile.handle;
+    CHECK_TRUE(ownerId > 0);
+
+    OctiNetworkClient ownerClient;
+    ownerClient.setEndpoint("127.0.0.1", env->port);
+    ownerClient.setSessionToken(loginRes.sessionToken);
+
+    auto rBot1 = env->store.createRobot(ownerId, "octibot-sdk-cc1", "Bot 1");
+    auto rBot2 = env->store.createRobot(ownerId, "octibot-sdk-cc2", "Bot 2");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot1.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot2.status));
+
+    OctiBotConfigStore cfg1;
+    cfg1.set("server_host", "127.0.0.1");
+    cfg1.set("server_port", std::to_string(env->port));
+    cfg1.set("robot_name", "octibot-sdk-cc1");
+    cfg1.set("bot_token", rBot1.rawToken);
+    cfg1.set("table_behavior", "auto");
+    cfg1.set("opponent_filter", "humans_only");
+    cfg1.set("ai_cli_backend", "agy");
+    cfg1.set("ai_cli_executable", "/bin/true");
+    cfg1.set("ai_proactive_commentary", "false");
+    cfg1.set("verbosity", "0");
+
+    auto bot1 = std::make_unique<OctiBotRunner>(std::make_unique<StockAlphaBetaAgent>(cfg1), cfg1);
+    std::string err;
+    CHECK_TRUE_TEXT(bot1->connectAndAuthenticate(err), err.c_str());
+    bot1->start();
+
+    for (int i = 0; i < 120; ++i) {
+        if (!bot1->currentRoomId().empty() &&
+            bot1->currentPhase() == "WAITING_FOR_PLAYERS" &&
+            bot1->networkClient().isLobbyEventStreamActive() &&
+            bot1->networkClient().isGameEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_FALSE(bot1->currentRoomId().empty());
+
+    // 1. Two-mention owner directive targeting a non-existent room #g-99999999-9999
+    auto postRes = ownerClient.postLobbyChat(
+        "@octibot-sdk-cc1 play a match with @octibot-sdk-cc2 in #g-99999999-9999");
+    CHECK_TRUE(postRes.ok);
+
+    bool sawDirectiveErrLobby = false;
+    auto waitStart = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - waitStart).count() < 3000) {
+        auto lobbyState = ownerClient.fetchLobbyState();
+        if (lobbyState.ok) {
+            std::string prefix = "@" + ownerHandle + " Sorry, couldn't start that match: ";
+            for (const auto &c : lobbyState.data.recentChat) {
+                if (c.handle == "octibot-sdk-cc1" &&
+                    c.text.find(prefix) != std::string::npos &&
+                    c.text.size() > prefix.size()) {
+                    sawDirectiveErrLobby = true;
+                    break;
+                }
+            }
+        }
+        if (sawDirectiveErrLobby) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE_TEXT(sawDirectiveErrLobby,
+                    "Expected deterministic lobby error on failing two-mention owner directive");
+    CHECK_FALSE(bot1->matchOverride().active);
+
+    bool sawConvRecord = false;
+    for (const auto &entry : bot1->getConversationHistory()) {
+        if (entry.replySource == "owner_override_error" &&
+            entry.replyText.find("Sorry, couldn't start that match:") != std::string::npos) {
+            sawConvRecord = true;
+            break;
+        }
+    }
+    CHECK_TRUE(sawConvRecord);
+
+    // 2. Owner JOIN_ROOM command targeting non-existent room #g-99999999-9998
+    auto postJoinCmd = ownerClient.postLobbyChat("@octibot-sdk-cc1 joinroom #g-99999999-9998");
+    CHECK_TRUE(postJoinCmd.ok);
+
+    bool sawJoinCmdErrLobby = false;
+    auto waitJoin = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - waitJoin).count() < 3000) {
+        auto lobbyState = ownerClient.fetchLobbyState();
+        if (lobbyState.ok) {
+            for (const auto &c : lobbyState.data.recentChat) {
+                if (c.handle == "octibot-sdk-cc1" &&
+                    c.text.find("@" + ownerHandle + " Sorry, couldn't join room #g-99999999-9998") != std::string::npos) {
+                    sawJoinCmdErrLobby = true;
+                    break;
+                }
+            }
+        }
+        if (sawJoinCmdErrLobby) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE_TEXT(sawJoinCmdErrLobby,
+                    "Expected deterministic lobby error on failing owner joinroom command");
+
+    auto stopStart = std::chrono::steady_clock::now();
+    bot1->stop();
+    auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - stopStart).count();
+    CHECK_TRUE(stopMs < 1000);
+}
+
+// ============================================================================
+// Envelope 2: Superseded Runner Teardown, MCP Status & Fleet Reclaim Tests
+// ============================================================================
+
+TEST_GROUP(OctiBotSupersededReclaimTest) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(OctiBotSupersededReclaimTest, SupersededRunnerStopsStreamsFailsOverrideAndReportsMcpStatus) {
+    // 1. Verify offline/unstarted OctiBotRunner compatibility (isRunning() == false && isSuperseded() == false)
+    {
+        OctiBotConfigStore unstartedCfg;
+        unstartedCfg.set("robot_name", "offline-unit-bot");
+        OctiBotRunner unstartedRunner(
+            std::make_unique<StockAlphaBetaAgent>(unstartedCfg), unstartedCfg);
+        OctiBotMcpServer unstartedMcp(unstartedRunner);
+
+        CHECK_FALSE(unstartedRunner.isRunning());
+        CHECK_FALSE(unstartedRunner.isSuperseded());
+
+        auto stUnstarted = nlohmann::json::parse(
+            unstartedMcp.callTool("octibot_get_status", "{}"));
+        CHECK_TRUE_TEXT(stUnstarted.value("ok", false),
+                        "Unstarted non-superseded runner must keep ok=true in octibot_get_status");
+        CHECK_TRUE(stUnstarted.contains("running"));
+        CHECK_FALSE(stUnstarted.value("running", true));
+        CHECK_TRUE(stUnstarted.contains("superseded"));
+        CHECK_FALSE(stUnstarted.value("superseded", true));
+        CHECK_TRUE(stUnstarted.contains("lobby_stream_active"));
+        CHECK_FALSE(stUnstarted.value("lobby_stream_active", true));
+        CHECK_TRUE(stUnstarted.contains("game_stream_active"));
+        CHECK_FALSE(stUnstarted.value("game_stream_active", true));
+
+        BotMatchOverride ov;
+        ov.active = true;
+        ov.targetPlayerHandle = "alice";
+        std::string summary, ovErr;
+        CHECK_TRUE_TEXT(unstartedRunner.applyMatchOverride(ov, summary, ovErr),
+                        "Unstarted non-superseded runner must still accept applyMatchOverride");
+        CHECK_TRUE(unstartedRunner.matchOverride().active);
+    }
+
+    // 2. Connect & start runner1 on loopback OctiHttpServer (seated in waiting table so both SSE streams run)
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-superseded-owner-1";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rBot = env->store.createRobot(ownerId, "superseded-bot-1", "Superseded Test Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    OctiBotConfigStore cfg1;
+    cfg1.set("server_host", "127.0.0.1");
+    cfg1.set("server_port", std::to_string(env->port));
+    cfg1.set("robot_name", "superseded-bot-1");
+    cfg1.set("bot_token", rBot.rawToken);
+    cfg1.set("table_behavior", "host_only");
+    cfg1.set("opponent_filter", "humans_only");
+    cfg1.set("verbosity", "0");
+
+    auto runner1 = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(cfg1), cfg1);
+    OctiBotMcpServer mcp1(*runner1);
+
+    std::string err;
+    CHECK_TRUE_TEXT(runner1->connectAndAuthenticate(err), err.c_str());
+    runner1->start();
+
+    for (int i = 0; i < 80; ++i) {
+        if (runner1->isRunning() &&
+            !runner1->isSuperseded() &&
+            !runner1->currentRoomId().empty() &&
+            runner1->networkClient().isLobbyEventStreamActive() &&
+            runner1->networkClient().isGameEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE(runner1->isRunning());
+    CHECK_FALSE(runner1->isSuperseded());
+    CHECK_TRUE(runner1->networkClient().isLobbyEventStreamActive());
+    CHECK_TRUE(runner1->networkClient().isGameEventStreamActive());
+
+    auto stBefore = nlohmann::json::parse(mcp1.callTool("octibot_get_status", "{}"));
+    CHECK_TRUE(stBefore.value("ok", false));
+    CHECK_TRUE(stBefore.contains("running"));
+    CHECK_TRUE(stBefore.value("running", false));
+    CHECK_TRUE(stBefore.contains("superseded"));
+    CHECK_FALSE(stBefore.value("superseded", true));
+    CHECK_TRUE(stBefore.contains("lobby_stream_active"));
+    CHECK_TRUE(stBefore.value("lobby_stream_active", false));
+    CHECK_TRUE(stBefore.contains("game_stream_active"));
+    CHECK_TRUE(stBefore.value("game_stream_active", false));
+
+    auto stAllBefore = nlohmann::json::parse(
+        mcp1.callTool("octibot_get_status", "{\"bot_handle\":\"all\"}"));
+    CHECK_TRUE(stAllBefore.value("ok", false));
+    CHECK_EQUAL(1u, stAllBefore["bots"].size());
+    CHECK_TRUE(stAllBefore["bots"][0].value("running", false));
+    CHECK_FALSE(stAllBefore["bots"][0].value("superseded", true));
+
+    // 3. Connect a second OctiNetworkClient with the same token (connectRobot(false)) to supersede runner1
+    OctiNetworkClient takeoverClient;
+    takeoverClient.setEndpoint("127.0.0.1", env->port);
+    takeoverClient.setBotToken(rBot.rawToken);
+    auto tkRes = takeoverClient.connectRobot(false);
+    CHECK_TRUE(tkRes.ok);
+
+    auto waitStart = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - waitStart).count() < 2000) {
+        if (runner1->isSuperseded() &&
+            !runner1->isRunning() &&
+            !runner1->networkClient().isLobbyEventStreamActive() &&
+            !runner1->networkClient().isGameEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    CHECK_TRUE_TEXT(runner1->isSuperseded(), "Expected runner1.isSuperseded() == true");
+    CHECK_FALSE_TEXT(runner1->isRunning(), "Expected runner1.isRunning() == false");
+    CHECK_FALSE_TEXT(runner1->networkClient().isLobbyEventStreamActive(),
+                     "Expected superseded runner1 to stop lobby SSE stream on exit");
+    CHECK_FALSE_TEXT(runner1->networkClient().isGameEventStreamActive(),
+                     "Expected superseded runner1 to stop game SSE stream on exit");
+
+    // 4. applyMatchOverride must fail fast on superseded runner
+    BotMatchOverride supOv;
+    supOv.active = true;
+    supOv.targetPlayerHandle = "alice";
+    std::string supSummary, supErr;
+    CHECK_FALSE_TEXT(runner1->applyMatchOverride(supOv, supSummary, supErr),
+                     "Expected applyMatchOverride to fail on superseded runner");
+    CHECK_TRUE(supErr.find("superseded") != std::string::npos);
+
+    auto mcpOvRes = nlohmann::json::parse(
+        mcp1.callTool("octibot_set_match_override",
+                      "{\"action\":\"set\",\"target_player\":\"alice\"}"));
+    CHECK_FALSE(mcpOvRes.value("ok", true));
+
+    // 5. octibot_get_status must report ok=false, running=false, superseded=true, streams=false
+    auto stAfter = nlohmann::json::parse(mcp1.callTool("octibot_get_status", "{}"));
+    CHECK_FALSE_TEXT(stAfter.value("ok", true),
+                     "Expected octibot_get_status ok=false when superseded");
+    CHECK_FALSE(stAfter.value("running", true));
+    CHECK_TRUE(stAfter.value("superseded", false));
+    CHECK_FALSE(stAfter.value("lobby_stream_active", true));
+    CHECK_FALSE(stAfter.value("game_stream_active", true));
+    CHECK_EQUAL(1u, stAfter["in_process_bots"].size());
+    CHECK_FALSE(stAfter["in_process_bots"][0].value("ok", true));
+    CHECK_TRUE(stAfter["in_process_bots"][0].value("superseded", false));
+
+    auto stAllAfter = nlohmann::json::parse(
+        mcp1.callTool("octibot_get_status", "{\"bot_handle\":\"all\"}"));
+    CHECK_FALSE(stAllAfter.value("ok", true));
+    CHECK_EQUAL(1u, stAllAfter["bots"].size());
+    CHECK_FALSE(stAllAfter["bots"][0].value("ok", true));
+    CHECK_FALSE(stAllAfter["bots"][0].value("running", true));
+    CHECK_TRUE(stAllAfter["bots"][0].value("superseded", false));
+
+    takeoverClient.disconnectRobot();
+    runner1->stop();
+}
+
+TEST(OctiBotSupersededReclaimTest, FleetSupervisorStaysStandbyWhileTokenActiveThenReclaimsWhenUnused) {
+    {
+        OctiBotConfigStore autoCfg;
+        autoCfg.set("robot_name", "pool-clone");
+        autoCfg.set("bot_token", "auto");
+        autoCfg.set("reclaim_superseded_ms", "-50");
+        OctiBotRunner autoRunner(std::make_unique<StockAlphaBetaAgent>(autoCfg), autoCfg);
+        autoRunner.networkClient().setBotToken("octi_bot_dummy_pool_token");
+        CHECK_FALSE(autoRunner.hasReusableNamedToken());
+        CHECK_EQUAL(0, autoRunner.reclaimSupersededIntervalMs());
+    }
+
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-superseded-owner-2";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rBot = env->store.createRobot(ownerId, "fleet-reclaim-bot", "Fleet Reclaim Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    const std::string confText =
+        "server_host = 127.0.0.1\n"
+        "server_port = " + std::to_string(env->port) + "\n"
+        "aimon_enabled = false\n"
+        "expose_mcp_tools = true\n"
+        "web_bind = 127.0.0.1\n"
+        "web_port = 0\n"
+        "mcp_port = 0\n"
+        "verbosity = 1\n"
+        "\n"
+        "[fleet-reclaim-bot]\n"
+        "robot_name = fleet-reclaim-bot\n"
+        "bot_token = " + rBot.rawToken + "\n"
+        "table_behavior = idle\n"
+        "reclaim_superseded_ms = 100\n";
+
+    OctiBotConfigStore fleetCfg;
+    std::string parseErr;
+    CHECK_TRUE_TEXT(fleetCfg.parseString(confText, parseErr), parseErr.c_str());
+
+    OctiBotFleetRunner fleet;
+    CHECK_TRUE(fleet.startProfiles(fleetCfg, {"fleet-reclaim-bot"}));
+    CHECK_EQUAL(1u, fleet.runners().size());
+    CHECK_EQUAL(1u, fleet.mcpServers().size());
+
+    OctiBotRunner *runner = fleet.runners()[0].get();
+    OctiBotMcpServer *mcp = fleet.mcpServers()[0].get();
+    CHECK_TRUE(runner->hasReusableNamedToken());
+    CHECK_EQUAL(100, runner->reclaimSupersededIntervalMs());
+
+    for (int i = 0; i < 80; ++i) {
+        if (runner->isRunning() &&
+            !runner->isSuperseded() &&
+            runner->networkClient().isLobbyEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE(runner->isRunning());
+    CHECK_FALSE(runner->isSuperseded());
+    CHECK_TRUE(runner->networkClient().isLobbyEventStreamActive());
+    CHECK_TRUE(fleet.tickSupervisor());
+
+    // Supersede with an external OctiNetworkClient that keeps an active lobby SSE stream
+    OctiNetworkClient externalClient;
+    externalClient.setEndpoint("127.0.0.1", env->port);
+    externalClient.setBotToken(rBot.rawToken);
+    auto extConn = externalClient.connectRobot(false);
+    CHECK_TRUE(extConn.ok);
+
+    std::atomic<bool> externalSuperseded{false};
+    externalClient.startLobbyEventStream(0, [&](const SseEvent &ev) {
+        if (ev.event == "closed" &&
+            ev.dataJson.find("ROBOT_TOKEN_SUPERSEDED") != std::string::npos) {
+            externalSuperseded.store(true);
+        }
+    });
+
+    auto supWait = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - supWait).count() < 2000) {
+        if (externalClient.isLobbyEventStreamActive() &&
+            runner->isSuperseded() &&
+            !runner->isRunning() &&
+            !runner->networkClient().isLobbyEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_TRUE(externalClient.isLobbyEventStreamActive());
+    CHECK_TRUE(runner->isSuperseded());
+    CHECK_FALSE(runner->isRunning());
+    CHECK_FALSE(runner->networkClient().isLobbyEventStreamActive());
+
+    // Drive tickSupervisor() across > 300ms while externalClient is active; must stay standby without stealing token
+    auto standbyStart = std::chrono::steady_clock::now();
+    int standbyTicks = 0;
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - standbyStart).count() < 360) {
+        CHECK_TRUE_TEXT(fleet.tickSupervisor(),
+                        "Expected fleet.tickSupervisor() to stay true in standby while superseded");
+        CHECK_FALSE_TEXT(externalSuperseded.load(),
+                         "External client must NOT be kicked while holding active lease/stream");
+        CHECK_TRUE(runner->isSuperseded());
+        CHECK_FALSE(runner->isRunning());
+        ++standbyTicks;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE(standbyTicks >= 10);
+    CHECK_TRUE(externalClient.isLobbyEventStreamActive());
+    CHECK_TRUE(externalClient.fetchLobbyState().ok);
+
+    auto stDuringTakeover = nlohmann::json::parse(mcp->callTool("octibot_get_status", "{}"));
+    CHECK_FALSE(stDuringTakeover.value("ok", true));
+    CHECK_FALSE(stDuringTakeover.value("running", true));
+    CHECK_TRUE(stDuringTakeover.value("superseded", false));
+    CHECK_FALSE(stDuringTakeover.value("lobby_stream_active", true));
+
+    // Stop external client's SSE stream and disconnect so the token becomes unused
+    externalClient.stopEventStreams();
+    auto discRes = externalClient.disconnectRobot();
+    CHECK_TRUE(discRes.ok);
+
+    // Drive tickSupervisor() until runner reclaims (connectRobot(true) -> 200 OK) and restarts cleanly
+    bool reclaimedAndRunning = false;
+    auto reclaimStart = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - reclaimStart).count() < 2000) {
+        CHECK_TRUE(fleet.tickSupervisor());
+        if (runner->isRunning() &&
+            !runner->isSuperseded() &&
+            runner->networkClient().isLobbyEventStreamActive()) {
+            reclaimedAndRunning = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_TRUE_TEXT(reclaimedAndRunning,
+                    "Expected fleet.tickSupervisor() to reclaim unused robot token and restart runner");
+
+    auto stReclaimed = nlohmann::json::parse(mcp->callTool("octibot_get_status", "{}"));
+    CHECK_TRUE(stReclaimed.value("ok", false));
+    CHECK_TRUE(stReclaimed.value("running", false));
+    CHECK_FALSE(stReclaimed.value("superseded", true));
+    CHECK_TRUE(stReclaimed.value("lobby_stream_active", false));
+
+    bool sawSupervisorLog = false;
+    for (const auto &entry : runner->getLogsAfter(0)) {
+        if (entry.line.find("[SUPERVISOR] Reclaimed idle robot session for @fleet-reclaim-bot") != std::string::npos) {
+            sawSupervisorLog = true;
+            break;
+        }
+    }
+    CHECK_TRUE_TEXT(sawSupervisorLog,
+                    "Expected [SUPERVISOR] Reclaimed idle robot session log line");
+
+    auto stopStart = std::chrono::steady_clock::now();
+    fleet.stop();
+    auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - stopStart).count();
+    CHECK_TRUE(stopMs < 1000);
+}
+
+// ============================================================================
 
 int main(int argc, char **argv) {
 #if !defined(_WIN32)

@@ -1327,7 +1327,11 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             nlohmann::json st;
             const auto &id = r.identity();
             std::string handle = id.handle.empty() ? r.config().getString("robot_name") : id.handle;
-            st["ok"] = true;
+            st["ok"] = !r.isSuperseded();
+            st["running"] = r.isRunning();
+            st["superseded"] = r.isSuperseded();
+            st["lobby_stream_active"] = r.networkClient().isLobbyEventStreamActive();
+            st["game_stream_active"] = r.networkClient().isGameEventStreamActive();
             st["robot_uuid"] = id.robotUuid;
             st["handle"] = handle;
             st["lobby_only"] = r.isLobbyOnly();
@@ -1378,13 +1382,17 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         }
         if (lowerRaw == "all" || lowerRaw == "*") {
             nlohmann::json bots = nlohmann::json::array();
+            bool allOk = true;
             for (auto *r : OctiBotRunner::listActiveRunners()) {
                 if (r) {
+                    if (r->isSuperseded()) {
+                        allOk = false;
+                    }
                     bots.push_back(buildRunnerStatus(*r));
                 }
             }
             nlohmann::json out;
-            out["ok"] = true;
+            out["ok"] = allOk;
             out["bots"] = bots;
             return out.dump(2);
         }
@@ -1398,6 +1406,11 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                     : r->identity().handle;
                 roster.push_back({
                     {"handle", h},
+                    {"ok", !r->isSuperseded()},
+                    {"running", r->isRunning()},
+                    {"superseded", r->isSuperseded()},
+                    {"lobby_stream_active", r->networkClient().isLobbyEventStreamActive()},
+                    {"game_stream_active", r->networkClient().isGameEventStreamActive()},
                     {"active_room_id", r->currentRoomId()},
                     {"phase", r->currentPhase()},
                     {"seat", r->currentSeat()},
