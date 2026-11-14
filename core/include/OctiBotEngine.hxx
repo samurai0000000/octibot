@@ -79,6 +79,8 @@ struct BotTuningProfile {
     int treeBranchCap                = 24;    // Max candidate moves kept at internal nodes
     int lazySmpThreads               = 2;     // Total search threads (1 = single-thread, 4 = Lazy SMP)
     int compositeMoveMaxPly          = 1;     // Max search ply to generate multi-pod composite moves (-1 = off)
+    int compositeTacticalOnlyMinPly  = 0;     // Min ply where composite moves require jump/capture/base/battery (<= 0 = all plies full)
+    bool qsearchIncludeBaseThreatProngs = false; // Include dist-1 base-entry +prong insertions in quiesce() at qDepth == 0
     int rootScoreJitter              = 25;    // Random root score noise [-jitter, +jitter] (0 = deterministic)
     int bookSelectionWindow          = 0;     // Opening book candidate score window (0 = deterministic top move)
     bool useOpeningBook              = true;  // Probe precomputed Zobrist opening playbook before live search
@@ -104,6 +106,7 @@ struct BotTuningProfile {
     int oneJumpBaseThreatBonus       = 12000; // Bonus when a pod has prong + pivot to jump into enemy base
     int twoPlyBaseThreatWeight       = 2400;  // Bonus when a pod is at dist 1 from enemy base & needs 1 prong
     int contestedEnemyBaseThreatScalePct = 100; // Scale (%) on friendly base-threat bonuses when enemy contests (100 = flat)
+    int emptyAlliedBasePenalty1B     = 0;     // Penalty per empty uncaptured allied home square when enemy needs 1 base to win (0 = off)
 
     // --- 3. Multi-Pod Development & Anti-Monopoly Weights ---
     int podZeroProngVal              = 320;   // Base value of an unarmed pod on the board
@@ -126,6 +129,7 @@ struct BotTuningProfile {
     int reserveFreePodVal            = 450;   // Value per unplaced pod in reserve
     int capturedPodPenalty           = 3800;  // Penalty per captured pod in standard 2P/4P
     int reserveFreeProngVal          = 140;   // Value per unplaced prong in reserve in standard 2P/4P
+    bool fixStackAndHomeEvalMirage   = false; // Exempt 2-pod armed batteries from stackPen, fix (4-freePods) inversion, and require armedPods <= 1 for monopoly
 
     // --- 4. Leapfrog / Launchpad Battery & Jump Reachability Weights ---
     int leapfrogBatteryWeight        = 550;   // Bonus for friendly pod + adjacent friendly pivot along a prong dir

@@ -2541,7 +2541,12 @@ TEST(OctiBotEngineCoreTest, UnboundedTimeBookSearchAndBookGenMultiLangSync)
 
     // 3. End-to-end octi_book_gen CLI: MAKEFLAGS -j4, Java class, --from-json, --out-js
     std::string bookGenBin;
-    if (std::filesystem::exists("build/octi_book_gen")) {
+    std::error_code selfEc;
+    std::filesystem::path selfDir =
+        std::filesystem::canonical("/proc/self/exe", selfEc).parent_path();
+    if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
+        bookGenBin = (selfDir / "octi_book_gen").string();
+    } else if (std::filesystem::exists("build/octi_book_gen")) {
         bookGenBin = "./build/octi_book_gen";
     } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
         bookGenBin = "./build/asan/octi_book_gen";
@@ -2698,9 +2703,14 @@ TEST(OctiBotEngineCoreTest, BookMoveScorePreservesUnclamped32BitMateAndLeadScore
 
     // 3. octi_book_gen preserves int16 [-32000, 32000] clamping when writing OpeningBookCandidate::score
     std::string bookGenBin;
+    std::error_code selfEc;
+    std::filesystem::path selfDir =
+        std::filesystem::canonical("/proc/self/exe", selfEc).parent_path();
     std::filesystem::path coreRoot =
         std::filesystem::path(__FILE__).parent_path().parent_path();
-    if (std::filesystem::exists("build/octi_book_gen")) {
+    if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
+        bookGenBin = (selfDir / "octi_book_gen").string();
+    } else if (std::filesystem::exists("build/octi_book_gen")) {
         bookGenBin = "./build/octi_book_gen";
     } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
         bookGenBin = "./build/asan/octi_book_gen";
@@ -6626,7 +6636,9 @@ TEST(OctiOpeningBookAllVariants, BookGenNewVariantModesFlagsAndAll13Expansion)
     std::string bookGenBin;
     std::error_code selfEc;
     std::filesystem::path selfDir = std::filesystem::canonical("/proc/self/exe", selfEc).parent_path();
-    if (std::filesystem::exists("build/octi_book_gen")) {
+    if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
+        bookGenBin = (selfDir / "octi_book_gen").string();
+    } else if (std::filesystem::exists("build/octi_book_gen")) {
         bookGenBin = "./build/octi_book_gen";
     } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
         bookGenBin = "./build/asan/octi_book_gen";
@@ -6634,8 +6646,6 @@ TEST(OctiOpeningBookAllVariants, BookGenNewVariantModesFlagsAndAll13Expansion)
         bookGenBin = "./octi_book_gen";
     } else if (std::filesystem::exists("core/build/octi_book_gen")) {
         bookGenBin = "./core/build/octi_book_gen";
-    } else if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
-        bookGenBin = (selfDir / "octi_book_gen").string();
     }
     CHECK_FALSE(bookGenBin.empty());
 
@@ -6758,7 +6768,9 @@ TEST(OctiOpeningBookAllVariants, BookGenFreshEnginePerPositionOrderIndependence)
     std::string bookGenBin;
     std::error_code selfEc;
     std::filesystem::path selfDir = std::filesystem::canonical("/proc/self/exe", selfEc).parent_path();
-    if (std::filesystem::exists("build/octi_book_gen")) {
+    if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
+        bookGenBin = (selfDir / "octi_book_gen").string();
+    } else if (std::filesystem::exists("build/octi_book_gen")) {
         bookGenBin = "./build/octi_book_gen";
     } else if (std::filesystem::exists("build/asan/octi_book_gen")) {
         bookGenBin = "./build/asan/octi_book_gen";
@@ -6766,8 +6778,6 @@ TEST(OctiOpeningBookAllVariants, BookGenFreshEnginePerPositionOrderIndependence)
         bookGenBin = "./octi_book_gen";
     } else if (std::filesystem::exists("core/build/octi_book_gen")) {
         bookGenBin = "./core/build/octi_book_gen";
-    } else if (!selfEc && std::filesystem::exists(selfDir / "octi_book_gen")) {
-        bookGenBin = (selfDir / "octi_book_gen").string();
     }
     CHECK_FALSE(bookGenBin.empty());
 
@@ -9206,6 +9216,13 @@ TEST(OctiSoundCueTest, RapidCheckWavDecoderAndClassifierFuzzing)
 
 TEST(OctiSoundCueTest, OctiSoundGenCliVerifyAndJsSync)
 {
+    std::string soundGenBin;
+    std::error_code selfEc;
+    std::filesystem::path selfDir =
+        std::filesystem::canonical("/proc/self/exe", selfEc).parent_path();
+    if (!selfEc && std::filesystem::exists(selfDir / "octi_sound_gen")) {
+        soundGenBin = (selfDir / "octi_sound_gen").string();
+    }
     const char *binCandidates[] = {
         "./build/octi_sound_gen",
         "./build/asan/octi_sound_gen",
@@ -9214,12 +9231,13 @@ TEST(OctiSoundCueTest, OctiSoundGenCliVerifyAndJsSync)
         "./octi_sound_gen",
         "../octi_sound_gen"
     };
-    std::string soundGenBin;
-    for (const char *cand : binCandidates) {
-        std::error_code ec;
-        if (std::filesystem::exists(cand, ec) && !ec) {
-            soundGenBin = cand;
-            break;
+    if (soundGenBin.empty()) {
+        for (const char *cand : binCandidates) {
+            std::error_code ec;
+            if (std::filesystem::exists(cand, ec) && !ec) {
+                soundGenBin = cand;
+                break;
+            }
         }
     }
     CHECK_FALSE(soundGenBin.empty());
@@ -9304,6 +9322,491 @@ TEST(OctiSoundCueTest, OctiSoundGenCliVerifyAndJsSync)
     }
 
     std::filesystem::remove_all(scratchDir, rmEc);
+}
+
+TEST_GROUP(OctiPostMortemEngineBugFixes)
+{
+    static int findScoredMove(const std::vector<octi::BookMoveScore> &scores,
+                              const std::string &targetMove,
+                              bool *found = nullptr)
+    {
+        for (const auto &entry : scores) {
+            if (entry.move == targetMove) {
+                if (found) {
+                    *found = true;
+                }
+                return entry.score;
+            }
+        }
+        if (found) {
+            *found = false;
+        }
+        return 0;
+    }
+};
+
+TEST(OctiPostMortemEngineBugFixes, CompositeTacticalFilterAtPly3FindsSynchronizedTwoPodStrike)
+{
+    // Ply 43 FEN: Player A to move; "33abg-23" allows 44. 47g+d -> 46. 47efg-45,47dg-56
+    const char *kPly43Fen =
+        "2:1:0:0:P:A:-:0:1,1,15,0:0,1,14,0:"
+        "A33abg,A33a,A73h,A34abgh,A64bh,B46bcdefg,B37,B47efg,B47g,B57,B77";
+
+    octi::OctiBoard b43;
+    b43.fromPositionString(kPly43Fen);
+
+    octi::BotTuningProfile baseProf;
+    baseProf.useOpeningBook = false;
+    baseProf.rootScoreJitter = 0;
+    baseProf.lazySmpThreads = 1;
+    baseProf.maxSearchDepth = 4;
+    baseProf.timeBudgetMs = 0;
+    baseProf.compositeMoveMaxPly = 1;
+    baseProf.compositeTacticalOnlyMinPly = 0;
+
+    octi::OctiBotEngine baseBot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    baseBot.setTuningProfile(baseProf);
+    octi::BotSearchStats baseStats;
+    std::vector<octi::BookMoveScore> baseRootScores =
+        baseBot.searchTopMovesForBook(b43, 4, 0, 36, &baseStats);
+    bool foundBaseBlunder = false;
+    int baseBlunderScore = findScoredMove(baseRootScores, "33abg-23", &foundBaseBlunder);
+    CHECK_TRUE(foundBaseBlunder);
+    STRCMP_EQUAL("33abg-23", baseRootScores.front().move.c_str());
+
+    // With fixed eval + compositeMoveMaxPly = 4 and compositeTacticalOnlyMinPly = 2 at depth 5
+    // (where ply 3 = B's 46. 47efg-45,47dg-56 has depth = 2 >= 2), 33abg-23 is refuted
+    octi::BotTuningProfile fixedPly1Prof = baseProf;
+    fixedPly1Prof.maxSearchDepth = 5;
+    fixedPly1Prof.fixStackAndHomeEvalMirage = true;
+    fixedPly1Prof.emptyAlliedBasePenalty1B = 3800;
+    fixedPly1Prof.qsearchIncludeBaseThreatProngs = true;
+
+    octi::BotTuningProfile compProf = fixedPly1Prof;
+    compProf.compositeMoveMaxPly = 4;
+    compProf.compositeTacticalOnlyMinPly = 2;
+
+    octi::OctiBotEngine fixedPly1Bot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    fixedPly1Bot.setTuningProfile(fixedPly1Prof);
+    std::vector<octi::BookMoveScore> fixedPly1Scores =
+        fixedPly1Bot.searchTopMovesForBook(b43, 5, 0, 36, nullptr);
+    bool foundFixedPly1 = false;
+    int fixedPly1BlunderScore = findScoredMove(fixedPly1Scores, "33abg-23", &foundFixedPly1);
+    CHECK_TRUE(foundFixedPly1);
+
+    octi::OctiBotEngine compBot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    compBot.setTuningProfile(compProf);
+    octi::BotSearchStats compStats;
+    std::vector<octi::BookMoveScore> compRootScores =
+        compBot.searchTopMovesForBook(b43, 5, 0, 36, &compStats);
+    bool foundCompBlunder = false;
+    int compBlunderScore = findScoredMove(compRootScores, "33abg-23", &foundCompBlunder);
+    CHECK_TRUE(foundCompBlunder);
+    CHECK_TRUE(compBlunderScore < baseBlunderScore);
+    CHECK_TRUE(compBlunderScore < fixedPly1BlunderScore);
+    CHECK_TRUE(compRootScores.front().move != "33abg-23");
+
+    // Direct interior-ply composite check from Ply 44 after 43. 33abg-23 at depth 4
+    // (ply 0 = B's 44. 47g+d, ply 1 = A's reply, ply 2 = B's 46. 47efg-45,47dg-56 with depth = 2):
+    // compositeTacticalOnlyMinPly = 2 must retain 47efg-45,47dg-56, match minPly = 0 score on 47g+d,
+    // and prune quiet non-tactical interior composites (fewer nodes than minPly = 0)
+    octi::OctiBoard b44;
+    b44.fromPositionString(kPly43Fen);
+    b44.getGame()->move("33abg-23");
+
+    octi::BotTuningProfile pureTacProf = baseProf;
+    pureTacProf.compositeMoveMaxPly = 4;
+    pureTacProf.compositeTacticalOnlyMinPly = 2;
+
+    octi::BotTuningProfile fullCompProf = pureTacProf;
+    fullCompProf.compositeTacticalOnlyMinPly = 0;
+
+    octi::OctiBotEngine baseBot44(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    baseBot44.setTuningProfile(baseProf);
+    std::vector<octi::BookMoveScore> s44Base =
+        baseBot44.searchTopMovesForBook(b44, 4, 0, 36, nullptr);
+
+    octi::OctiBotEngine tacBot44(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    tacBot44.setTuningProfile(pureTacProf);
+    octi::BotSearchStats st44Tac;
+    std::vector<octi::BookMoveScore> s44Tac =
+        tacBot44.searchTopMovesForBook(b44, 4, 0, 36, &st44Tac);
+
+    octi::OctiBotEngine fullBot44(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    fullBot44.setTuningProfile(fullCompProf);
+    octi::BotSearchStats st44Full;
+    std::vector<octi::BookMoveScore> s44Full =
+        fullBot44.searchTopMovesForBook(b44, 4, 0, 36, &st44Full);
+
+    bool fBase = false;
+    bool fTac = false;
+    bool fFull = false;
+    int score47gdBase = findScoredMove(s44Base, "47g+d", &fBase);
+    int score47gdTac = findScoredMove(s44Tac, "47g+d", &fTac);
+    int score47gdFull = findScoredMove(s44Full, "47g+d", &fFull);
+    CHECK_TRUE(fBase && fTac && fFull);
+    CHECK_TRUE(score47gdTac > score47gdBase);
+    CHECK_EQUAL(score47gdFull, score47gdTac);
+    CHECK_TRUE(st44Tac.nodesVisited < st44Full.nodesVisited);
+
+    // Boundary check across compositeTacticalOnlyMinPly = 0..5 on a symmetric position where
+    // both sides have purely lateral quiet 2-pod step pairs (A53cg,A53cg and B57cg,B57cg).
+    // Use maxSearchDepth = 6 so ply = 0..4 all have depth >= 2, while ply = 5 has depth = 1 < 2.
+    const char *kLateralStackFen =
+        "2:1:0:0:P:B:-:0:2,0,20,0:2,0,20,0:A53cg,A53cg,B57cg,B57cg";
+    octi::OctiBoard bLat;
+    bLat.fromPositionString(kLateralStackFen);
+
+    std::uint64_t nodesByMinPly[6] = {0};
+    for (int minPly = 0; minPly <= 5; ++minPly) {
+        octi::BotTuningProfile p = baseProf;
+        p.timeBudgetMs = 300000;
+        p.maxSearchDepth = 6;
+        p.rootBranchCap = 36;
+        p.treeBranchCap = 36;
+        p.compositeMoveMaxPly = 4;
+        p.compositeTacticalOnlyMinPly = minPly;
+        octi::OctiBotEngine eng(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+        eng.setTuningProfile(p);
+        octi::BotSearchStats st;
+        (void)eng.chooseMove(bLat, &st);
+        nodesByMinPly[minPly] = st.nodesVisited;
+    }
+
+    // At maxSearchDepth = 6, composites are generated for ply = 0..4, so minPly = 5 matches minPly = 0
+    CHECK_EQUAL(nodesByMinPly[0], nodesByMinPly[5]);
+    // Pruning quiet lateral 2-pod step pairs at ply >= 1..4 strictly cuts interior nodes
+    CHECK_TRUE(nodesByMinPly[1] < nodesByMinPly[2]);
+    CHECK_TRUE(nodesByMinPly[2] < nodesByMinPly[3]);
+    CHECK_TRUE(nodesByMinPly[3] < nodesByMinPly[4]);
+    CHECK_TRUE(nodesByMinPly[4] < nodesByMinPly[5]);
+}
+
+TEST(OctiPostMortemEngineBugFixes, StackAndHomeEvalMirageFixEliminatesPhantomCushion)
+{
+    // Ply 41 FEN: B has 3 armed pods (B46bcdefg, B57efg, B57g), 3 unarmed home pods (B37, B57, B77),
+    // and freePods(B) == 0 (all pods deployed on board).
+    const char *kPly41Fen =
+        "2:1:0:0:P:A:-:0:1,1,16,0:0,1,14,0:"
+        "A33abg,A33,A73h,A34abgh,A64bh,B46bcdefg,B37,B57efg,B57g,B57,B77";
+
+    octi::OctiBoard b41;
+    b41.fromPositionString(kPly41Fen);
+
+    octi::BotTuningProfile baseProf;
+    baseProf.fixStackAndHomeEvalMirage = false;
+    octi::OctiEvalBreakdown bdBase =
+        octi::OctiBotEngine::evaluatePositionBreakdown(b41, octi::PLAYER_A, baseProf);
+
+    CHECK_EQUAL(2800, bdBase.stackAndCapturedBaseHolding);
+    CHECK_EQUAL(7800, bdBase.undeployedAndUnarmedHomePenalty);
+    CHECK_EQUAL(5000, bdBase.singlePodMonopoly);
+    CHECK_EQUAL(23860, bdBase.totalScore);
+
+    octi::BotTuningProfile fixProf;
+    fixProf.fixStackAndHomeEvalMirage = true;
+    octi::OctiEvalBreakdown bdFix =
+        octi::OctiBotEngine::evaluatePositionBreakdown(b41, octi::PLAYER_A, fixProf);
+
+    // 1. 2-pod armed battery exemption eliminates +2,800 distortion (net -3750 + 3750 = 0)
+    CHECK_EQUAL(0, bdFix.stackAndCapturedBaseHolding);
+    // 2. freePods(B) == 0 no longer pays (4 - 0) * 1500 = 6,000 undeployed-reserve penalty
+    CHECK_EQUAL(1800, bdFix.undeployedAndUnarmedHomePenalty);
+    // 3. armedPods(B) == 3 >= 2 no longer triggers singlePodMonopoly (+5,000 removed)
+    CHECK_EQUAL(0, bdFix.singlePodMonopoly);
+    CHECK_EQUAL(bdFix.sumTerms(), bdFix.totalScore);
+    CHECK_EQUAL(10060, bdFix.totalScore);
+
+    // Verify clean 2-pod armed battery on 47 (Ply 44 FEN) has 0 stack penalty, while 3 armed pods pay 2800
+    octi::OctiBoard b44;
+    b44.fromPositionString(
+        "2:1:0:0:P:B:-:0:1,1,15,0:0,1,14,0:"
+        "A23abg,A33a,A73h,A34abgh,A64bh,B46bcdefg,B37,B47efg,B47g,B57,B77");
+    CHECK_EQUAL(2800, octi::OctiBotEngine::evaluatePositionBreakdown(
+        b44, octi::PLAYER_A, baseProf).stackAndCapturedBaseHolding);
+    CHECK_EQUAL(0, octi::OctiBotEngine::evaluatePositionBreakdown(
+        b44, octi::PLAYER_A, fixProf).stackAndCapturedBaseHolding);
+
+    octi::OctiBoard b3Armed;
+    b3Armed.fromPositionString(
+        "2:1:0:0:P:B:-:0:1,1,15,0:0,1,13,0:"
+        "A23abg,A33a,A73h,A34abgh,A64bh,B37,B47efg,B47dg,B47e,B57,B77");
+    CHECK_EQUAL(2800, octi::OctiBotEngine::evaluatePositionBreakdown(
+        b3Armed, octi::PLAYER_A, fixProf).stackAndCapturedBaseHolding);
+
+    // Verify genuine single-pod monopoly (armedPods == 1) and genuine undeployed reserve
+    // (freePods >= 2 && unarmedHome >= 2 && freeProngs >= 8) still fire under fixProf
+    octi::OctiBoard bGenuine;
+    bGenuine.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,0,12,0:0,0,12,0:A33,A53,A44abcef,B37e,B57f,B77g");
+    octi::OctiEvalBreakdown bdGen =
+        octi::OctiBotEngine::evaluatePositionBreakdown(bGenuine, octi::PLAYER_A, fixProf);
+    CHECK_EQUAL(-3000, bdGen.singlePodMonopoly);
+    // 2 freePods * 900 + 2 unarmedHome * 900 = -3600
+    CHECK_EQUAL(-3600, bdGen.undeployedAndUnarmedHomePenalty);
+}
+
+TEST(OctiPostMortemEngineBugFixes, EmptyAlliedBasePenalty1BPrefersRegarrisoningOverStacking)
+{
+    // Ply 37 FEN in 2P_1B: A's home square 53 is empty; B46cdefg is at Chebyshev dist 3 from 53
+    const char *kPly37Fen =
+        "2:1:0:0:P:A:-:0:2,1,17,0:1,1,15,0:"
+        "A33abg,A73h,A34abgh,A64h,B46cdefg,B37,B57efg,B57g,B77";
+
+    octi::OctiBoard b37;
+    b37.fromPositionString(kPly37Fen);
+
+    octi::BotTuningProfile baseProf;
+    CHECK_EQUAL(0, octi::OctiBotEngine::evaluatePositionBreakdown(
+        b37, octi::PLAYER_A, baseProf).lostAlliedBases);
+
+    octi::BotTuningProfile penProf;
+    penProf.emptyAlliedBasePenalty1B = 3800;
+
+    // dEnemy == 3 -> urgencyPct = 130 -> -(3800 * 130) / 100 = -4940
+    octi::OctiEvalBreakdown bdA =
+        octi::OctiBotEngine::evaluatePositionBreakdown(b37, octi::PLAYER_A, penProf);
+    octi::OctiEvalBreakdown bdB =
+        octi::OctiBotEngine::evaluatePositionBreakdown(b37, octi::PLAYER_B, penProf);
+    CHECK_EQUAL(-4940, bdA.lostAlliedBases);
+    CHECK_EQUAL(4940, bdB.lostAlliedBases);
+    CHECK_EQUAL(-bdA.totalScore, bdB.totalScore);
+
+    // Check urgency tiers: dEnemy <= 2 (175%) and dEnemy >= 4 (100%)
+    octi::OctiBoard bDist2;
+    bDist2.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,1,17,0:1,1,15,0:"
+        "A33abg,A73h,A34abgh,A64h,B45cdefg,B37,B57efg,B57g,B77");
+    CHECK_EQUAL(-6650, octi::OctiBotEngine::evaluatePositionBreakdown(
+        bDist2, octi::PLAYER_A, penProf).lostAlliedBases);
+
+    octi::OctiBoard bDist4;
+    bDist4.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,1,17,0:1,1,15,0:"
+        "A33abg,A73h,A34abgh,A64h,B37,B57efg,B57g,B77");
+    CHECK_EQUAL(-3800, octi::OctiBotEngine::evaluatePositionBreakdown(
+        bDist4, octi::PLAYER_A, penProf).lostAlliedBases);
+
+    // Garrisoning empty 53 eliminates the -4940 penalty and scores strictly higher than stacking on 33
+    octi::OctiBoard bGarrison53;
+    bGarrison53.fromPositionString(kPly37Fen);
+    bGarrison53.getGame()->move("53");
+    octi::OctiEvalBreakdown bd53 =
+        octi::OctiBotEngine::evaluatePositionBreakdown(bGarrison53, octi::PLAYER_A, penProf);
+    CHECK_EQUAL(0, bd53.lostAlliedBases);
+
+    octi::OctiBoard bStack33;
+    bStack33.fromPositionString(kPly37Fen);
+    bStack33.getGame()->move("33");
+    octi::OctiEvalBreakdown bd33 =
+        octi::OctiBotEngine::evaluatePositionBreakdown(bStack33, octi::PLAYER_A, penProf);
+    CHECK_EQUAL(-4940, bd33.lostAlliedBases);
+    CHECK_TRUE(bd53.totalScore > bd33.totalScore);
+
+    penProf.useOpeningBook = false;
+    penProf.rootScoreJitter = 0;
+    penProf.lazySmpThreads = 1;
+    penProf.timeBudgetMs = 0;
+    octi::OctiBotEngine bot37(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    bot37.setTuningProfile(penProf);
+    std::vector<octi::BookMoveScore> s37 =
+        bot37.searchTopMovesForBook(b37, 2, 0, 36, nullptr);
+    bool f53 = false;
+    bool f33 = false;
+    int searchScore53 = findScoredMove(s37, "53", &f53);
+    int searchScore33 = findScoredMove(s37, "33", &f33);
+    CHECK_TRUE(f53 && f33);
+    CHECK_TRUE(searchScore53 > searchScore33);
+
+    // Zero effect in 2P_3B (basesNeeded == 3 > 1) and in OFK
+    octi::OctiBoard b3B;
+    b3B.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,1,17,0:1,1,15,0:"
+        "A33abg,A73h,A34abgh,A64h,B46cdefg,B37,B57efg,B57g,B77");
+    CHECK_EQUAL(0, octi::OctiBotEngine::evaluatePositionBreakdown(
+        b3B, octi::PLAYER_A, penProf).lostAlliedBases);
+
+    octi::OctiBoard bOfk;
+    bOfk.fromPositionString("OFK:1:0:0:P:A:-:0:0,0,10,0:0,0,10,0:A22a,A32,B26e,B36");
+    CHECK_EQUAL(0, octi::OctiBotEngine::evaluatePositionBreakdown(
+        bOfk, octi::PLAYER_A, penProf).lostAlliedBases);
+}
+
+TEST(OctiPostMortemEngineBugFixes, QuiesceIncludesDistOneBaseThreatProngInsertion)
+{
+    // Ply 49 FEN: B22efg sits at Chebyshev dist 1 from A's base 33 (occupied by A33a with empty 44).
+    const char *kPly49Fen =
+        "2:1:0:0:P:A:-:0:1,2,14,0:0,1,17,0:"
+        "B22efg,A33a,A73h,A24abeg,A64bh,B46bcdefg,B37,B47dg,B57,B77";
+
+    octi::OctiBoard b49;
+    b49.fromPositionString(kPly49Fen);
+
+    octi::BotTuningProfile baseProf;
+    baseProf.useOpeningBook = false;
+    baseProf.rootScoreJitter = 0;
+    baseProf.lazySmpThreads = 1;
+    baseProf.timeBudgetMs = 0;
+    baseProf.maxSearchDepth = 1;
+    baseProf.maxQuiesceDepth = 2;
+    baseProf.quiesceBranchCap = 6;
+    baseProf.qsearchIncludeBaseThreatProngs = false;
+
+    octi::BotTuningProfile qProngProf = baseProf;
+    qProngProf.qsearchIncludeBaseThreatProngs = true;
+
+    octi::OctiBotEngine baseBot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    baseBot.setTuningProfile(baseProf);
+    octi::BotSearchStats stBase;
+    std::vector<octi::BookMoveScore> sBase =
+        baseBot.searchTopMovesForBook(b49, 1, 0, 36, &stBase);
+
+    octi::OctiBotEngine qBot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    qBot.setTuningProfile(qProngProf);
+    octi::BotSearchStats stQ;
+    std::vector<octi::BookMoveScore> sQ =
+        qBot.searchTopMovesForBook(b49, 1, 0, 36, &stQ);
+
+    // At depth 1, each A root move enters quiesce(qDepth == 0) for B (Ply 50):
+    // B searches 22efg+b instead of standing pat, exposing the threat after passive 73h+a or vacating 33a-34
+    bool fPassBase = false;
+    bool fPassQ = false;
+    bool fVacBase = false;
+    bool fVacQ = false;
+    int passScoreBase = findScoredMove(sBase, "73h+a", &fPassBase);
+    int passScoreQ = findScoredMove(sQ, "73h+a", &fPassQ);
+    int vacScoreBase = findScoredMove(sBase, "33a-34", &fVacBase);
+    int vacScoreQ = findScoredMove(sQ, "33a-34", &fVacQ);
+    CHECK_TRUE(fPassBase && fPassQ && fVacBase && fVacQ);
+    CHECK_TRUE(stQ.nodesVisited > stBase.nodesVisited);
+    CHECK_TRUE(passScoreQ < passScoreBase);
+    CHECK_TRUE(vacScoreQ <= vacScoreBase - 7500);
+
+    // Defensive 33a+f (enabling 33af-11x counter-capture at qDepth == 1) beats passive 73h+a
+    bool fDefQ = false;
+    int defScoreQ = findScoredMove(sQ, "33a+f", &fDefQ);
+    CHECK_TRUE(fDefQ);
+    CHECK_TRUE(defScoreQ > passScoreQ);
+
+    // Ordering priority (+14000):
+    // (a) When no capture/win exists (A22 + A33 block 44befg's 'f' prong, while 53 is empty),
+    //     quiesceBranchCap = 1 retains 44befg+d (+14000) and detects the -8500 oneStepBaseThreat.
+    // (b) On Ply 57 FEN (where A33 is jumpable via 44befg-22x at +16000), quiesceBranchCap = 1
+    //     orders the capture ahead of 44befg+d (+14000 < +16000), matching baseBot's capture score.
+    octi::OctiBoard b57NoCap;
+    b57NoCap.fromPositionString(
+        "2:1:0:0:P:A:-:0:0,2,11,0:0,1,19,0:"
+        "A22,A33,A73fh,A24abeg,B44befg,A64bh,B46bcdefg,B37,B47dg,B57,B77");
+    octi::BotTuningProfile cap1Prof = qProngProf;
+    cap1Prof.quiesceBranchCap = 1;
+    octi::OctiBotEngine cap1Bot(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    cap1Bot.setTuningProfile(cap1Prof);
+    std::vector<octi::BookMoveScore> sNoCapQ =
+        cap1Bot.searchTopMovesForBook(b57NoCap, 1, 0, 36, nullptr);
+    std::vector<octi::BookMoveScore> sNoCapBase =
+        baseBot.searchTopMovesForBook(b57NoCap, 1, 0, 36, nullptr);
+    bool fNoCapBase = false;
+    bool fNoCapQ = false;
+    int scNoCapBase = findScoredMove(sNoCapBase, "24abeg-23", &fNoCapBase);
+    int scNoCapQ = findScoredMove(sNoCapQ, "24abeg-23", &fNoCapQ);
+    CHECK_TRUE(fNoCapBase && fNoCapQ);
+    CHECK_TRUE(scNoCapQ <= scNoCapBase - 6000);
+
+    octi::OctiBoard b57;
+    b57.fromPositionString(
+        "2:1:0:0:P:A:-:0:0,3,11,0:0,1,19,0:"
+        "A33,A73fh,A24abeg,B44befg,A64bh,B46bcdefg,B37,B47dg,B57,B77");
+    std::vector<octi::BookMoveScore> s57Q =
+        cap1Bot.searchTopMovesForBook(b57, 1, 0, 36, nullptr);
+    std::vector<octi::BookMoveScore> s57Base =
+        baseBot.searchTopMovesForBook(b57, 1, 0, 36, nullptr);
+    bool f57Base = false;
+    bool f57Q = false;
+    CHECK_EQUAL(findScoredMove(s57Base, "24abeg-23", &f57Base),
+                findScoredMove(s57Q, "24abeg-23", &f57Q));
+    CHECK_TRUE(f57Base && f57Q);
+
+    // qDepth > 0 boundary: when A makes a tactical capture at qDepth == 0, B at qDepth == 1
+    // must NOT expand quiet +prong insertions
+    octi::OctiBoard bQDepth1;
+    bQDepth1.fromPositionString(
+        "2:1:0:0:P:B:-:0:1,1,14,0:1,1,17,0:"
+        "B22efg,A33a,A73h,B64e,A65e,B57");
+    // B plays 57+e at depth 1 -> qDepth 0 is A (captures B64e via 65e-63x) -> qDepth 1 is B (has B22efg):
+    // if B generated 22efg+b at qDepth == 1, maxQuiesceDepth = 2 would visit more nodes than maxQuiesceDepth = 1
+    octi::BotTuningProfile qd1Base = baseProf;
+    qd1Base.maxQuiesceDepth = 2;
+    octi::BotTuningProfile qd1Prong = qProngProf;
+    qd1Prong.maxQuiesceDepth = 2;
+    octi::OctiBotEngine botQdBase(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    botQdBase.setTuningProfile(qd1Base);
+    octi::OctiBotEngine botQdProng(octi::BotDifficulty::EXPERT, 0x5EED2026ULL);
+    botQdProng.setTuningProfile(qd1Prong);
+    // From B's turn, B has 22efg+b as a normal root move; for non-22 root moves like 57+e,
+    // qDepth == 0 is A (no dist-1 enemy base pod) and qDepth == 1 is B (must NOT generate 22efg+b!)
+    std::vector<octi::BookMoveScore> sqdBase =
+        botQdBase.searchTopMovesForBook(bQDepth1, 1, 0, 36, nullptr);
+    std::vector<octi::BookMoveScore> sqdProng =
+        botQdProng.searchTopMovesForBook(bQDepth1, 1, 0, 36, nullptr);
+    bool fQdB = false;
+    bool fQdP = false;
+    CHECK_EQUAL(findScoredMove(sqdBase, "57+e", &fQdB),
+                findScoredMove(sqdProng, "57+e", &fQdP));
+    CHECK_TRUE(fQdB && fQdP);
+
+    // Blocked capture-hop check: if A33 is on 33 AND A44 is on 44 (neither can step away),
+    // B22efg+b has neither a step onto 33 nor a jump over 33, so quiesce(qDepth == 0) ignores 22efg+b
+    octi::OctiBoard bBlocked;
+    bBlocked.fromPositionString(
+        "2:1:0:0:P:A:-:0:0,2,14,0:0,1,17,0:"
+        "B22efg,A33,A73h,A44,B57");
+    octi::BotSearchStats stBlkBase;
+    octi::BotSearchStats stBlkQ;
+    (void)baseBot.searchTopMovesForBook(bBlocked, 1, 0, 36, &stBlkBase);
+    (void)qBot.searchTopMovesForBook(bBlocked, 1, 0, 36, &stBlkQ);
+    CHECK_EQUAL(stBlkBase.nodesVisited, stBlkQ.nodesVisited);
+}
+
+TEST(OctiPostMortemEngineBugFixes, DefaultOffProfilePreservesBitIdenticalEvalAndSearch)
+{
+    octi::BotTuningProfile def;
+    CHECK_EQUAL(1, def.compositeMoveMaxPly);
+    CHECK_EQUAL(0, def.compositeTacticalOnlyMinPly);
+    CHECK_FALSE(def.qsearchIncludeBaseThreatProngs);
+    CHECK_FALSE(def.fixStackAndHomeEvalMirage);
+    CHECK_EQUAL(0, def.emptyAlliedBasePenalty1B);
+
+    const char *fens[] = {
+        "2:1:0:0:P:A:-:0:2,1,17,0:1,1,15,0:A33abg,A73h,A34abgh,A64h,B46cdefg,B37,B57efg,B57g,B77",
+        "2:1:0:0:P:A:-:0:1,1,16,0:0,1,14,0:A33abg,A33,A73h,A34abgh,A64bh,B46bcdefg,B37,B57efg,B57g,B57,B77",
+        "2:1:0:0:P:A:-:0:1,1,15,0:0,1,14,0:A33abg,A33a,A73h,A34abgh,A64bh,B46bcdefg,B37,B47efg,B47g,B57,B77",
+        "2:1:0:0:P:A:-:0:1,2,14,0:0,1,17,0:B22efg,A33a,A73h,A24abeg,A64bh,B46bcdefg,B37,B47dg,B57,B77"
+    };
+    const int expectedEvals[] = { 18230, 23860, 22740, 6560 };
+
+    for (std::size_t i = 0; i < 4; ++i) {
+        octi::OctiBoard b;
+        b.fromPositionString(fens[i]);
+        octi::OctiEvalBreakdown bd =
+            octi::OctiBotEngine::evaluatePositionBreakdown(b, octi::PLAYER_A, def);
+        CHECK_EQUAL(expectedEvals[i], bd.totalScore);
+        CHECK_EQUAL(bd.sumTerms(), bd.totalScore);
+    }
+
+    octi::OctiBoard b43;
+    b43.fromPositionString(fens[2]);
+    def.useOpeningBook = false;
+    def.rootScoreJitter = 0;
+    def.lazySmpThreads = 1;
+    def.maxSearchDepth = 4;
+    def.timeBudgetMs = 300000;
+    octi::OctiBotEngine eng(octi::BotDifficulty::EXPERT, 42);
+    eng.setTuningProfile(def);
+    octi::BotSearchStats st;
+    std::string bm = eng.chooseMove(b43, &st);
+    STRCMP_EQUAL("33abg-23", bm.c_str());
+    CHECK_EQUAL(45358ULL, st.nodesVisited);
+    CHECK_EQUAL(10630, st.bestScore);
 }
 
 int main(int argc, char **argv)
