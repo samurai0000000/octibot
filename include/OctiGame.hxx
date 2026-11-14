@@ -171,6 +171,7 @@ public:
     void rollbackPreparedMove();
     bool hasPreparedMove() const;
     std::string getPreparedMoveString() const;
+    void applyUncommittedTurnForPreview(const std::vector<OctiMoveOp> &ops);
 
     // Legal move generation
     bool hasAnyLegalMove() const;
@@ -213,7 +214,7 @@ private:
     void notifyUndoRedoStatusChanged();
 
     void executeMoveInternal(const OctiMove &m, bool isRedo = false);
-    void applyMoveOps(const std::vector<OctiMoveOp> &ops);
+    void applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPreludeOnly = false);
     void check4PlayerElimination();
     void advanceTurn();
     void updateGameOverAndWinner();
