@@ -3425,6 +3425,8 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["tree_branch_cap"] = std::to_string(prof.treeBranchCap);
     effectiveDefaults["lazy_smp_threads"] = std::to_string(prof.lazySmpThreads);
     effectiveDefaults["composite_move_max_ply"] = std::to_string(prof.compositeMoveMaxPly);
+    effectiveDefaults["composite_tactical_only_min_ply"] = std::to_string(prof.compositeTacticalOnlyMinPly);
+    effectiveDefaults["qsearch_include_base_threat_prongs"] = prof.qsearchIncludeBaseThreatProngs ? "true" : "false";
     effectiveDefaults["root_score_jitter"] = std::to_string(prof.rootScoreJitter);
 
     effectiveDefaults["captured_enemy_base_bonus"] = std::to_string(prof.capturedEnemyBaseBonus);
@@ -3435,6 +3437,7 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["one_step_base_threat_bonus"] = std::to_string(prof.oneStepBaseThreatBonus);
     effectiveDefaults["one_jump_base_threat_bonus"] = std::to_string(prof.oneJumpBaseThreatBonus);
     effectiveDefaults["two_ply_base_threat_weight"] = std::to_string(prof.twoPlyBaseThreatWeight);
+    effectiveDefaults["empty_allied_base_penalty_1b"] = std::to_string(prof.emptyAlliedBasePenalty1B);
 
     effectiveDefaults["pod_zero_prong_val"] = std::to_string(prof.podZeroProngVal);
     effectiveDefaults["pod_one_prong_val"] = std::to_string(prof.podOneProngVal);
@@ -3449,6 +3452,7 @@ nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     effectiveDefaults["third_armed_pod_bonus"] = std::to_string(prof.thirdArmedPodBonus);
     effectiveDefaults["single_pod_monopoly_penalty"] = std::to_string(prof.singlePodMonopolyPenalty);
     effectiveDefaults["lone_one_prong_rush_penalty"] = std::to_string(prof.loneOneProngRushPenalty);
+    effectiveDefaults["fix_stack_and_home_eval_mirage"] = prof.fixStackAndHomeEvalMirage ? "true" : "false";
 
     effectiveDefaults["leapfrog_battery_weight"] = std::to_string(prof.leapfrogBatteryWeight);
     effectiveDefaults["leapfrog_forward_bonus"] = std::to_string(prof.leapfrogForwardBonus);

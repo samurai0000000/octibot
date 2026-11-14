@@ -554,6 +554,10 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.treeBranchCap = config.getInt("tree_branch_cap", profile.treeBranchCap);
     profile.lazySmpThreads = config.getInt("lazy_smp_threads", profile.lazySmpThreads);
     profile.compositeMoveMaxPly = config.getInt("composite_move_max_ply", profile.compositeMoveMaxPly);
+    profile.compositeTacticalOnlyMinPly = config.getInt(
+        "composite_tactical_only_min_ply", profile.compositeTacticalOnlyMinPly);
+    profile.qsearchIncludeBaseThreatProngs = config.getBool(
+        "qsearch_include_base_threat_prongs", profile.qsearchIncludeBaseThreatProngs);
     profile.rootScoreJitter = config.getInt("root_score_jitter", profile.rootScoreJitter);
     profile.bookSelectionWindow = config.getInt("book_selection_window", profile.bookSelectionWindow);
     profile.useOpeningBook = config.getBool("use_opening_book", profile.useOpeningBook);
@@ -582,6 +586,8 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.twoPlyBaseThreatWeight = config.getInt("two_ply_base_threat_weight", profile.twoPlyBaseThreatWeight);
     profile.contestedEnemyBaseThreatScalePct = config.getInt(
         "contested_enemy_base_threat_scale_pct", profile.contestedEnemyBaseThreatScalePct);
+    profile.emptyAlliedBasePenalty1B = config.getInt(
+        "empty_allied_base_penalty_1b", profile.emptyAlliedBasePenalty1B);
 
     profile.podZeroProngVal = config.getInt("pod_zero_prong_val", profile.podZeroProngVal);
     profile.podOneProngVal = config.getInt("pod_one_prong_val", profile.podOneProngVal);
@@ -606,6 +612,8 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.reserveFreePodVal = config.getInt("reserve_free_pod_val", profile.reserveFreePodVal);
     profile.capturedPodPenalty = config.getInt("captured_pod_penalty", profile.capturedPodPenalty);
     profile.reserveFreeProngVal = config.getInt("reserve_free_prong_val", profile.reserveFreeProngVal);
+    profile.fixStackAndHomeEvalMirage = config.getBool(
+        "fix_stack_and_home_eval_mirage", profile.fixStackAndHomeEvalMirage);
 
     profile.leapfrogBatteryWeight = config.getInt("leapfrog_battery_weight", profile.leapfrogBatteryWeight);
     profile.leapfrogForwardBonus = config.getInt("leapfrog_forward_bonus", profile.leapfrogForwardBonus);

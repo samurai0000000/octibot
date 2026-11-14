@@ -239,6 +239,8 @@ root_branch_cap = 40
 tree_branch_cap = 30
 lazy_smp_threads = 4
 composite_move_max_ply = 2
+composite_tactical_only_min_ply = 3
+qsearch_include_base_threat_prongs = true
 root_score_jitter = 10
 book_selection_window = 35
 use_opening_book = false
@@ -262,6 +264,7 @@ one_step_base_threat_bonus = 9000
 one_jump_base_threat_bonus = 13000
 two_ply_base_threat_weight = 2600
 contested_enemy_base_threat_scale_pct = 65
+empty_allied_base_penalty_1b = 4100
 pod_zero_prong_val = 330
 pod_one_prong_val = 1400
 pod_two_prong_val = 2200
@@ -282,6 +285,7 @@ can_liberate_bonus = 500
 reserve_free_pod_val = 470
 captured_pod_penalty = 3900
 reserve_free_prong_val = 150
+fix_stack_and_home_eval_mirage = true
 leapfrog_battery_weight = 580
 leapfrog_forward_bonus = 420
 jump_reachable_square_weight = 140
@@ -315,6 +319,8 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(30, profile.treeBranchCap);
     CHECK_EQUAL(4, profile.lazySmpThreads);
     CHECK_EQUAL(2, profile.compositeMoveMaxPly);
+    CHECK_EQUAL(3, profile.compositeTacticalOnlyMinPly);
+    CHECK_TRUE(profile.qsearchIncludeBaseThreatProngs);
     CHECK_EQUAL(10, profile.rootScoreJitter);
     CHECK_EQUAL(35, profile.bookSelectionWindow);
     CHECK_FALSE(profile.useOpeningBook);
@@ -338,6 +344,7 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(13000, profile.oneJumpBaseThreatBonus);
     CHECK_EQUAL(2600, profile.twoPlyBaseThreatWeight);
     CHECK_EQUAL(65, profile.contestedEnemyBaseThreatScalePct);
+    CHECK_EQUAL(4100, profile.emptyAlliedBasePenalty1B);
     CHECK_EQUAL(330, profile.podZeroProngVal);
     CHECK_EQUAL(1400, profile.podOneProngVal);
     CHECK_EQUAL(2200, profile.podTwoProngVal);
@@ -358,6 +365,7 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(470, profile.reserveFreePodVal);
     CHECK_EQUAL(3900, profile.capturedPodPenalty);
     CHECK_EQUAL(150, profile.reserveFreeProngVal);
+    CHECK_TRUE(profile.fixStackAndHomeEvalMirage);
     CHECK_EQUAL(580, profile.leapfrogBatteryWeight);
     CHECK_EQUAL(420, profile.leapfrogForwardBonus);
     CHECK_EQUAL(140, profile.jumpReachableSquareWeight);
@@ -374,6 +382,60 @@ move_order_blunder_penalty = 7500
     CHECK_EQUAL(62000, profile.moveOrderBaseEntryBonus);
     CHECK_EQUAL(1300, profile.moveOrderLeapfrogBonus);
     CHECK_EQUAL(7500, profile.moveOrderBlunderPenalty);
+}
+
+TEST(OctiBotConfigStoreTest, TacticalAndEvalBugFixFlagsRoundTripAndDefaults) {
+    // 1. Empty store preserves upstream default-off values
+    OctiBotConfigStore emptyStore;
+    BotTuningProfile defProf;
+    applyConfigToTuningProfile(emptyStore, defProf);
+    CHECK_EQUAL(1, defProf.compositeMoveMaxPly);
+    CHECK_EQUAL(0, defProf.compositeTacticalOnlyMinPly);
+    CHECK_FALSE(defProf.qsearchIncludeBaseThreatProngs);
+    CHECK_FALSE(defProf.fixStackAndHomeEvalMirage);
+    CHECK_EQUAL(0, defProf.emptyAlliedBasePenalty1B);
+
+    auto defAgent = std::make_unique<StockAlphaBetaAgent>(emptyStore);
+    OctiBotRunner defRunner(std::move(defAgent), emptyStore);
+    OctiBotMcpServer defMcp(defRunner);
+    nlohmann::json defCfgJson = defMcp.buildConfigJson();
+    CHECK_EQUAL("0", defCfgJson["entries"]["composite_tactical_only_min_ply"].get<std::string>());
+    CHECK_EQUAL("false", defCfgJson["entries"]["qsearch_include_base_threat_prongs"].get<std::string>());
+    CHECK_EQUAL("false", defCfgJson["entries"]["fix_stack_and_home_eval_mirage"].get<std::string>());
+    CHECK_EQUAL("0", defCfgJson["entries"]["empty_allied_base_penalty_1b"].get<std::string>());
+
+    // 2. Round-trip profile resolution + MCP effectiveDefaults export
+    const std::string conf = R"(
+composite_move_max_ply = 4
+composite_tactical_only_min_ply = 2
+qsearch_include_base_threat_prongs = true
+fix_stack_and_home_eval_mirage = true
+empty_allied_base_penalty_1b = 3800
+
+[one_base_bot]
+empty_allied_base_penalty_1b = 4500
+)";
+    OctiBotConfigStore store;
+    std::string err;
+    CHECK_TRUE(store.parseString(conf, err));
+
+    auto resolved = store.resolveProfile("one_base_bot");
+    BotTuningProfile prof;
+    applyConfigToTuningProfile(resolved, prof);
+    CHECK_EQUAL(4, prof.compositeMoveMaxPly);
+    CHECK_EQUAL(2, prof.compositeTacticalOnlyMinPly);
+    CHECK_TRUE(prof.qsearchIncludeBaseThreatProngs);
+    CHECK_TRUE(prof.fixStackAndHomeEvalMirage);
+    CHECK_EQUAL(4500, prof.emptyAlliedBasePenalty1B);
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(resolved);
+    OctiBotRunner runner(std::move(agent), resolved);
+    OctiBotMcpServer mcp(runner);
+    nlohmann::json cfgJson = mcp.buildConfigJson();
+    CHECK_EQUAL("2", cfgJson["entries"]["composite_tactical_only_min_ply"].get<std::string>());
+    CHECK_EQUAL("true", cfgJson["entries"]["qsearch_include_base_threat_prongs"].get<std::string>());
+    CHECK_EQUAL("true", cfgJson["entries"]["fix_stack_and_home_eval_mirage"].get<std::string>());
+    CHECK_EQUAL("4500", cfgJson["entries"]["empty_allied_base_penalty_1b"].get<std::string>());
 }
 
 TEST(OctiBotConfigStoreTest, TokenPoolAndResolution) {
