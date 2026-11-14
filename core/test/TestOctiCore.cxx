@@ -16,11 +16,15 @@
 #include "OctiOpeningBookData.hxx"
 #include "OctiCrypto.hxx"
 #include "OctiNetworkClient.hxx"
+#include "OctiSoundCue.hxx"
 #include "Version.hxx"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <httplib.h>
@@ -5241,20 +5245,611 @@ TEST(OctiSuperProngBonusGeneration, EdgelessWrapAndTwoPreludesCanonicalDeduplica
     CHECK_TRUE(containsExactMove(edJumpMoves, "15g!-85;85g!+a"));
     CHECK_TRUE(containsExactMove(edJumpMoves, "15g!-85x;85g!+a"));
 
-    // Part B: Two preludes (sequential by same pod, and commuting by different pods).
+    // Part B: Two preludes (single-socket rejection, 2-superprong pod, pre-existing
+    // destination pod, and commuting different pods).
     octi::OctiBoard twoPrelBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
     twoPrelBoard.fromPositionString(
         "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A53a!,B57");
     std::vector<octi::OctiMove> twoPrelMoves;
     twoPrelBoard.getGame()->generateLegalMoves(twoPrelMoves);
 
-    // Same pod takes two sequential step preludes 33 -> 34 -> 35, then +b at 35:
-    CHECK_TRUE(containsExactMove(twoPrelMoves, "33a!-34;34a!-35;35a!+b"));
+    // Single superprong A33a! CANNOT expend its 'a!' socket twice across two preludes:
+    CHECK_FALSE(containsExactMove(twoPrelMoves, "33a!-34;34a!-35;35a!+b"));
 
     // Two different pods (A33a! and A53a!) commute: emitted in canonical order
     // (lower source square 33 before 53) and NOT in reversed order (53 before 33):
     CHECK_TRUE(containsExactMove(twoPrelMoves, "33a!-34;53a!-54;34a!+b"));
     CHECK_FALSE(containsExactMove(twoPrelMoves, "53a!-54;33a!-34;34a!+b"));
+
+    // Same pod with TWO distinct superprongs (A33a!c!) CAN take two sequential preludes
+    // using 'a!' then 'c!' (33 -> 34 -> 44), then +b at 44:
+    octi::OctiBoard twoSpPodBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    twoSpPodBoard.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!c!,B57");
+    std::vector<octi::OctiMove> twoSpPodMoves;
+    twoSpPodBoard.getGame()->generateLegalMoves(twoSpPodMoves);
+    CHECK_TRUE(containsExactMove(twoSpPodMoves, "33a!c!-34;34a!c!-44;44a!c!+b"));
+    CHECK_FALSE(containsExactMove(twoSpPodMoves, "33a!c!-34;34a!c!-35;35a!c!+b"));
+
+    // Pre-existing destination pod (A33a! and A34a!) allows the second prelude from 34
+    // because the pre-existing A34a! has not expended its 'a!' socket:
+    // - With B35 blocking a 1-prelude leapfrog to 35, 33a!-34;34a!-36;36a!+b is uniquely
+    //   reachable in 2 preludes and emitted by generateLegalMoves().
+    // - With 35 empty, move("33a!-34;34a!-35;35a!+b") is accepted by move() while
+    //   generateLegalMoves() canonically deduplicates it to 1-prelude 33a!-35;35a!+b.
+    octi::OctiBoard preDestBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    preDestBoard.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A34a!,B35,B57");
+    std::vector<octi::OctiMove> preDestMoves;
+    preDestBoard.getGame()->generateLegalMoves(preDestMoves);
+    CHECK_TRUE(containsExactMove(preDestMoves, "33a!-34;34a!-36;36a!+b"));
+    CHECK_TRUE(containsExactMove(preDestMoves, "33a!-34;34a!-36x;36a!+b"));
+
+    octi::OctiBoard singleBlockedBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+    singleBlockedBoard.fromPositionString(
+        "2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,B35,B57");
+    std::vector<octi::OctiMove> singleBlockedMoves;
+    singleBlockedBoard.getGame()->generateLegalMoves(singleBlockedMoves);
+    CHECK_FALSE(containsExactMove(singleBlockedMoves, "33a!-34;34a!-36;36a!+b"));
+}
+
+TEST(OctiSuperProngBonusGeneration, SingleSocketAndStraightDirectionRulesMatrix)
+{
+    // 1. Single superprong pod A33a! (34 empty):
+    //    - 1 prelude + 1 regular (33a!-34;34a!-35 and 33a!-34;34a!+b) is LEGAL.
+    //    - 2 preludes reusing 'a!' (33a!-34;34a!-35;35a!+b or ...;35a!-36) is ILLEGAL.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,B57");
+        const std::string initialFen = board.toPositionString();
+
+        std::vector<octi::OctiMove> moves = board.getGame()->generateLegalMoves();
+        CHECK_TRUE(containsExactMove(moves, "33a!-34;34a!-35"));
+        CHECK_TRUE(containsExactMove(moves, "33a!-34;34a!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!-34;34a!-35;35a!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!-34;34a!-35;35a!-36"));
+        for (const auto &m : moves) {
+            CHECK_TRUE(countPreludeOps(m) <= 1);
+        }
+
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!-34;34a!-35;35a!+b"));
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!-34;34a!-35;35a!-36"));
+        STRCMP_EQUAL(initialFen.c_str(), board.toPositionString().c_str());
+
+        board.getGame()->move("33a!-34;34a!-35");
+        CHECK_TRUE(board.squareAt(2, 2).isEmpty());
+        CHECK_TRUE(board.squareAt(2, 3).isEmpty());
+        CHECK_EQUAL(1, board.squareAt(2, 4).getNumPods());
+    }
+
+    // 2. Dual-superprong single pod A33a!c!:
+    //    - 33a!c!-34;34a!c!-44;44a!c!+b (using a! then c!) is LEGAL.
+    //    - 33a!c!-34;34a!c!-35;35a!c!+b (using a! twice) and
+    //      33a!c!-43;43a!c!-53;53a!c!+b (using c! twice) are ILLEGAL.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!c!,B57");
+        std::vector<octi::OctiMove> moves = board.getGame()->generateLegalMoves();
+
+        CHECK_TRUE(containsExactMove(moves, "33a!c!-34;34a!c!-44;44a!c!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!c!-34;34a!c!-35;35a!c!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!c!-43;43a!c!-53;53a!c!+b"));
+
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!c!-34;34a!c!-35;35a!c!+b"));
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!c!-43;43a!c!-53;53a!c!+b"));
+
+        board.getGame()->move("33a!c!-34;34a!c!-44;44a!c!+b");
+        CHECK_EQUAL(1, board.squareAt(3, 3).getNumPods());
+        STRCMP_EQUAL("a!bc!", board.squareAt(3, 3).getPodAt(0).getConfigString().c_str());
+    }
+
+    // 3. Stacked identical pods A33a!,A33a!:
+    //    - 33a!-34;33a!-34;34a!+b (each pod expends its own a! once) is LEGAL.
+    //    - 33a!-34;34a!-35;35a!+b (moving the first pod twice as two preludes) is ILLEGAL.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A33a!,B57");
+        std::vector<octi::OctiMove> moves = board.getGame()->generateLegalMoves();
+
+        CHECK_TRUE(containsExactMove(moves, "33a!-34;33a!-34;34a!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!-34;34a!-35;35a!+b"));
+
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!-34;34a!-35;35a!+b"));
+
+        board.getGame()->move("33a!-34;33a!-34;34a!+b");
+        CHECK_TRUE(board.squareAt(2, 2).isEmpty());
+        CHECK_EQUAL(2, board.squareAt(2, 3).getNumPods());
+    }
+
+    // 4. Pre-existing destination pod A33a!,A34a!:
+    //    - 33a!-34;34a!-35;35a!+b is LEGAL in move() (sameCfgCountAfterP1 == 2 at 34),
+    //      while generateLegalMoves() emits its canonical 1-prelude equivalent 33a!-35;35a!+b;
+    //      and when B35 occupies 35 (blocking 33a!-35), generateLegalMoves() directly emits
+    //      33a!-34;34a!-36;36a!+b.
+    //    - 33a!-35;35a!-36;36a!+b is ILLEGAL (p1 jumped over 34 to empty 35 -> sameCfgCountAfterP1 == 1).
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A34a!,B57");
+        std::vector<octi::OctiMove> moves = board.getGame()->generateLegalMoves();
+
+        CHECK_TRUE(containsExactMove(moves, "33a!-35;35a!+b"));
+        CHECK_FALSE(containsExactMove(moves, "33a!-35;35a!-36;36a!+b"));
+
+        CHECK_THROWS(octi::IllegalMoveException,
+                     board.getGame()->move("33a!-35;35a!-36;36a!+b"));
+
+        board.getGame()->move("33a!-34;34a!-35;35a!+b");
+        CHECK_TRUE(board.squareAt(2, 2).isEmpty());
+        CHECK_EQUAL(1, board.squareAt(2, 3).getNumPods());
+        CHECK_EQUAL(1, board.squareAt(2, 4).getNumPods());
+
+        octi::OctiBoard blockedBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        blockedBoard.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A34a!,B35,B57");
+        std::vector<octi::OctiMove> blockedMoves = blockedBoard.getGame()->generateLegalMoves();
+        CHECK_TRUE(containsExactMove(blockedMoves, "33a!-34;34a!-36;36a!+b"));
+        blockedBoard.getGame()->move("33a!-34;34a!-36;36a!+b");
+        CHECK_TRUE(blockedBoard.squareAt(2, 2).isEmpty());
+        CHECK_EQUAL(1, blockedBoard.squareAt(2, 3).getNumPods());
+        CHECK_EQUAL(1, blockedBoard.squareAt(2, 5).getNumPods());
+    }
+
+    // 5. Mid-prelude bend loophole (over enemy pods, over friendly pods, in p2, and across edgeless wrap):
+    //    - Single bonus op 31a!c!-33-53;53a!c!+b bends from DIR_N to DIR_E -> ILLEGAL.
+    //    - Two separate straight preludes 31a!c!-33;33a!c!-53;53a!c!+b -> LEGAL.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A31a!c!,B32,B43,B57");
+        std::vector<octi::OctiMove> moves = board.getGame()->generateLegalMoves();
+
+        CHECK_FALSE(containsExactMove(moves, "31a!c!-33-53;53a!c!+b"));
+        CHECK_TRUE(containsExactMove(moves, "31a!c!-33;33a!c!-53;53a!c!+b"));
+
+        bool caughtBendEnemy = false;
+        try {
+            board.getGame()->move("31a!c!-33-53;53a!c!+b");
+        } catch (const octi::IllegalMoveException &ex) {
+            caughtBendEnemy = true;
+            STRCMP_CONTAINS("bonus jump must follow single superprong direction", ex.what());
+        }
+        CHECK_TRUE(caughtBendEnemy);
+
+        // Friendly pods jumped in a bent single prelude must also fail:
+        octi::OctiBoard friendlyBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        friendlyBoard.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A31a!c!,A32,A43,B57");
+        bool caughtBendFriendly = false;
+        try {
+            friendlyBoard.getGame()->move("31a!c!-33-53;53a!c!+b");
+        } catch (const octi::IllegalMoveException &ex) {
+            caughtBendFriendly = true;
+            STRCMP_CONTAINS("bonus jump must follow single superprong direction", ex.what());
+        }
+        CHECK_TRUE(caughtBendFriendly);
+
+        // Bend inside bonusOps[1] (2nd prelude) must also fail:
+        octi::OctiBoard p2BendBoard(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        p2BendBoard.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A11a!,A31a!c!,B32,B43,B57");
+        bool caughtBendP2 = false;
+        try {
+            p2BendBoard.getGame()->move("11a!-12;31a!c!-33-53;53a!c!+b");
+        } catch (const octi::IllegalMoveException &ex) {
+            caughtBendP2 = true;
+            STRCMP_CONTAINS("bonus jump must follow single superprong direction", ex.what());
+        }
+        CHECK_TRUE(caughtBendP2);
+
+        // Edgeless wrap mid-prelude bend (98 -> 91 North over 99, then -> 21 East over 11) must fail:
+        octi::OctiBoard edBendBoard(octi::GAME_MODE_2, true, true, octi::GAME_BASES_3);
+        edBendBoard.fromPositionString("2:3:1:1:P:A:-:0:0,0,1,0:0,0,0,0:B11,B57,A98a!c!,B99");
+        bool caughtEdBend = false;
+        try {
+            edBendBoard.getGame()->move("98a!c!-91-21;21a!c!+b");
+        } catch (const octi::IllegalMoveException &ex) {
+            caughtEdBend = true;
+            STRCMP_CONTAINS("bonus jump must follow single superprong direction", ex.what());
+        }
+        CHECK_TRUE(caughtEdBend);
+        // Two separate edgeless straight preludes 98a!c!-91;91a!c!-21;21a!c!+b succeed:
+        edBendBoard.getGame()->move("98a!c!-91;91a!c!-21;21a!c!+b");
+        CHECK_EQUAL(1, edBendBoard.squareAt(1, 0).getNumPods());
+
+        // Two separate straight preludes on standard board succeed:
+        board.getGame()->move("31a!c!-33;33a!c!-53;53a!c!+b");
+        CHECK_EQUAL(1, board.squareAt(4, 2).getNumPods());
+    }
+}
+
+TEST(OctiSuperProngBonusGeneration, ApplyUncommittedTurnForPreviewNominalBoundaryAndFaults)
+{
+    // 1. Prelude-only 33a!-35x capturing B34ef! updates squares & reserves while keeping turn == PLAYER_A
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,0,0:0,0,0,0:A33a!,B34ef!,B57");
+        octi::OctiGame *game = board.getGame();
+
+        octi::OctiPod podA(octi::A_POD);
+        podA.addProng(octi::DIR_N, true);
+
+        octi::OctiMoveOp p1;
+        p1.x0 = 2;
+        p1.y0 = 2;
+        p1.pod = podA;
+        p1.isSuperProngBonusMove = true;
+        p1.hops.push_back({2, 4, true});
+
+        game->applyUncommittedTurnForPreview({p1});
+
+        CHECK_TRUE(board.squareAt(2, 2).isEmpty());
+        CHECK_TRUE(board.squareAt(2, 3).isEmpty());
+        CHECK_EQUAL(1, board.squareAt(2, 4).getNumPods());
+        STRCMP_EQUAL("a!", board.squareAt(2, 4).getPodAt(0).getConfigString().c_str());
+        CHECK_EQUAL(1, game->getFreeProngs(octi::PLAYER_A));
+        CHECK_EQUAL(1, game->getFreeSuperProngs(octi::PLAYER_A));
+        CHECK_EQUAL(1, game->getCapturedPods(octi::PLAYER_B));
+        CHECK_EQUAL(octi::PLAYER_A, game->getTurn());
+        CHECK_EQUAL(0, game->getNumMoves());
+        CHECK_FALSE(game->canUndo());
+        CHECK_FALSE(game->isGameOver());
+    }
+
+    // 2. Two-prelude-only preview (with deferred capture across p1 and p2) and p1 + regular preview
+    {
+        octi::OctiBoard board2p(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board2p.fromPositionString("2:3:1:0:P:A:-:0:0,0,0,0:0,0,0,0:A33a!,A24c!,B34e,B57");
+
+        octi::OctiPod podN(octi::A_POD);
+        podN.addProng(octi::DIR_N, true);
+        octi::OctiPod podE(octi::A_POD);
+        podE.addProng(octi::DIR_E, true);
+
+        octi::OctiMoveOp p1;
+        p1.x0 = 2; p1.y0 = 2; p1.pod = podN; p1.isSuperProngBonusMove = true;
+        p1.hops.push_back({2, 4, true}); // 33a!-35x marks B34e for capture
+
+        octi::OctiMoveOp p2;
+        p2.x0 = 1; p2.y0 = 3; p2.pod = podE; p2.isSuperProngBonusMove = true;
+        p2.hops.push_back({3, 3, false}); // 24c!-44 jumps over B34e before deferred capture resolves
+
+        board2p.getGame()->applyUncommittedTurnForPreview({p1, p2});
+        CHECK_TRUE(board2p.squareAt(2, 3).isEmpty());
+        CHECK_EQUAL(1, board2p.squareAt(2, 4).getNumPods());
+        CHECK_EQUAL(1, board2p.squareAt(3, 3).getNumPods());
+        CHECK_EQUAL(1, board2p.getGame()->getFreeProngs(octi::PLAYER_A));
+        CHECK_EQUAL(octi::PLAYER_A, board2p.getGame()->getTurn());
+        CHECK_EQUAL(0, board2p.getGame()->getNumMoves());
+
+        // Full p1 + regular prong-addition preview from 0 initial reserve prongs:
+        octi::OctiBoard boardFull(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        boardFull.fromPositionString("2:3:1:0:P:A:-:0:0,0,0,0:0,0,0,0:A33a!,B34e,B57");
+        octi::OctiMove fullMv("33a!-35x;35a!+b");
+        boardFull.getGame()->applyUncommittedTurnForPreview(fullMv.getOps());
+        CHECK_EQUAL(1, boardFull.squareAt(2, 4).getNumPods());
+        STRCMP_EQUAL("a!b", boardFull.squareAt(2, 4).getPodAt(0).getConfigString().c_str());
+        CHECK_EQUAL(0, boardFull.getGame()->getFreeProngs(octi::PLAYER_A));
+        CHECK_EQUAL(octi::PLAYER_A, boardFull.getGame()->getTurn());
+        CHECK_EQUAL(0, boardFull.getGame()->getNumMoves());
+    }
+
+    // 3. Fault injection & atomic rollback on invalid preview operations
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a!,A31a!c!,B32,B43,B57");
+        const std::string origFen = board.toPositionString();
+        octi::OctiGame *game = board.getGame();
+
+        // Empty ops
+        CHECK_THROWS(octi::IllegalMoveException, game->applyUncommittedTurnForPreview({}));
+        STRCMP_EQUAL(origFen.c_str(), board.toPositionString().c_str());
+
+        // Reused single superprong socket in p1 + p2 prelude-only preview
+        octi::OctiPod podA(octi::A_POD);
+        podA.addProng(octi::DIR_N, true);
+        octi::OctiMoveOp p1;
+        p1.x0 = 2; p1.y0 = 2; p1.pod = podA; p1.isSuperProngBonusMove = true;
+        p1.hops.push_back({2, 3, false});
+        octi::OctiMoveOp p2Reuse;
+        p2Reuse.x0 = 2; p2Reuse.y0 = 3; p2Reuse.pod = podA; p2Reuse.isSuperProngBonusMove = true;
+        p2Reuse.hops.push_back({2, 4, false});
+        CHECK_THROWS(octi::IllegalMoveException,
+                     game->applyUncommittedTurnForPreview({p1, p2Reuse}));
+        STRCMP_EQUAL(origFen.c_str(), board.toPositionString().c_str());
+
+        // Bent single bonus prelude in preview
+        octi::OctiPod podAC(octi::A_POD);
+        podAC.addProng(octi::DIR_N, true);
+        podAC.addProng(octi::DIR_E, true);
+        octi::OctiMoveOp pBend;
+        pBend.x0 = 2; pBend.y0 = 0; pBend.pod = podAC; pBend.isSuperProngBonusMove = true;
+        pBend.hops.push_back({2, 2, false});
+        pBend.hops.push_back({4, 2, false});
+        CHECK_THROWS(octi::IllegalMoveException,
+                     game->applyUncommittedTurnForPreview({pBend}));
+        STRCMP_EQUAL(origFen.c_str(), board.toPositionString().c_str());
+
+        // Bonus op placed after regular op
+        octi::OctiMoveOp regStep = p1;
+        regStep.isSuperProngBonusMove = false;
+        CHECK_THROWS(octi::IllegalMoveException,
+                     game->applyUncommittedTurnForPreview({regStep, p2Reuse}));
+        STRCMP_EQUAL(origFen.c_str(), board.toPositionString().c_str());
+
+        // Out-of-bounds hop coordinate
+        octi::OctiMoveOp oobOp = p1;
+        oobOp.hops[0] = {9, 3, false};
+        CHECK_THROWS(octi::IllegalMoveException,
+                     game->applyUncommittedTurnForPreview({oobOp}));
+        STRCMP_EQUAL(origFen.c_str(), board.toPositionString().c_str());
+
+        // Superprongs disabled
+        octi::OctiBoard offBoard(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        offBoard.fromPositionString("2:3:0:0:P:A:-:0:0,0,1,0:0,0,0,0:A33a,B57");
+        CHECK_THROWS(octi::IllegalMoveException,
+                     offBoard.getGame()->applyUncommittedTurnForPreview({p1}));
+    }
+}
+
+TEST(OctiSuperProngBonusGeneration, RapidCheckGeneratorAndValidatorBijectiveAgreement)
+{
+    bool passed = rc::check(
+        "generateLegalMoves and move() bijectively agree on randomized 2P/4P/edgeless superprong boards",
+        []() {
+            const bool is4P = *rc::gen::arbitrary<bool>();
+            const bool edgeless = *rc::gen::arbitrary<bool>();
+            const octi::OctiGameMode mode = is4P ? octi::GAME_MODE_4 : octi::GAME_MODE_2;
+            const octi::OctiGameBases bases =
+                *rc::gen::arbitrary<bool>() ? octi::GAME_BASES_1 : octi::GAME_BASES_3;
+
+            const int freePodsA = *rc::gen::inRange(0, 2);
+            const int capPodsA = *rc::gen::inRange(0, 2);
+            const int freeProngsA = *rc::gen::inRange(0, 3);
+            const int freeSuperA = *rc::gen::inRange(0, 2);
+
+            static const int kSafeCoords[][2] = {
+                {0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0}, {7, 0}, {8, 0},
+                {0, 1}, {1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1},
+                {1, 2}, {3, 2}, {5, 2},
+                {0, 3}, {1, 3}, {2, 3}, {3, 3}, {4, 3}, {5, 3},
+                {0, 4}, {1, 4}, {2, 4}, {3, 4}, {4, 4}, {8, 4},
+                {1, 5}, {2, 5}, {3, 5}, {4, 5}
+            };
+            constexpr int kNumSafe = static_cast<int>(sizeof(kSafeCoords) / sizeof(kSafeCoords[0]));
+
+            struct Placement {
+                int x;
+                int y;
+                char owner;
+                std::string cfg;
+            };
+            std::vector<Placement> pls;
+
+            // Anchor friendly pod 0 on a safe square with 1 or 2 superprongs + optional normal prong
+            const int idx0 = *rc::gen::inRange(0, kNumSafe);
+            const int x0 = kSafeCoords[idx0][0];
+            const int y0 = kSafeCoords[idx0][1];
+            const int sp1 = *rc::gen::inRange(0, 8);
+            const int sp2 = *rc::gen::inRange(0, 8);
+            const int np1 = *rc::gen::inRange(0, 8);
+            std::string cfg0;
+            for (int d = 0; d < 8; ++d) {
+                char c = static_cast<char>('a' + d);
+                if (d == sp1 || (*rc::gen::arbitrary<bool>() && d == sp2)) {
+                    cfg0.push_back(c);
+                    cfg0.push_back('!');
+                } else if (d == np1) {
+                    cfg0.push_back(c);
+                }
+            }
+            pls.push_back({x0, y0, 'A', cfg0});
+
+            // Second friendly pod: stacked identical, adjacent pre-existing, or elsewhere
+            const int secondMode = *rc::gen::inRange(0, 3);
+            if (secondMode == 0) {
+                pls.push_back({x0, y0, 'A', cfg0});
+            } else if (secondMode == 1) {
+                int nx = edgeless ? ((x0 + octi::dirDeltaX(static_cast<octi::OctiDir>(sp1)) + 9) % 9)
+                                  : (x0 + octi::dirDeltaX(static_cast<octi::OctiDir>(sp1)));
+                int ny = edgeless ? ((y0 + octi::dirDeltaY(static_cast<octi::OctiDir>(sp1)) + 9) % 9)
+                                  : (y0 + octi::dirDeltaY(static_cast<octi::OctiDir>(sp1)));
+                if (nx >= 0 && nx < 9 && ny >= 0 && ny < 9 && ny != 2 && ny != 6) {
+                    pls.push_back({nx, ny, 'A', cfg0});
+                }
+            } else {
+                const int idx1 = *rc::gen::inRange(0, kNumSafe);
+                const int d1 = *rc::gen::inRange(0, 8);
+                std::string cfg1(1, static_cast<char>('a' + d1));
+                cfg1.push_back('!');
+                pls.push_back({kSafeCoords[idx1][0], kSafeCoords[idx1][1], 'A', cfg1});
+            }
+
+            // Place 1 or 2 enemy pods (often adjacent to x0,y0 for jump/capture/bend coverage)
+            const int numEnemy = *rc::gen::inRange(1, 3);
+            for (int e = 0; e < numEnemy; ++e) {
+                int ex = kSafeCoords[*rc::gen::inRange(0, kNumSafe)][0];
+                int ey = kSafeCoords[*rc::gen::inRange(0, kNumSafe)][1];
+                if (e == 0 && *rc::gen::arbitrary<bool>()) {
+                    int d = *rc::gen::inRange(0, 8);
+                    int tx = edgeless
+                        ? ((x0 + octi::dirDeltaX(static_cast<octi::OctiDir>(d)) + 9) % 9)
+                        : (x0 + octi::dirDeltaX(static_cast<octi::OctiDir>(d)));
+                    int ty = edgeless
+                        ? ((y0 + octi::dirDeltaY(static_cast<octi::OctiDir>(d)) + 9) % 9)
+                        : (y0 + octi::dirDeltaY(static_cast<octi::OctiDir>(d)));
+                    if (tx >= 0 && tx < 9 && ty >= 0 && ty < 9 && ty != 2 && ty != 6) {
+                        ex = tx;
+                        ey = ty;
+                    }
+                }
+                bool occupiedByFriendly = false;
+                for (const auto &p : pls) {
+                    if (p.owner == 'A' && p.x == ex && p.y == ey) {
+                        occupiedByFriendly = true;
+                        break;
+                    }
+                }
+                if (!occupiedByFriendly) {
+                    int ed = *rc::gen::inRange(0, 8);
+                    std::string ecfg(1, static_cast<char>('a' + ed));
+                    if (*rc::gen::arbitrary<bool>()) {
+                        ecfg.push_back('!');
+                    }
+                    pls.push_back({ex, ey, 'B', ecfg});
+                }
+            }
+            // Guarantee B has at least one pod so the game is active
+            bool hasB = false;
+            for (const auto &p : pls) {
+                if (p.owner == 'B') {
+                    hasB = true;
+                    break;
+                }
+            }
+            if (!hasB) {
+                pls.push_back({8, 8, 'B', "e"});
+            }
+
+            std::ostringstream fen;
+            fen << (is4P ? "4:" : "2:")
+                << (bases == octi::GAME_BASES_1 ? "1:" : "3:")
+                << "1:" << (edgeless ? "1:" : "0:")
+                << "P:A:-:0:"
+                << freePodsA << "," << capPodsA << "," << freeProngsA << "," << freeSuperA << ":"
+                << "1,0,1,0:";
+            if (is4P) {
+                fen << "1,0,1,0:1,0,1,0:";
+            }
+            for (std::size_t i = 0; i < pls.size(); ++i) {
+                if (i > 0) fen << ",";
+                fen << pls[i].owner << (pls[i].x + 1) << (pls[i].y + 1) << pls[i].cfg;
+            }
+
+            const std::string fenStr = fen.str();
+            octi::OctiBoard board(mode, true, edgeless, bases);
+            board.suppressBoardUpdateNotification(true);
+            board.fromPositionString(fenStr);
+
+            std::vector<octi::OctiMove> legalMoves;
+            board.getGame()->generateLegalMoves(legalMoves);
+            if (legalMoves.empty()) {
+                return;
+            }
+
+            octi::OctiBoard sim(mode, true, edgeless, bases);
+            sim.suppressBoardUpdateNotification(true);
+            sim.fromPositionString(fenStr);
+            sim.getGame()->setSearchMode(true);
+            const octi::OctiGameSnapshot snap = sim.getGame()->captureSnapshot();
+
+            std::unordered_set<std::string> genCanonStates;
+            std::unordered_set<std::string> genStrings;
+            genCanonStates.reserve(legalMoves.size() * 2 + 1);
+            genStrings.reserve(legalMoves.size() * 2 + 1);
+
+            std::vector<octi::OctiMoveOp> singlePreludes;
+            std::vector<octi::OctiMoveOp> sampleRegularOps;
+
+            // Direction A: Every move in generateLegalMoves() must be accepted by move(),
+            // produce a unique canonical resulting state, and satisfy straight/single-socket rules.
+            for (const auto &m : legalMoves) {
+                genStrings.insert(m.asString());
+                const auto &ops = m.getOps();
+                if (ops.size() == 1 && !ops[0].isSuperProngBonusMove && sampleRegularOps.size() < 6) {
+                    sampleRegularOps.push_back(ops[0]);
+                }
+                if (ops.size() >= 2 && ops[0].isSuperProngBonusMove && !ops[1].isSuperProngBonusMove &&
+                    singlePreludes.size() < 12) {
+                    singlePreludes.push_back(ops[0]);
+                }
+
+                sim.getGame()->restoreSnapshot(snap);
+                sim.getGame()->move(m);
+                const std::string afterCanon = canonicalBoardStateForTest(sim);
+                RC_ASSERT(genCanonStates.insert(afterCanon).second);
+            }
+
+            // Direction B: Probe adversarial & boundary candidate moves against move() and
+            // verify move() accepts iff the candidate is legal AND lands in genCanonStates.
+            // Probe 1: Reusing a single prelude's pod + direction from its landing square
+            for (const auto &p1 : singlePreludes) {
+                const int endX = p1.hops.back().x;
+                const int endY = p1.hops.back().y;
+                // Determine p1 direction
+                int dx = 0, dy = 0;
+                if (!edgeless) {
+                    dx = p1.hops[0].x - p1.x0;
+                    dy = p1.hops[0].y - p1.y0;
+                } else {
+                    for (int d = -2; d <= 2; ++d) {
+                        if (((p1.x0 + d) % 9 + 9) % 9 == p1.hops[0].x) { dx = d; break; }
+                    }
+                    for (int d = -2; d <= 2; ++d) {
+                        if (((p1.y0 + d) % 9 + 9) % 9 == p1.hops[0].y) { dy = d; break; }
+                    }
+                }
+                const int stepDx = (std::abs(dx) == 2 || std::abs(dy) == 2) ? (dx / 2) : dx;
+                const int stepDy = (std::abs(dx) == 2 || std::abs(dy) == 2) ? (dy / 2) : dy;
+                const int nx = edgeless ? (((endX + stepDx) % 9 + 9) % 9) : (endX + stepDx);
+                const int ny = edgeless ? (((endY + stepDy) % 9 + 9) % 9) : (endY + stepDy);
+                if (nx < 0 || nx >= 9 || ny < 0 || ny >= 9) {
+                    continue;
+                }
+
+                // Count pre-existing identical friendly pods at (endX, endY) before p1
+                int preExistingSameCfg = 0;
+                if (!(endX == p1.x0 && endY == p1.y0)) {
+                    const octi::OctiSquare &destSq = board.squareAt(endX, endY);
+                    for (int pi = 0; pi < destSq.getNumPods(); ++pi) {
+                        const octi::OctiPod &dp = destSq.getPodAt(pi);
+                        if (dp.getType() == octi::A_POD &&
+                            (dp.rawConfig() & 0xFFFFu) == (p1.pod.rawConfig() & 0xFFFFu)) {
+                            ++preExistingSameCfg;
+                        }
+                    }
+                }
+
+                octi::OctiMoveOp p2Reuse;
+                p2Reuse.x0 = endX;
+                p2Reuse.y0 = endY;
+                p2Reuse.pod = p1.pod;
+                p2Reuse.isSuperProngBonusMove = true;
+                p2Reuse.hops.push_back({nx, ny, false});
+
+                // Pair with a pod placement or prong addition or regular op
+                for (const auto &reg : sampleRegularOps) {
+                    std::vector<octi::OctiMoveOp> candOps = {p1, p2Reuse, reg};
+                    octi::OctiMove candMove(candOps);
+                    sim.getGame()->restoreSnapshot(snap);
+                    bool accepted = false;
+                    try {
+                        sim.getGame()->move(candMove);
+                        accepted = true;
+                    } catch (const octi::IllegalMoveException &) {
+                        accepted = false;
+                    }
+                    if (preExistingSameCfg == 0) {
+                        RC_ASSERT(!accepted);
+                        RC_ASSERT(genStrings.count(candMove.asString()) == 0u);
+                    } else if (accepted) {
+                        const std::string afterCanon = canonicalBoardStateForTest(sim);
+                        RC_ASSERT(genCanonStates.count(afterCanon) == 1u);
+                    }
+                }
+            }
+
+            // Probe 2: Preview helper on every singlePrelude preserves turn == PLAYER_A and 0 moves
+            for (const auto &p1 : singlePreludes) {
+                sim.getGame()->restoreSnapshot(snap);
+                sim.getGame()->setSearchMode(false);
+                sim.getGame()->applyUncommittedTurnForPreview({p1});
+                RC_ASSERT(sim.getGame()->getTurn() == octi::PLAYER_A);
+                RC_ASSERT(sim.getGame()->getNumMoves() == 0);
+                sim.getGame()->setSearchMode(true);
+            }
+        });
+    CHECK_TRUE(passed);
 }
 
 TEST(OctiSuperProngBonusGeneration, Random1000SuperProngPositionsRoundTripAndUniqueResultingPositions)
@@ -8094,6 +8689,621 @@ TEST(OctiLeafEvaluatorHookTest, LazySmpEightThreadsInvokeLeafEvaluatorConcurrent
     if (hw >= 2) {
         CHECK_TRUE(recorder.uniqueThreadCount() >= 2);
     }
+}
+
+namespace {
+
+std::string resolveSharedSoundAssetPath(const std::string &fileName)
+{
+    const char *prefixes[] = {
+        "assets/sounds/",
+        "../assets/sounds/",
+        "../../assets/sounds/",
+        "../../../assets/sounds/"
+    };
+    for (const char *prefix : prefixes) {
+        std::string candidate = std::string(prefix) + fileName;
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec) && !ec) {
+            return candidate;
+        }
+    }
+    return std::string("../assets/sounds/") + fileName;
+}
+
+bool readBinaryFileBytes(const std::string &path, std::vector<std::uint8_t> &out)
+{
+    out.clear();
+    std::ifstream in(path, std::ios::in | std::ios::binary);
+    if (!in.is_open()) {
+        return false;
+    }
+    in.seekg(0, std::ios::end);
+    std::streamoff len = in.tellg();
+    if (len < 0) {
+        return false;
+    }
+    in.seekg(0, std::ios::beg);
+    out.resize(static_cast<std::size_t>(len));
+    if (len > 0) {
+        in.read(reinterpret_cast<char *>(out.data()), len);
+        if (!in) {
+            out.clear();
+            return false;
+        }
+    }
+    return true;
+}
+
+void writeLe16(std::vector<std::uint8_t> &buf, std::size_t offset, std::uint16_t v)
+{
+    buf[offset] = static_cast<std::uint8_t>(v & 0xFFu);
+    buf[offset + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFu);
+}
+
+void writeLe32(std::vector<std::uint8_t> &buf, std::size_t offset, std::uint32_t v)
+{
+    buf[offset] = static_cast<std::uint8_t>(v & 0xFFu);
+    buf[offset + 1] = static_cast<std::uint8_t>((v >> 8) & 0xFFu);
+    buf[offset + 2] = static_cast<std::uint8_t>((v >> 16) & 0xFFu);
+    buf[offset + 3] = static_cast<std::uint8_t>((v >> 24) & 0xFFu);
+}
+
+std::vector<std::uint8_t> buildSyntheticWavPcm16Mono(
+    const std::vector<std::int16_t> &samples,
+    std::uint32_t sampleRate)
+{
+    const std::uint32_t dataBytes = static_cast<std::uint32_t>(samples.size() * 2u);
+    const std::uint32_t riffBytes = 36u + dataBytes;
+    std::vector<std::uint8_t> wav(44u + static_cast<std::size_t>(dataBytes), 0);
+    std::memcpy(&wav[0], "RIFF", 4);
+    writeLe32(wav, 4, riffBytes);
+    std::memcpy(&wav[8], "WAVE", 4);
+    std::memcpy(&wav[12], "fmt ", 4);
+    writeLe32(wav, 16, 16u);
+    writeLe16(wav, 20, 1u);
+    writeLe16(wav, 22, 1u);
+    writeLe32(wav, 24, sampleRate);
+    writeLe32(wav, 28, sampleRate * 2u);
+    writeLe16(wav, 32, 2u);
+    writeLe16(wav, 34, 16u);
+    std::memcpy(&wav[36], "data", 4);
+    writeLe32(wav, 40, dataBytes);
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        std::uint16_t u = static_cast<std::uint16_t>(samples[i]);
+        writeLe16(wav, 44u + i * 2u, u);
+    }
+    return wav;
+}
+
+} // namespace
+
+TEST_GROUP(OctiSoundCueTest)
+{
+};
+
+TEST(OctiSoundCueTest, CueNamesAssetFilenamesAndWhitelistValidation)
+{
+    struct ExpectedCueMeta {
+        octi::SoundCue cue;
+        const char *name;
+        const char *fileName;
+    };
+    const ExpectedCueMeta expected[octi::OCTI_SOUND_CUE_COUNT] = {
+        { octi::SoundCue::POD_PLACE,      "POD_PLACE",      "pod_place.wav"      },
+        { octi::SoundCue::PRONG_SNAP,     "PRONG_SNAP",     "prong_snap.wav"     },
+        { octi::SoundCue::POD_STEP,       "POD_STEP",       "pod_step.wav"       },
+        { octi::SoundCue::POD_JUMP,       "POD_JUMP",       "pod_jump.wav"       },
+        { octi::SoundCue::POD_CAPTURE,    "POD_CAPTURE",    "pod_capture.wav"    },
+        { octi::SoundCue::CLOCK_LOW_TICK, "CLOCK_LOW_TICK", "clock_low_tick.wav" },
+        { octi::SoundCue::GAME_VICTORY,   "GAME_VICTORY",   "game_victory.wav"   },
+    };
+
+    for (std::size_t i = 0; i < octi::OCTI_SOUND_CUE_COUNT; ++i) {
+        STRCMP_EQUAL(expected[i].name, octi::soundCueName(expected[i].cue));
+        STRCMP_EQUAL(expected[i].fileName, octi::soundCueAssetFileName(expected[i].cue));
+
+        octi::SoundCue parsedByName = octi::SoundCue::GAME_VICTORY;
+        CHECK_TRUE(octi::soundCueFromName(expected[i].name, parsedByName));
+        CHECK_EQUAL(static_cast<int>(expected[i].cue), static_cast<int>(parsedByName));
+
+        octi::SoundCue parsedByFile = octi::SoundCue::GAME_VICTORY;
+        CHECK_TRUE(octi::soundCueFromAssetFileName(expected[i].fileName, parsedByFile));
+        CHECK_EQUAL(static_cast<int>(expected[i].cue), static_cast<int>(parsedByFile));
+    }
+
+    octi::SoundCue dropAlias = octi::SoundCue::GAME_VICTORY;
+    CHECK_TRUE(octi::soundCueFromName("POD_DROP", dropAlias));
+    CHECK_EQUAL(static_cast<int>(octi::SoundCue::POD_PLACE), static_cast<int>(dropAlias));
+
+    octi::SoundCue outCue = octi::SoundCue::PRONG_SNAP;
+    CHECK_FALSE(octi::soundCueFromName("", outCue));
+    CHECK_FALSE(octi::soundCueFromName("pod_place", outCue));
+    CHECK_FALSE(octi::soundCueFromName("UNKNOWN_CUE", outCue));
+    CHECK_FALSE(octi::soundCueFromName(std::string("POD_PLACE\0EXTRA", 15), outCue));
+
+    CHECK_FALSE(octi::soundCueFromAssetFileName("", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("../etc/passwd", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("..%2fetc%2fpasswd", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("sounds/pod_place.wav", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("/pod_place.wav", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("pod_place.wav/", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("unknown.wav", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("prong_snap.mp3", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("POD_PLACE.WAV", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName(std::string("pod_place.wav\0x", 15), outCue));
+
+    std::size_t badSize = 999;
+    CHECK_TRUE(octi::soundCueWavBytes(static_cast<octi::SoundCue>(99), badSize) == nullptr);
+    CHECK_EQUAL(0u, badSize);
+    STRCMP_EQUAL("", octi::soundCueName(static_cast<octi::SoundCue>(-1)));
+    STRCMP_EQUAL("", octi::soundCueAssetFileName(static_cast<octi::SoundCue>(99)));
+}
+
+TEST(OctiSoundCueTest, CanonicalWavBytesMatchDiskAssetsAndDecodePcm16)
+{
+    struct ExpectedAsset {
+        octi::SoundCue cue;
+        const char *fileName;
+        std::size_t wavSize;
+        std::size_t sampleCount;
+    };
+    const ExpectedAsset assets[octi::OCTI_SOUND_CUE_COUNT] = {
+        { octi::SoundCue::POD_PLACE,      "pod_place.wav",      3884u,  1920u },
+        { octi::SoundCue::PRONG_SNAP,     "prong_snap.wav",     2444u,  1200u },
+        { octi::SoundCue::POD_STEP,       "pod_step.wav",       3084u,  1520u },
+        { octi::SoundCue::POD_JUMP,       "pod_jump.wav",       4844u,  2400u },
+        { octi::SoundCue::POD_CAPTURE,    "pod_capture.wav",    6764u,  3360u },
+        { octi::SoundCue::CLOCK_LOW_TICK, "clock_low_tick.wav", 1484u,   720u },
+        { octi::SoundCue::GAME_VICTORY,   "game_victory.wav",  11564u,  5760u },
+    };
+
+    std::vector<std::vector<std::int16_t>> decodedWaveforms;
+    for (std::size_t i = 0; i < octi::OCTI_SOUND_CUE_COUNT; ++i) {
+        std::size_t embeddedSize = 0;
+        const std::uint8_t *embeddedPtr =
+            octi::soundCueWavBytes(assets[i].cue, embeddedSize);
+        CHECK_TRUE(embeddedPtr != nullptr);
+        CHECK_EQUAL(assets[i].wavSize, embeddedSize);
+
+        std::string diskPath = resolveSharedSoundAssetPath(assets[i].fileName);
+        std::vector<std::uint8_t> diskBytes;
+        CHECK_TRUE(readBinaryFileBytes(diskPath, diskBytes));
+        CHECK_EQUAL(assets[i].wavSize, diskBytes.size());
+        CHECK_EQUAL(0, std::memcmp(embeddedPtr, diskBytes.data(), assets[i].wavSize));
+
+        std::vector<std::int16_t> pcm;
+        int sampleRate = 0;
+        CHECK_TRUE(octi::decodeWavPcm16Mono(embeddedPtr, embeddedSize, pcm, sampleRate));
+        CHECK_EQUAL(octi::OCTI_SOUND_SAMPLE_RATE, sampleRate);
+        CHECK_EQUAL(assets[i].sampleCount, pcm.size());
+        CHECK_EQUAL(0, static_cast<int>(pcm[0]));
+
+        int peakAbs = 0;
+        for (std::int16_t s : pcm) {
+            int a = s < 0 ? -static_cast<int>(s) : static_cast<int>(s);
+            if (a > peakAbs) {
+                peakAbs = a;
+            }
+        }
+        CHECK_TRUE(peakAbs > 5000);
+        CHECK_TRUE(peakAbs <= 30000);
+        decodedWaveforms.push_back(std::move(pcm));
+    }
+
+    for (std::size_t i = 0; i < decodedWaveforms.size(); ++i) {
+        for (std::size_t j = i + 1; j < decodedWaveforms.size(); ++j) {
+            CHECK_FALSE(decodedWaveforms[i] == decodedWaveforms[j]);
+        }
+    }
+}
+
+TEST(OctiSoundCueTest, DecodeWavBoundaryAndFaultInjection)
+{
+    std::vector<std::int16_t> pcm = { 123, -456 };
+    int sr = 44100;
+
+    // 0-byte and nullptr
+    CHECK_FALSE(octi::decodeWavPcm16Mono(nullptr, 0, pcm, sr));
+    CHECK_TRUE(pcm.empty());
+    CHECK_EQUAL(0, sr);
+
+    std::uint8_t dummy[64] = { 0 };
+    CHECK_FALSE(octi::decodeWavPcm16Mono(nullptr, 44, pcm, sr));
+    CHECK_FALSE(octi::decodeWavPcm16Mono(dummy, 0, pcm, sr));
+
+    // 0-sample valid 44-byte WAV
+    std::vector<std::uint8_t> emptyValid =
+        buildSyntheticWavPcm16Mono({}, octi::OCTI_SOUND_SAMPLE_RATE);
+    CHECK_EQUAL(44u, emptyValid.size());
+    CHECK_TRUE(octi::decodeWavPcm16Mono(emptyValid.data(), emptyValid.size(), pcm, sr));
+    CHECK_TRUE(pcm.empty());
+    CHECK_EQUAL(octi::OCTI_SOUND_SAMPLE_RATE, sr);
+
+    // 43-byte truncated header
+    CHECK_FALSE(octi::decodeWavPcm16Mono(emptyValid.data(), 43, pcm, sr));
+
+    // Base valid 4-sample WAV for fault injection
+    std::vector<std::int16_t> origSamples = { 0, 12000, -12000, 30000 };
+    const std::vector<std::uint8_t> baseValid =
+        buildSyntheticWavPcm16Mono(origSamples, octi::OCTI_SOUND_SAMPLE_RATE);
+    CHECK_TRUE(octi::decodeWavPcm16Mono(baseValid.data(), baseValid.size(), pcm, sr));
+    CHECK_TRUE(pcm == origSamples);
+
+    // Corrupted RIFF magic
+    {
+        auto bad = baseValid;
+        bad[3] = 'X'; // "RIFX"
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // Corrupted WAVE magic
+    {
+        auto bad = baseValid;
+        std::memcpy(&bad[8], "AVI ", 4);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // audioFormat != 1 (e.g. IEEE float = 3)
+    {
+        auto bad = baseValid;
+        writeLe16(bad, 20, 3u);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // channels = 2 (stereo)
+    {
+        auto bad = baseValid;
+        writeLe16(bad, 22, 2u);
+        writeLe32(bad, 28, octi::OCTI_SOUND_SAMPLE_RATE * 4u);
+        writeLe16(bad, 32, 4u);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // bitsPerSample = 8
+    {
+        auto bad = baseValid;
+        writeLe16(bad, 34, 8u);
+        writeLe32(bad, 28, octi::OCTI_SOUND_SAMPLE_RATE);
+        writeLe16(bad, 32, 1u);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // sampleRate = 0
+    {
+        auto bad = baseValid;
+        writeLe32(bad, 24, 0u);
+        writeLe32(bad, 28, 0u);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // data chunk length 0xFFFFFFFF
+    {
+        auto bad = baseValid;
+        writeLe32(bad, 40, 0xFFFFFFFFu);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // data chunk length exceeding buffer by 2 bytes
+    {
+        auto bad = baseValid;
+        writeLe32(bad, 4, static_cast<std::uint32_t>(bad.size() - 8u + 2u));
+        writeLe32(bad, 40, static_cast<std::uint32_t>(origSamples.size() * 2u + 2u));
+        CHECK_FALSE(octi::decodeWavPcm16Mono(bad.data(), bad.size(), pcm, sr));
+    }
+
+    // Odd data byte length
+    {
+        std::vector<std::uint8_t> oddWav = emptyValid;
+        oddWav.insert(oddWav.end(), { 0x11, 0x22, 0x33, 0x00 });
+        writeLe32(oddWav, 4, 40u);
+        writeLe32(oddWav, 40, 3u);
+        CHECK_FALSE(octi::decodeWavPcm16Mono(oddWav.data(), oddWav.size(), pcm, sr));
+    }
+
+    // Valid WAV containing an extra JUNK subchunk before data
+    {
+        std::vector<std::uint8_t> withJunk(baseValid.begin(), baseValid.begin() + 36);
+        const std::uint8_t junkChunk[12] = {
+            'J', 'U', 'N', 'K', 4, 0, 0, 0, 0, 0, 0, 0
+        };
+        withJunk.insert(withJunk.end(), junkChunk, junkChunk + 12);
+        withJunk.insert(withJunk.end(), baseValid.begin() + 36, baseValid.end());
+        writeLe32(withJunk, 4, static_cast<std::uint32_t>(withJunk.size() - 8u));
+        CHECK_TRUE(octi::decodeWavPcm16Mono(withJunk.data(), withJunk.size(), pcm, sr));
+        CHECK_TRUE(pcm == origSamples);
+    }
+}
+
+TEST(OctiSoundCueTest, ClassifyMoveAndNotationSoundCuePriorityAndEdgelessWrap)
+{
+    auto checkMoveCue = [](const char *notation,
+                           octi::SoundCue expected,
+                           bool edgeless = false,
+                           int bw = 9,
+                           int bh = 9) {
+        CHECK_EQUAL(
+            static_cast<int>(expected),
+            static_cast<int>(octi::classifyMoveNotationSoundCue(notation, edgeless, bw, bh)));
+        octi::OctiMove parsed(notation);
+        CHECK_EQUAL(
+            static_cast<int>(expected),
+            static_cast<int>(octi::classifyMoveSoundCue(parsed, edgeless, bw, bh)));
+    };
+
+    // Pod drop & liberate
+    checkMoveCue("33", octi::SoundCue::POD_PLACE);
+    checkMoveCue("33*", octi::SoundCue::POD_PLACE);
+
+    // Prong add, superprong add, prong reposition
+    checkMoveCue("33+a", octi::SoundCue::PRONG_SNAP);
+    checkMoveCue("33+a!", octi::SoundCue::PRONG_SNAP);
+    checkMoveCue("33a+b-a", octi::SoundCue::PRONG_SNAP);
+    checkMoveCue("33a-a+b", octi::SoundCue::PRONG_SNAP);
+
+    // Step, jump, multi-hop, capture, composite
+    checkMoveCue("33a-34", octi::SoundCue::POD_STEP);
+    checkMoveCue("33a-35", octi::SoundCue::POD_JUMP);
+    checkMoveCue("33ac-35-55", octi::SoundCue::POD_JUMP);
+    checkMoveCue("33a-35x", octi::SoundCue::POD_CAPTURE);
+    checkMoveCue("33ac-35-55x", octi::SoundCue::POD_CAPTURE);
+    checkMoveCue("33ab-34,33ab-44", octi::SoundCue::POD_STEP);
+    checkMoveCue("33ab-34,33ab-55", octi::SoundCue::POD_JUMP);
+    checkMoveCue("33ab-35,33ab-55x", octi::SoundCue::POD_CAPTURE);
+
+    // Edgeless toroidal wrap boundaries (0 <-> 8)
+    checkMoveCue("15g-85", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("15g-95", octi::SoundCue::POD_STEP, true, 9, 9);
+    checkMoveCue("95c-15", octi::SoundCue::POD_STEP, true, 9, 9);
+    checkMoveCue("95c-25", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("85c-15", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("51e-59", octi::SoundCue::POD_STEP, true, 9, 9);
+    checkMoveCue("51e-58", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("59a-51", octi::SoundCue::POD_STEP, true, 9, 9);
+    checkMoveCue("59a-52", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("11f-88", octi::SoundCue::POD_JUMP, true, 9, 9);
+    checkMoveCue("11f-99", octi::SoundCue::POD_STEP, true, 9, 9);
+
+    // Superprong prelude + regular priority rules
+    checkMoveCue("33a!-34;34a!+b", octi::SoundCue::PRONG_SNAP);
+    checkMoveCue("33A-34;34+b", octi::SoundCue::PRONG_SNAP);
+    checkMoveCue("33a!-35x;35a!+b", octi::SoundCue::POD_CAPTURE);
+    checkMoveCue("33A-35x;35+b", octi::SoundCue::POD_CAPTURE);
+    checkMoveCue("33a!-35;35a!+b", octi::SoundCue::POD_JUMP);
+    checkMoveCue("33a!-34;53", octi::SoundCue::POD_PLACE);
+    checkMoveCue("33a!-34;34a!-35", octi::SoundCue::POD_STEP);
+
+    // Bonus-only synthetic OctiMove fallback
+    {
+        octi::OctiMoveOp bonusStep;
+        bonusStep.x0 = 2;
+        bonusStep.y0 = 2;
+        bonusStep.pod.addProng(octi::DIR_N, true);
+        bonusStep.isSuperProngBonusMove = true;
+        bonusStep.hops.push_back({ 2, 3, false });
+        octi::OctiMove bonusOnly =
+            octi::OctiMove::fromValidatedSingleOp(std::move(bonusStep));
+        CHECK_EQUAL(
+            static_cast<int>(octi::SoundCue::POD_STEP),
+            static_cast<int>(octi::classifyMoveSoundCue(bonusOnly)));
+    }
+
+    // Empty and malformed move notations default cleanly to POD_PLACE
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveNotationSoundCue("")));
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveNotationSoundCue("   ")));
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveNotationSoundCue("not-a-move")));
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveNotationSoundCue("99+z")));
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveNotationSoundCue(std::string("33\0bad", 6))));
+    CHECK_EQUAL(
+        static_cast<int>(octi::SoundCue::POD_PLACE),
+        static_cast<int>(octi::classifyMoveSoundCue(octi::OctiMove())));
+}
+
+TEST(OctiSoundCueTest, RapidCheckWavDecoderAndClassifierFuzzing)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+
+    bool wavRoundtripAndFuzz = rc::check(
+        "decodeWavPcm16Mono lossless roundtrip and arbitrary byte fuzzing",
+        []() {
+            auto samples = *rc::gen::container<std::vector<std::int16_t>>(
+                rc::gen::arbitrary<std::int16_t>());
+            auto sr = static_cast<std::uint32_t>(*rc::gen::inRange(8000, 96001));
+            std::vector<std::uint8_t> validWav = buildSyntheticWavPcm16Mono(samples, sr);
+
+            std::vector<std::int16_t> outPcm;
+            int outSr = 0;
+            RC_ASSERT(octi::decodeWavPcm16Mono(
+                validWav.data(), validWav.size(), outPcm, outSr));
+            RC_ASSERT(outSr == static_cast<int>(sr));
+            RC_ASSERT(outPcm == samples);
+
+            auto rawBytes = *rc::gen::container<std::vector<std::uint8_t>>(
+                rc::gen::arbitrary<std::uint8_t>());
+            std::vector<std::int16_t> fuzzPcm;
+            int fuzzSr = -1;
+            bool ok = octi::decodeWavPcm16Mono(
+                rawBytes.data(), rawBytes.size(), fuzzPcm, fuzzSr);
+            if (ok) {
+                RC_ASSERT(fuzzSr > 0);
+            } else {
+                RC_ASSERT(fuzzPcm.empty());
+                RC_ASSERT(fuzzSr == 0);
+            }
+        });
+    CHECK_TRUE(wavRoundtripAndFuzz);
+
+    bool moveClassifierFuzz = rc::check(
+        "classifyMoveNotationSoundCue consistency and fuzz safety",
+        []() {
+            auto fuzzStr = *rc::gen::arbitrary<std::string>();
+            bool edgeless = *rc::gen::arbitrary<bool>();
+            int bw = *rc::gen::inRange(-2, 12);
+            int bh = *rc::gen::inRange(-2, 12);
+            octi::SoundCue c = octi::classifyMoveNotationSoundCue(fuzzStr, edgeless, bw, bh);
+            int ci = static_cast<int>(c);
+            RC_ASSERT(ci >= 0 && ci <= static_cast<int>(octi::SoundCue::POD_CAPTURE));
+
+            int x0 = *rc::gen::inRange(0, 9);
+            int y0 = *rc::gen::inRange(0, 9);
+            int kind = *rc::gen::inRange(0, 5);
+            octi::OctiMoveOp op;
+            op.x0 = x0;
+            op.y0 = y0;
+            if (kind == 0) {
+                op.addPod = true;
+                op.liberate = *rc::gen::arbitrary<bool>();
+                octi::OctiMove mv(std::vector<octi::OctiMoveOp>{ op });
+                RC_ASSERT(octi::classifyMoveSoundCue(mv, edgeless, 9, 9) ==
+                          octi::SoundCue::POD_PLACE);
+                RC_ASSERT(octi::classifyMoveNotationSoundCue(mv.asString(), edgeless, 9, 9) ==
+                          octi::SoundCue::POD_PLACE);
+            } else if (kind == 1) {
+                int d = *rc::gen::inRange(0, 8);
+                op.addProngDir = static_cast<octi::OctiDir>(d);
+                op.superProng = *rc::gen::arbitrary<bool>();
+                octi::OctiMove mv(std::vector<octi::OctiMoveOp>{ op });
+                RC_ASSERT(octi::classifyMoveSoundCue(mv, edgeless, 9, 9) ==
+                          octi::SoundCue::PRONG_SNAP);
+                RC_ASSERT(octi::classifyMoveNotationSoundCue(mv.asString(), edgeless, 9, 9) ==
+                          octi::SoundCue::PRONG_SNAP);
+            } else {
+                int d = *rc::gen::inRange(0, 8);
+                auto dir = static_cast<octi::OctiDir>(d);
+                op.pod.addProng(dir, false);
+                int dist = (kind == 2) ? 1 : 2;
+                bool cap = (kind == 4);
+                int nx = x0 + octi::dirDeltaX(dir) * dist;
+                int ny = y0 + octi::dirDeltaY(dir) * dist;
+                if (edgeless) {
+                    nx = (nx % 9 + 9) % 9;
+                    ny = (ny % 9 + 9) % 9;
+                }
+                if (nx >= 0 && nx < 9 && ny >= 0 && ny < 9 && (nx != x0 || ny != y0)) {
+                    op.hops.push_back({ nx, ny, cap });
+                    octi::OctiMove mv(std::vector<octi::OctiMoveOp>{ op });
+                    octi::SoundCue expected = cap
+                        ? octi::SoundCue::POD_CAPTURE
+                        : (dist == 2 ? octi::SoundCue::POD_JUMP : octi::SoundCue::POD_STEP);
+                    RC_ASSERT(octi::classifyMoveSoundCue(mv, edgeless, 9, 9) == expected);
+                    RC_ASSERT(octi::classifyMoveNotationSoundCue(mv.asString(), edgeless, 9, 9) ==
+                              expected);
+                }
+            }
+        });
+    CHECK_TRUE(moveClassifierFuzz);
+}
+
+TEST(OctiSoundCueTest, OctiSoundGenCliVerifyAndJsSync)
+{
+    const char *binCandidates[] = {
+        "./build/octi_sound_gen",
+        "./build/asan/octi_sound_gen",
+        "./core/build/octi_sound_gen",
+        "./core/build/asan/octi_sound_gen",
+        "./octi_sound_gen",
+        "../octi_sound_gen"
+    };
+    std::string soundGenBin;
+    for (const char *cand : binCandidates) {
+        std::error_code ec;
+        if (std::filesystem::exists(cand, ec) && !ec) {
+            soundGenBin = cand;
+            break;
+        }
+    }
+    CHECK_FALSE(soundGenBin.empty());
+
+    std::filesystem::path sampleAssetPath(resolveSharedSoundAssetPath("pod_place.wav"));
+    std::filesystem::path assetsDir = sampleAssetPath.parent_path();
+
+    std::string verifyCmd =
+        "\"" + soundGenBin + "\" --verify-dir \"" + assetsDir.string() + "\"";
+    CHECK_EQUAL(0, std::system(verifyCmd.c_str()));
+
+    std::filesystem::path scratchDir =
+        std::filesystem::path(soundGenBin).parent_path() / "sound_gen_test_scratch";
+    std::error_code rmEc;
+    std::filesystem::remove_all(scratchDir, rmEc);
+    std::filesystem::create_directories(scratchDir);
+
+    std::filesystem::path outAssetsDir = scratchDir / "sounds";
+    std::string genCmd =
+        "\"" + soundGenBin + "\" --out-dir \"" + outAssetsDir.string() +
+        "\" --verify-dir \"" + outAssetsDir.string() + "\"";
+    CHECK_EQUAL(0, std::system(genCmd.c_str()));
+
+    // Corrupt 1 byte in prong_snap.wav and confirm --verify-dir fails
+    {
+        std::filesystem::path snapPath = outAssetsDir / "prong_snap.wav";
+        std::vector<std::uint8_t> snapBytes;
+        CHECK_TRUE(readBinaryFileBytes(snapPath.string(), snapBytes));
+        CHECK_EQUAL(2444u, snapBytes.size());
+        snapBytes[100] ^= 0xFFu;
+        std::ofstream out(snapPath, std::ios::out | std::ios::trunc | std::ios::binary);
+        out.write(reinterpret_cast<const char *>(snapBytes.data()),
+                  static_cast<std::streamsize>(snapBytes.size()));
+        out.close();
+
+        std::string failVerifyCmd =
+            "\"" + soundGenBin + "\" --verify-dir \"" + outAssetsDir.string() +
+            "\" > /dev/null 2>&1";
+        CHECK_TRUE(std::system(failVerifyCmd.c_str()) != 0);
+    }
+
+    // Verify --from-dir --out-js marker replacement and idempotency
+    {
+        std::filesystem::path stubJs = scratchDir / "WebUiStub.cxx";
+        {
+            std::ofstream out(stubJs, std::ios::out | std::ios::trunc | std::ios::binary);
+            out << "const char kHtml[] = R\"OCTIUI(\n"
+                << "/* BEGIN_OCTI_SHARED_SOUND_ASSETS */\n"
+                << "/* END_OCTI_SHARED_SOUND_ASSETS */\n"
+                << ")OCTIUI\";\n";
+        }
+        std::string syncCmd =
+            "\"" + soundGenBin + "\" --from-dir \"" + assetsDir.string() +
+            "\" --out-js \"" + stubJs.string() + "\"";
+        CHECK_EQUAL(0, std::system(syncCmd.c_str()));
+
+        std::vector<std::uint8_t> syncedPass1;
+        CHECK_TRUE(readBinaryFileBytes(stubJs.string(), syncedPass1));
+        CHECK_EQUAL(0, std::system(syncCmd.c_str()));
+        std::vector<std::uint8_t> syncedPass2;
+        CHECK_TRUE(readBinaryFileBytes(stubJs.string(), syncedPass2));
+        CHECK_TRUE(syncedPass1 == syncedPass2);
+
+        std::string syncedText(syncedPass1.begin(), syncedPass1.end());
+        CHECK_TRUE(syncedText.find("var OCTI_SHARED_WAV_BASE64 = {") != std::string::npos);
+        for (std::size_t i = 0; i < octi::OCTI_SOUND_CUE_COUNT; ++i) {
+            auto cue = static_cast<octi::SoundCue>(i);
+            std::string keyToken = std::string("  ") + octi::soundCueName(cue) + ": \"UklGR";
+            CHECK_TRUE(syncedText.find(keyToken) != std::string::npos);
+        }
+
+        // Missing markers must fail cleanly
+        std::filesystem::path noMarkerJs = scratchDir / "NoMarkers.cxx";
+        {
+            std::ofstream out(noMarkerJs, std::ios::out | std::ios::trunc | std::ios::binary);
+            out << "var x = 1;\n";
+        }
+        std::string badSyncCmd =
+            "\"" + soundGenBin + "\" --from-dir \"" + assetsDir.string() +
+            "\" --out-js \"" + noMarkerJs.string() + "\" > /dev/null 2>&1";
+        CHECK_TRUE(std::system(badSyncCmd.c_str()) != 0);
+    }
+
+    std::filesystem::remove_all(scratchDir, rmEc);
 }
 
 int main(int argc, char **argv)

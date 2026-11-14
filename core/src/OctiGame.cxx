@@ -603,7 +603,7 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
     notifyUndoRedoStatusChanged();
 }
 
-void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
+void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPreludeOnly)
 {
     if (ops.empty()) {
         throw IllegalMoveException("no operations in move");
@@ -612,10 +612,16 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
     // Separate bonus ops and regular ops
     std::vector<OctiMoveOp> bonusOps;
     std::vector<OctiMoveOp> regularOps;
+    bool seenRegular = false;
     for (const auto &op : ops) {
         if (op.isSuperProngBonusMove) {
+            if (seenRegular) {
+                throw IllegalMoveException(
+                    "superprong bonus move cannot appear after regular move");
+            }
             bonusOps.push_back(op);
         } else {
+            seenRegular = true;
             regularOps.push_back(op);
         }
     }
@@ -634,9 +640,20 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
 
         // Execute bonus ops
         std::set<std::pair<int, int>> bonusCaptures;
-        for (const auto &bOp : bonusOps) {
+        const OctiPodType turnPodType = playerToPodType(_turn);
+        int p1EndX = -1;
+        int p1EndY = -1;
+        std::uint32_t p1Cfg = 0;
+        OctiDir p1SuperDir = DIR_UNDEF;
+        int sameCfgCountAfterP1 = 0;
+
+        for (std::size_t bIdx = 0; bIdx < bonusOps.size(); bIdx++) {
+            const auto &bOp = bonusOps[bIdx];
             if (bOp.hops.empty()) {
                 throw IllegalMoveException("superprong bonus move must contain hops");
+            }
+            if (bOp.addPod || bOp.addProngDir != DIR_UNDEF || bOp.rmProngDir != DIR_UNDEF) {
+                throw IllegalMoveException("superprong bonus move must be a hop chain");
             }
             if (!_board->isValidCoord(bOp.x0, bOp.y0)) {
                 throw IllegalMoveException("superprong bonus starting square out of bounds");
@@ -644,7 +661,7 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
             OctiSquare &sq = _board->squareAt(bOp.x0, bOp.y0);
             int podIdx = -1;
             for (int i = 0; i < sq.getNumPods(); i++) {
-                if (sq.getPodAt(i).getType() == playerToPodType(_turn) &&
+                if (sq.getPodAt(i).getType() == turnPodType &&
                     (sq.getPodAt(i).rawConfig() & 0xFFFFu) == (bOp.pod.rawConfig() & 0xFFFFu)) {
                     podIdx = i;
                     break;
@@ -654,13 +671,19 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                 throw IllegalMoveException("pod for superprong bonus move not found");
             }
             OctiPod pod = sq.getPodAt(podIdx);
+            const std::uint32_t opCfg = pod.rawConfig() & 0xFFFFu;
             sq.removePod(pod);
 
             int cx = bOp.x0;
             int cy = bOp.y0;
+            OctiDir opSuperDir = DIR_UNDEF;
             std::set<std::pair<int, int>> jumpedSquares;
 
-            for (const auto &hop : bOp.hops) {
+            for (std::size_t hIdx = 0; hIdx < bOp.hops.size(); hIdx++) {
+                const auto &hop = bOp.hops[hIdx];
+                if (!_board->isValidCoord(hop.x, hop.y)) {
+                    throw IllegalMoveException("superprong bonus hop coordinate out of bounds");
+                }
                 int dx = 0, dy = 0;
                 if (!findStepDelta(cx, cy, hop.x, hop.y, _useEdgelessBoard,
                                    _board->getBoardWidth(), _board->getBoardHeight(),
@@ -676,6 +699,16 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                     OctiDir dir = deltaToDir(dx, dy);
                     if (dir == DIR_UNDEF || pod.prongAt(dir) != SUPER_PRONG) {
                         throw IllegalMoveException("bonus move must follow superprong direction");
+                    }
+                    opSuperDir = dir;
+                    if (bIdx == 1 &&
+                        bOp.x0 == p1EndX &&
+                        bOp.y0 == p1EndY &&
+                        opCfg == p1Cfg &&
+                        opSuperDir == p1SuperDir &&
+                        sameCfgCountAfterP1 < 2) {
+                        throw IllegalMoveException(
+                            "superprong socket already used in bonus prelude");
                     }
                     OctiSquare &destSq = _board->squareAt(hop.x, hop.y);
                     if (destSq.hasEnemyOf(_turn)) {
@@ -694,6 +727,21 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                     OctiDir dir = deltaToDir(dx / 2, dy / 2);
                     if (dir == DIR_UNDEF || pod.prongAt(dir) != SUPER_PRONG) {
                         throw IllegalMoveException("bonus jump must follow superprong direction");
+                    }
+                    if (hIdx == 0) {
+                        opSuperDir = dir;
+                        if (bIdx == 1 &&
+                            bOp.x0 == p1EndX &&
+                            bOp.y0 == p1EndY &&
+                            opCfg == p1Cfg &&
+                            opSuperDir == p1SuperDir &&
+                            sameCfgCountAfterP1 < 2) {
+                            throw IllegalMoveException(
+                                "superprong socket already used in bonus prelude");
+                        }
+                    } else if (dir != opSuperDir) {
+                        throw IllegalMoveException(
+                            "bonus jump must follow single superprong direction");
                     }
                     int jx = _useEdgelessBoard ? (((cx + dx / 2) % _board->getBoardWidth() + _board->getBoardWidth()) % _board->getBoardWidth()) : (cx + dx / 2);
                     int jy = _useEdgelessBoard ? (((cy + dy / 2) % _board->getBoardHeight() + _board->getBoardHeight()) % _board->getBoardHeight()) : (cy + dy / 2);
@@ -719,6 +767,22 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
                 }
             }
             _board->squareAt(cx, cy).addPod(pod);
+
+            if (bIdx == 0) {
+                p1EndX = cx;
+                p1EndY = cy;
+                p1Cfg = opCfg;
+                p1SuperDir = opSuperDir;
+                sameCfgCountAfterP1 = 0;
+                const OctiSquare &landSq = _board->squareAt(cx, cy);
+                for (int i = 0; i < landSq.getNumPods(); i++) {
+                    const OctiPod &lp = landSq.getPodAt(i);
+                    if (lp.getType() == turnPodType &&
+                        (lp.rawConfig() & 0xFFFFu) == p1Cfg) {
+                        sameCfgCountAfterP1++;
+                    }
+                }
+            }
         }
 
         // Process bonus captures
@@ -736,6 +800,9 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
     }
 
     if (regularOps.empty()) {
+        if (allowPreludeOnly && !bonusOps.empty()) {
+            return;
+        }
         throw IllegalMoveException("move must include a regular turn action");
     }
 
@@ -748,6 +815,9 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
             throw IllegalMoveException("pod placement forbidden in OCTI for Kids");
         }
         const auto &op = regularOps[0];
+        if (!op.hops.empty() || op.addProngDir != DIR_UNDEF || op.rmProngDir != DIR_UNDEF) {
+            throw IllegalMoveException("invalid pod placement op structure");
+        }
         if (!_board->isValidCoord(op.x0, op.y0)) {
             throw IllegalMoveException("pod placement square out of bounds");
         }
@@ -900,6 +970,9 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
             throw IllegalMoveException("prong addition cannot be combined with other actions");
         }
         const auto &op = regularOps[0];
+        if (!op.hops.empty() || op.addProngDir < DIR_N || op.addProngDir >= DIR_MAX) {
+            throw IllegalMoveException("invalid prong add op structure");
+        }
         if (!_board->isValidCoord(op.x0, op.y0)) {
             throw IllegalMoveException("prong addition square out of bounds");
         }
@@ -946,6 +1019,11 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
         if (op.superProng) {
             throw IllegalMoveException("cannot add superprong during repositioning");
         }
+        if (!op.hops.empty() || op.addProngDir == op.rmProngDir ||
+            op.addProngDir < DIR_N || op.addProngDir >= DIR_MAX ||
+            op.rmProngDir < DIR_N || op.rmProngDir >= DIR_MAX) {
+            throw IllegalMoveException("invalid reposition op structure");
+        }
         if (!_board->isValidCoord(op.x0, op.y0)) {
             throw IllegalMoveException("prong repositioning square out of bounds");
         }
@@ -983,8 +1061,16 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops)
         if (op.x0 != sx || op.y0 != sy) {
             throw IllegalMoveException("composite move operations must share the same starting square");
         }
+        if (op.addPod || op.addProngDir != DIR_UNDEF || op.rmProngDir != DIR_UNDEF) {
+            throw IllegalMoveException("movement operation cannot mix pod or prong edits");
+        }
         if (op.hops.empty()) {
             throw IllegalMoveException("movement operation must contain at least one hop");
+        }
+        for (const auto &hop : op.hops) {
+            if (!_board->isValidCoord(hop.x, hop.y)) {
+                throw IllegalMoveException("hop coordinate out of bounds");
+            }
         }
     }
 
@@ -1502,6 +1588,30 @@ std::string OctiGame::getPreparedMoveString() const
     return OctiMove::formatOps(_prepOps);
 }
 
+void OctiGame::applyUncommittedTurnForPreview(const std::vector<OctiMoveOp> &ops)
+{
+    if (!_gameStarted) {
+        throw IllegalMoveException("game has not started");
+    }
+    if (_gameOver) {
+        throw IllegalMoveException("game is already over");
+    }
+    if (_turn == PLAYER_UNDEF || !_board) {
+        throw IllegalMoveException("turn is undefined");
+    }
+    if (ops.empty()) {
+        throw IllegalMoveException("no operations in move");
+    }
+
+    OctiGameSnapshot snapBefore = captureSnapshot();
+    try {
+        applyMoveOps(ops, true);
+    } catch (...) {
+        restoreSnapshot(snapBefore);
+        throw;
+    }
+}
+
 static void dfsJumpChains(const OctiBoard *board,
                           bool edgeless,
                           OctiPlayer turn,
@@ -1865,6 +1975,7 @@ struct PreludeCandidate {
     OctiMoveOp op;
     int endX = -1;
     int endY = -1;
+    OctiDir superDir = DIR_UNDEF;
     std::uint8_t capX[16];
     std::uint8_t capY[16];
     int numCaptures = 0;
@@ -3204,6 +3315,7 @@ static void dfsStraightSuperProngJumps(const OctiBoard *board,
         cand.op.hops = currentHops;
         cand.endX = lx;
         cand.endY = ly;
+        cand.superDir = dir;
         cand.numCaptures = numCurCaps;
         for (int k = 0; k < numCurCaps; ++k) {
             cand.capX[k] = curCapX[k];
@@ -3242,6 +3354,7 @@ static void dfsStraightSuperProngJumps(const OctiBoard *board,
         cand.op.hops = currentHops;
         cand.endX = lx;
         cand.endY = ly;
+        cand.superDir = dir;
         cand.numCaptures = nextCaps;
         for (int k = 0; k < nextCaps; ++k) {
             cand.capX[k] = curCapX[k];
@@ -3328,6 +3441,7 @@ static void enumerateSuperProngPreludes(const OctiBoard *board,
                             cand.op.hops.push_back(hop);
                             cand.endX = nx;
                             cand.endY = ny;
+                            cand.superDir = dir;
                             outPreludes.push_back(std::move(cand));
                         }
                     }
@@ -3752,6 +3866,7 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
     }
 
     // 2-prelude moves
+    const OctiPodType turnPodType = playerToPodType(turn);
     OctiMoveOp preludePair[2];
     for (const auto &p1 : scratch.preludes1) {
         int markP1 = undoLog.size;
@@ -3760,6 +3875,20 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
         scratch.workBoard.squareAt(p1.op.x0, p1.op.y0).removePod(p1.op.pod);
         scratch.workBoard.squareAt(p1.endX, p1.endY).addPod(p1.op.pod);
 
+        const std::uint32_t p1Cfg = p1.op.pod.rawConfig() & 0xFFFFu;
+        int sameCfgCountAfterP1 = 0;
+        {
+            const OctiSquare &p1LandSq = scratch.workBoard.squareAt(p1.endX, p1.endY);
+            const int numLandPods = p1LandSq.getNumPods();
+            for (int i = 0; i < numLandPods; i++) {
+                const OctiPod &lp = p1LandSq.getPodAt(i);
+                if (lp.getType() == turnPodType &&
+                    (lp.rawConfig() & 0xFFFFu) == p1Cfg) {
+                    sameCfgCountAfterP1++;
+                }
+            }
+        }
+
         enumerateSuperProngPreludes(&scratch.workBoard, useEdgelessBoard, turn,
                                     scratch.jumpHops, scratch.preludes2);
         preludePair[0] = p1.op;
@@ -3767,6 +3896,13 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
             (p1.numCaptures > 0) ||
             (tacticalOnly && testSqBit9x9(uncapturedEnemyHomeMask, p1.endX, p1.endY));
         for (const auto &p2 : scratch.preludes2) {
+            if (sameCfgCountAfterP1 < 2 &&
+                p2.op.x0 == p1.endX &&
+                p2.op.y0 == p1.endY &&
+                (p2.op.pod.rawConfig() & 0xFFFFu) == p1Cfg &&
+                p2.superDir == p1.superDir) {
+                continue;
+            }
             int markP2 = undoLog.size;
             undoLog.saveSquareOnceSinceMark(scratch.workBoard, p2.op.x0, p2.op.y0, markP2);
             undoLog.saveSquareOnceSinceMark(scratch.workBoard, p2.endX, p2.endY, markP2);
