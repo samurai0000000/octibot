@@ -150,6 +150,22 @@ struct BotTuningProfile {
     int moveOrderBaseEntryBonus      = 60000; // Move-ordering priority for stepping/jumping onto enemy base
     int moveOrderLeapfrogBonus       = 1200;  // Move-ordering priority for forming/using a leapfrog battery
     int moveOrderBlunderPenalty      = 7000;  // Move-ordering penalty for landing in enemy jump-capture mask
+
+    // --- 6. Variant-Specific Multi-Mode, Geometry & Urgency Weights ---
+    int ofkPodValScalePct                  = 135;   // OFK armed-pod material multiplier (%) (100 = unscaled)
+    int ofkCapturedPodPenalty              = 4800;  // Penalty per captured pod in OFK
+    int ofkReserveFreeProngVal             = 180;   // Value per unplaced prong in reserve in OFK
+    int fourPlayerEliminatedPenalty        = 20000; // Penalty when an allied/enemy seat is eliminated in 4P
+    int fourPlayerWipeoutDangerPct         = 50;    // Scale (%) of wipeoutDangerPenalty for single-seat wipeout risk in 4P
+    int reserveFreeSuperProngVal           = 150;   // Value per unplaced superprong in reserve
+    int nonEdgelessBackRankPenalty2P       = 850;   // Penalty for pod behind own home rank in 2P non-edgeless
+    int moveOrderBackRankRetreatPenalty2P  = 3500;  // Move-ordering penalty for retreating behind own home rank in 2P non-edgeless
+    int multiBaseTwoNeededThreatScalePct   = 35;    // Base-threat & distance scale (%) when 2 bases are still needed to win
+    int multiBaseThreeNeededThreatScalePct = 20;    // Base-threat & distance scale (%) when >= 3 bases are still needed to win
+    int multiBaseTwoNeededScaleFloorPct    = 60;    // Minimum scale (%) on capturedEnemyBaseBonus / lostAlliedBasePenalty when 2 bases needed
+    int multiBaseThreeNeededScaleFloorPct  = 35;    // Minimum scale (%) on capturedEnemyBaseBonus / lostAlliedBasePenalty when >= 3 bases needed
+    int emptyAlliedBase1BCloseUrgencyPct   = 175;   // Urgency multiplier (%) on emptyAlliedBasePenalty1B when attacker dist <= 2
+    int emptyAlliedBase1BMidUrgencyPct     = 130;   // Urgency multiplier (%) on emptyAlliedBasePenalty1B when attacker dist == 3
 };
 
 struct OctiEvalBreakdown {
