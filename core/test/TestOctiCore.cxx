@@ -2620,7 +2620,7 @@ TEST(OctiBotEngineCoreTest, UnboundedTimeBookSearchAndBookGenMultiLangSync)
     std::string resumeLogPath = (tmpDir / "resume.log").string();
     std::string cmdResume =
         bookGenBin +
-        " --max-ply 2"
+        " --threads 1 --max-ply 2"
         " --bot-branch 2 --opp-branch 2"
         " --checkpoint-interval 1"
         " --out-json \"" + jsonPath + "\""
@@ -2640,7 +2640,7 @@ TEST(OctiBotEngineCoreTest, UnboundedTimeBookSearchAndBookGenMultiLangSync)
     std::string freshLogPath = (tmpDir / "fresh.log").string();
     std::string cmdFresh =
         bookGenBin +
-        " --no-resume --mode OFK --max-ply 1 --search-depth 1"
+        " --threads 1 --no-resume --mode OFK --max-ply 1 --search-depth 1"
         " --out-json \"" + jsonPath + "\""
         " --out-header \"" + hxxPath + "\""
         " --out-java \"" + javaPath + "\" > \"" + freshLogPath + "\" 2>&1";
@@ -6661,7 +6661,7 @@ TEST(OctiOpeningBookAllVariants, BookGenNewVariantModesFlagsAndAll13Expansion)
 
     // 1. Test --mode 2P_3B --super-prongs
     std::string cmdSp =
-        bookGenBin + " --no-resume --mode 2P_3B --super-prongs --max-ply 1 --search-depth 1"
+        bookGenBin + " --threads 1 --no-resume --mode 2P_3B --super-prongs --max-ply 1 --search-depth 1"
         " --out-json \"" + jsonSp + "\" --out-header \"" + hxxSp + "\" --out-java \"" + javaSp + "\" > /dev/null 2>&1";
     CHECK_EQUAL(0, std::system(cmdSp.c_str()));
 
@@ -6684,7 +6684,7 @@ TEST(OctiOpeningBookAllVariants, BookGenNewVariantModesFlagsAndAll13Expansion)
     std::string hxx13 = (tmpDir / "all13.hxx").string();
     std::string java13 = (tmpDir / "all13.java").string();
     std::string cmd13 =
-        bookGenBin + " --no-resume --mode all13 --max-ply 1 --search-depth 1"
+        bookGenBin + " --threads 1 --no-resume --mode all13 --max-ply 1 --search-depth 1"
         " --out-json \"" + json13 + "\" --out-header \"" + hxx13 + "\" --out-java \"" + java13 + "\" > /dev/null 2>&1";
     CHECK_EQUAL(0, std::system(cmd13.c_str()));
 
@@ -8608,7 +8608,7 @@ TEST(OctiLeafEvaluatorHookTest, NullLeafEvaluatorPreservesSearchMovesScoresAndNo
         prof.rootScoreJitter = 0;
         prof.lazySmpThreads = 1;
         prof.maxSearchDepth = 4;
-        prof.timeBudgetMs = 60000;
+        prof.timeBudgetMs = 300000;
 
         octi::OctiBotEngine engDefault(octi::BotDifficulty::MASTER, 0x12345678ULL);
         CHECK_TRUE(engDefault.leafEvaluator() == nullptr);
@@ -8631,6 +8631,7 @@ TEST(OctiLeafEvaluatorHookTest, NullLeafEvaluatorPreservesSearchMovesScoresAndNo
         std::string mvZero = engZero.chooseMove(board, &statsZero);
         CHECK_TRUE(zeroEval.calls() > 0);
         STRCMP_EQUAL(mvDefault.c_str(), mvZero.c_str());
+        CHECK_EQUAL(4, statsDefault.depthReached);
         CHECK_EQUAL(statsDefault.bestScore, statsZero.bestScore);
         CHECK_EQUAL(statsDefault.depthReached, statsZero.depthReached);
         CHECK_EQUAL(statsDefault.nodesVisited, statsZero.nodesVisited);
@@ -9807,6 +9808,381 @@ TEST(OctiPostMortemEngineBugFixes, DefaultOffProfilePreservesBitIdenticalEvalAnd
     STRCMP_EQUAL("33abg-23", bm.c_str());
     CHECK_EQUAL(45358ULL, st.nodesVisited);
     CHECK_EQUAL(10630, st.bestScore);
+}
+
+TEST_GROUP(OctiVariantTuningParams)
+{
+};
+
+TEST(OctiVariantTuningParams, DefaultStructValuesAndSixVariantEvalParity)
+{
+    const octi::BotTuningProfile def{};
+    CHECK_EQUAL(135, def.ofkPodValScalePct);
+    CHECK_EQUAL(4800, def.ofkCapturedPodPenalty);
+    CHECK_EQUAL(180, def.ofkReserveFreeProngVal);
+    CHECK_EQUAL(20000, def.fourPlayerEliminatedPenalty);
+    CHECK_EQUAL(50, def.fourPlayerWipeoutDangerPct);
+    CHECK_EQUAL(150, def.reserveFreeSuperProngVal);
+    CHECK_EQUAL(850, def.nonEdgelessBackRankPenalty2P);
+    CHECK_EQUAL(3500, def.moveOrderBackRankRetreatPenalty2P);
+    CHECK_EQUAL(35, def.multiBaseTwoNeededThreatScalePct);
+    CHECK_EQUAL(20, def.multiBaseThreeNeededThreatScalePct);
+    CHECK_EQUAL(60, def.multiBaseTwoNeededScaleFloorPct);
+    CHECK_EQUAL(35, def.multiBaseThreeNeededScaleFloorPct);
+    CHECK_EQUAL(175, def.emptyAlliedBase1BCloseUrgencyPct);
+    CHECK_EQUAL(130, def.emptyAlliedBase1BMidUrgencyPct);
+
+    const char *variantFens[6] = {
+        // 2P_3B
+        "2:3:0:0:P:B:-:0:3,0,17,0:3,0,16,0:B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37",
+        // 2P_1B
+        "2:1:0:0:P:A:-:0:2,1,17,0:1,1,15,0:A33abg,A73h,A34abgh,A64h,B46cdefg,B37,B57efg,B57g,B77",
+        // OFK
+        "OFK:1:0:0:P:A:-:0:0,1,8,0:0,0,9,0:A22,A32,A42,B44cef,B26d,B56,B47bde",
+        // 4P
+        "4:3:1:0:P:D:-:3:3,1,11,0:0,4,10,0:2,0,9,0:2,0,10,1:D33ab!g!h,D73,C37cfg!,C77",
+        // 2P_3B_ED
+        "2:3:1:1:P:A:-:0:4,0,15,0:4,0,14,0:B33cde!f,A73abh,A44abh,B65defg,A37a!bch,B77def",
+        // 2P_3B_SP
+        "2:3:1:0:P:B:-:0:4,0,17,0:4,0,18,0:A33abh,B53ade!,B53e,B37def,A77a!be,A77ab"
+    };
+
+    for (std::size_t i = 0; i < 6; ++i) {
+        octi::OctiBoard b;
+        b.fromPositionString(variantFens[i]);
+        const octi::OctiPlayer turn = b.getGame()->getTurn();
+        const octi::OctiEvalBreakdown bd =
+            octi::OctiBotEngine::evaluatePositionBreakdown(b, turn, def);
+        CHECK_EQUAL(bd.sumTerms(), bd.totalScore);
+        CHECK_EQUAL(bd.totalScore,
+                    octi::OctiBotEngine::evaluatePosition(b, turn, def));
+    }
+}
+
+TEST(OctiVariantTuningParams, OfkParametersAffectOfkAndIsolateNonOfkVariants)
+{
+    octi::OctiBoard ofkBoard;
+    ofkBoard.fromPositionString(
+        "OFK:1:0:0:P:A:-:0:0,1,8,0:0,0,5,0:A22,A32a,A42ab,A52abc,B26de,B36,B46,B56");
+
+    octi::OctiBoard twoP3B;
+    twoP3B.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,1,16,0:3,0,12,0:A33a,A53ab,A73abc,B37de,B57");
+    octi::OctiBoard twoP1B;
+    twoP1B.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,1,16,0:3,0,12,0:A33a,A53ab,A73abc,B37de,B57");
+    octi::OctiBoard fourP;
+    fourP.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,1,10,0:2,0,8,0:2,0,10,0:2,0,9,0:A33a,B37e,C77ef,D73c");
+
+    const octi::BotTuningProfile base{};
+    const auto ofkBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+        ofkBoard, octi::PLAYER_A, base);
+    const int base2P3B = octi::OctiBotEngine::evaluatePosition(twoP3B, octi::PLAYER_A, base);
+    const int base2P1B = octi::OctiBotEngine::evaluatePosition(twoP1B, octi::PLAYER_A, base);
+    const int base4P = octi::OctiBotEngine::evaluatePosition(fourP, octi::PLAYER_A, base);
+
+    {
+        octi::BotTuningProfile p = base;
+        p.ofkPodValScalePct = 200;
+        const auto ofkMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            ofkBoard, octi::PLAYER_A, p);
+        CHECK_EQUAL(2698, ofkMod.podMaterial - ofkBase.podMaterial);
+        CHECK_EQUAL(2698, ofkMod.totalScore - ofkBase.totalScore);
+        CHECK_EQUAL(base2P3B, octi::OctiBotEngine::evaluatePosition(twoP3B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base2P1B, octi::OctiBotEngine::evaluatePosition(twoP1B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base4P, octi::OctiBotEngine::evaluatePosition(fourP, octi::PLAYER_A, p));
+    }
+
+    {
+        octi::BotTuningProfile p = base;
+        p.ofkCapturedPodPenalty = 7000;
+        const auto ofkMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            ofkBoard, octi::PLAYER_A, p);
+        CHECK_EQUAL(-2200,
+                    ofkMod.reserveAndCapturedMaterial - ofkBase.reserveAndCapturedMaterial);
+        CHECK_EQUAL(-2200, ofkMod.totalScore - ofkBase.totalScore);
+        CHECK_EQUAL(base2P3B, octi::OctiBotEngine::evaluatePosition(twoP3B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base2P1B, octi::OctiBotEngine::evaluatePosition(twoP1B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base4P, octi::OctiBotEngine::evaluatePosition(fourP, octi::PLAYER_A, p));
+    }
+
+    {
+        octi::BotTuningProfile p = base;
+        p.ofkReserveFreeProngVal = 300;
+        const auto ofkMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            ofkBoard, octi::PLAYER_A, p);
+        CHECK_EQUAL(360,
+                    ofkMod.reserveAndCapturedMaterial - ofkBase.reserveAndCapturedMaterial);
+        CHECK_EQUAL(360, ofkMod.totalScore - ofkBase.totalScore);
+        CHECK_EQUAL(base2P3B, octi::OctiBotEngine::evaluatePosition(twoP3B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base2P1B, octi::OctiBotEngine::evaluatePosition(twoP1B, octi::PLAYER_A, p));
+        CHECK_EQUAL(base4P, octi::OctiBotEngine::evaluatePosition(fourP, octi::PLAYER_A, p));
+    }
+}
+
+TEST(OctiVariantTuningParams, FourPlayerAndSuperProngParametersIsolateCleanly)
+{
+    const octi::BotTuningProfile base{};
+
+    // 4P with PLAYER_B eliminated (elimMask = 2)
+    octi::OctiBoard fourPElim;
+    fourPElim.fromPositionString(
+        "4:3:0:0:P:A:-:2:2,0,10,0:0,4,10,0:2,0,10,0:2,0,10,0:A33a,C77e,D73g");
+
+    // 4P where PLAYER_A has 1 board pod at (4,4) [55] with 0 free pods while partner C
+    // still has a pod at (6,6) [77], and enemy B at (4,5) [56] threatens jump-capture South to (4,3) [54]
+    octi::OctiBoard fourPWipeout;
+    fourPWipeout.fromPositionString(
+        "4:3:0:0:P:A:-:0:0,3,10,0:2,0,10,0:2,0,10,0:2,0,10,0:A55a,B56ef,C77e,D73g");
+
+    octi::OctiBoard twoP;
+    twoP.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,3,15,0:3,0,15,0:A55a,B56ef");
+    octi::OctiBoard ofk;
+    ofk.fromPositionString(
+        "OFK:1:0:0:P:A:-:0:0,1,8,0:0,0,8,0:A33a,B34ef,A22,B26");
+
+    const auto elimBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+        fourPElim, octi::PLAYER_A, base);
+    const auto wipeBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+        fourPWipeout, octi::PLAYER_A, base);
+    const int base2P = octi::OctiBotEngine::evaluatePosition(twoP, octi::PLAYER_A, base);
+    const int baseOfk = octi::OctiBotEngine::evaluatePosition(ofk, octi::PLAYER_A, base);
+
+    {
+        octi::BotTuningProfile p = base;
+        p.fourPlayerEliminatedPenalty = 35000;
+        const auto elimMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            fourPElim, octi::PLAYER_A, p);
+        CHECK_EQUAL(15000,
+                    elimMod.reserveAndCapturedMaterial - elimBase.reserveAndCapturedMaterial);
+        CHECK_EQUAL(base2P, octi::OctiBotEngine::evaluatePosition(twoP, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk, octi::OctiBotEngine::evaluatePosition(ofk, octi::PLAYER_A, p));
+    }
+
+    {
+        octi::BotTuningProfile p = base;
+        p.fourPlayerWipeoutDangerPct = 80;
+        const auto wipeMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            fourPWipeout, octi::PLAYER_A, p);
+        CHECK_EQUAL(-4500, wipeMod.hangingVulnerability - wipeBase.hangingVulnerability);
+        CHECK_EQUAL(base2P, octi::OctiBotEngine::evaluatePosition(twoP, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk, octi::OctiBotEngine::evaluatePosition(ofk, octi::PLAYER_A, p));
+    }
+
+    // Overflow safety: 50,000,000 * 60 = 3,000,000,000 > INT32_MAX must not overflow
+    {
+        octi::BotTuningProfile pZero = base;
+        pZero.wipeoutDangerPenalty = 50000000;
+        pZero.fourPlayerWipeoutDangerPct = 0;
+        octi::BotTuningProfile pSixty = pZero;
+        pSixty.fourPlayerWipeoutDangerPct = 60;
+        const auto bdZero = octi::OctiBotEngine::evaluatePositionBreakdown(
+            fourPWipeout, octi::PLAYER_A, pZero);
+        const auto bdSixty = octi::OctiBotEngine::evaluatePositionBreakdown(
+            fourPWipeout, octi::PLAYER_A, pSixty);
+        CHECK_EQUAL(-30000000, bdSixty.hangingVulnerability - bdZero.hangingVulnerability);
+    }
+
+    // Superprong reserve valuation
+    {
+        octi::OctiBoard spBoard;
+        spBoard.fromPositionString(
+            "2:3:1:0:P:A:-:0:4,0,20,2:4,0,20,1:A33a!,B57e");
+        const auto spBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+            spBoard, octi::PLAYER_A, base);
+        octi::BotTuningProfile p = base;
+        p.reserveFreeSuperProngVal = 400;
+        const auto spMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            spBoard, octi::PLAYER_A, p);
+        CHECK_EQUAL(250,
+                    spMod.reserveAndCapturedMaterial - spBase.reserveAndCapturedMaterial);
+        CHECK_EQUAL(base2P, octi::OctiBotEngine::evaluatePosition(twoP, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk, octi::OctiBotEngine::evaluatePosition(ofk, octi::PLAYER_A, p));
+    }
+}
+
+TEST(OctiVariantTuningParams, EdgelessAndBackRankParametersIsolateByGeometryAndMode)
+{
+    const octi::BotTuningProfile base{};
+
+    // A52a sits at y=1 (< 2) behind Player A's home rank
+    octi::OctiBoard nonEdgeless2P;
+    nonEdgeless2P.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,0,20,0:4,0,20,0:A52a,B57e");
+    octi::OctiBoard edgeless2P;
+    edgeless2P.fromPositionString(
+        "2:3:0:1:P:A:-:0:3,0,20,0:4,0,20,0:A52a,B57e");
+    octi::OctiBoard nonEdgeless4P;
+    nonEdgeless4P.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,0,10,0:2,0,10,0:2,0,10,0:2,0,10,0:A52a,B37e,C77e,D73g");
+
+    const auto base2P = octi::OctiBotEngine::evaluatePositionBreakdown(
+        nonEdgeless2P, octi::PLAYER_A, base);
+    const int baseEd = octi::OctiBotEngine::evaluatePosition(edgeless2P, octi::PLAYER_A, base);
+    const int base4P = octi::OctiBotEngine::evaluatePosition(nonEdgeless4P, octi::PLAYER_A, base);
+
+    {
+        octi::BotTuningProfile p = base;
+        p.nonEdgelessBackRankPenalty2P = 2000;
+        const auto mod2P = octi::OctiBotEngine::evaluatePositionBreakdown(
+            nonEdgeless2P, octi::PLAYER_A, p);
+        CHECK_EQUAL(-1150, mod2P.structuralPositional - base2P.structuralPositional);
+        CHECK_EQUAL(baseEd, octi::OctiBotEngine::evaluatePosition(edgeless2P, octi::PLAYER_A, p));
+        CHECK_EQUAL(base4P, octi::OctiBotEngine::evaluatePosition(nonEdgeless4P, octi::PLAYER_A, p));
+    }
+
+    // Move ordering behind-home-rank retreat penalty in 2P non-edgeless only
+    {
+        octi::OctiBoard retreat2P;
+        retreat2P.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0,0,0:0,0,0,0:A53ce,B57e");
+        octi::OctiBoard retreatEd;
+        retreatEd.fromPositionString(
+            "2:3:0:1:P:A:-:0:0,0,0,0:0,0,0,0:A53ce,B57e");
+        octi::OctiBoard retreat4P;
+        retreat4P.fromPositionString(
+            "4:3:0:0:P:A:-:0:0,0,0,0:0,0,0,0:0,0,0,0:0,0,0,0:A53ce,B37e,C77e,D73g");
+
+        octi::BotTuningProfile searchBase = base;
+        searchBase.useOpeningBook = false;
+        searchBase.rootScoreJitter = 0;
+        searchBase.lazySmpThreads = 1;
+        searchBase.maxSearchDepth = 1;
+        searchBase.maxQuiesceDepth = 0;
+        searchBase.rootBranchCap = 1;
+        searchBase.timeBudgetMs = 5000;
+
+        octi::OctiBotEngine eng(octi::BotDifficulty::TACTICAL, 12345ULL);
+        eng.setTuningProfile(searchBase);
+        const std::string defMove2P = eng.chooseMove(retreat2P);
+        const std::string defMoveEd = eng.chooseMove(retreatEd);
+        const std::string defMove4P = eng.chooseMove(retreat4P);
+        CHECK_TRUE(defMove2P != "53ce-52");
+
+        octi::BotTuningProfile rewardRetreat = searchBase;
+        rewardRetreat.moveOrderBackRankRetreatPenalty2P = -50000;
+        eng.setTuningProfile(rewardRetreat);
+        STRCMP_EQUAL("53ce-52", eng.chooseMove(retreat2P).c_str());
+        STRCMP_EQUAL(defMoveEd.c_str(), eng.chooseMove(retreatEd).c_str());
+        STRCMP_EQUAL(defMove4P.c_str(), eng.chooseMove(retreat4P).c_str());
+    }
+}
+
+TEST(OctiVariantTuningParams, MultiBaseAndSingleBaseParametersIsolateByBaseCount)
+{
+    const octi::BotTuningProfile base{};
+
+    // 2P_3B with 0 captured enemy bases -> basesNeeded == 3
+    // A36a at (2,5) threatens step into B home (2,6) [37]
+    octi::OctiBoard threeNeeded2P;
+    threeNeeded2P.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,0,20,0:3,0,20,0:A36a,B77e");
+
+    // 2P_3B with 1 captured enemy base (A37a on B home (2,6)) -> basesNeeded == 2
+    // A56a at (4,5) threatens step into B home (4,6) [57]
+    octi::OctiBoard twoNeeded2P;
+    twoNeeded2P.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,0,20,0:3,0,20,0:A37a,A56a,B77e");
+
+    // 2P_1B with emptyAlliedBasePenalty1B active
+    // B54e at (4,3) is dist <= 2 from empty allied bases (4,2) and (6,2), while A33a holds (2,2)
+    octi::OctiBoard oneBaseClose;
+    oneBaseClose.fromPositionString(
+        "2:1:0:0:P:A:-:0:3,0,20,0:3,0,20,0:A33a,B54e");
+
+    // B76e at (6,5) is dist == 3 from the sole empty allied base (6,2), while A33a/A53a hold (2,2)/(4,2)
+    octi::OctiBoard oneBaseMid;
+    oneBaseMid.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,0,20,0:3,0,20,0:A33a,A53a,B76e");
+
+    octi::OctiBoard ofkBoard;
+    ofkBoard.fromPositionString(
+        "OFK:1:0:0:P:A:-:0:0,0,10,0:0,0,10,0:A22a,B24e,B36,B46");
+
+    const auto bdThreeBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+        threeNeeded2P, octi::PLAYER_A, base);
+    const auto bdTwoBase = octi::OctiBotEngine::evaluatePositionBreakdown(
+        twoNeeded2P, octi::PLAYER_A, base);
+    const int base1BClose = octi::OctiBotEngine::evaluatePosition(oneBaseClose, octi::PLAYER_A, base);
+    const int baseOfk = octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, base);
+
+    // multiBaseThreeNeededThreatScalePct affects 3-needed, not 1B or OFK
+    {
+        octi::BotTuningProfile p = base;
+        p.multiBaseThreeNeededThreatScalePct = 80;
+        const auto bdMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            threeNeeded2P, octi::PLAYER_A, p);
+        CHECK_TRUE(bdMod.oneStepBaseThreat > bdThreeBase.oneStepBaseThreat);
+        CHECK_EQUAL(base1BClose,
+                    octi::OctiBotEngine::evaluatePosition(oneBaseClose, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk,
+                    octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, p));
+    }
+
+    // multiBaseTwoNeededThreatScalePct & multiBaseTwoNeededScaleFloorPct affect 2-needed, not 1B or OFK
+    {
+        octi::BotTuningProfile p = base;
+        p.multiBaseTwoNeededThreatScalePct = 50;
+        const auto bdMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            twoNeeded2P, octi::PLAYER_A, p);
+        CHECK_TRUE(bdMod.oneStepBaseThreat > bdTwoBase.oneStepBaseThreat);
+        CHECK_EQUAL(bdTwoBase.capturedEnemyBases, bdMod.capturedEnemyBases);
+        CHECK_EQUAL(base1BClose,
+                    octi::OctiBotEngine::evaluatePosition(oneBaseClose, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk,
+                    octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, p));
+    }
+
+    {
+        octi::BotTuningProfile p = base;
+        p.multiBaseTwoNeededScaleFloorPct = 90;
+        p.multiBaseThreeNeededScaleFloorPct = 70;
+        const auto bdMod = octi::OctiBotEngine::evaluatePositionBreakdown(
+            twoNeeded2P, octi::PLAYER_A, p);
+        CHECK_EQUAL((base.capturedEnemyBaseBonus * 90) / 100 -
+                    (base.capturedEnemyBaseBonus * 60) / 100,
+                    bdMod.capturedEnemyBases - bdTwoBase.capturedEnemyBases);
+        CHECK_EQUAL(base1BClose,
+                    octi::OctiBotEngine::evaluatePosition(oneBaseClose, octi::PLAYER_A, p));
+        CHECK_EQUAL(baseOfk,
+                    octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, p));
+    }
+
+    // emptyAlliedBase1B{Close,Mid}UrgencyPct affect 1-base needed when penalty > 0, not 3B (0 captured) or OFK
+    {
+        octi::BotTuningProfile penBase = base;
+        penBase.emptyAlliedBasePenalty1B = 1000;
+        const auto closeBaseBd = octi::OctiBotEngine::evaluatePositionBreakdown(
+            oneBaseClose, octi::PLAYER_A, penBase);
+        const auto midBaseBd = octi::OctiBotEngine::evaluatePositionBreakdown(
+            oneBaseMid, octi::PLAYER_A, penBase);
+        const int pen3B = octi::OctiBotEngine::evaluatePosition(
+            threeNeeded2P, octi::PLAYER_A, penBase);
+        const int penOfk = octi::OctiBotEngine::evaluatePosition(
+            ofkBoard, octi::PLAYER_A, penBase);
+
+        octi::BotTuningProfile pClose = penBase;
+        pClose.emptyAlliedBase1BCloseUrgencyPct = 250;
+        const auto closeModBd = octi::OctiBotEngine::evaluatePositionBreakdown(
+            oneBaseClose, octi::PLAYER_A, pClose);
+        CHECK_EQUAL(-1500, closeModBd.lostAlliedBases - closeBaseBd.lostAlliedBases);
+        CHECK_EQUAL(pen3B,
+                    octi::OctiBotEngine::evaluatePosition(threeNeeded2P, octi::PLAYER_A, pClose));
+        CHECK_EQUAL(penOfk,
+                    octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, pClose));
+
+        octi::BotTuningProfile pMid = penBase;
+        pMid.emptyAlliedBase1BMidUrgencyPct = 210;
+        const auto midModBd = octi::OctiBotEngine::evaluatePositionBreakdown(
+            oneBaseMid, octi::PLAYER_A, pMid);
+        CHECK_EQUAL(-800, midModBd.lostAlliedBases - midBaseBd.lostAlliedBases);
+        CHECK_EQUAL(pen3B,
+                    octi::OctiBotEngine::evaluatePosition(threeNeeded2P, octi::PLAYER_A, pMid));
+        CHECK_EQUAL(penOfk,
+                    octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, pMid));
+    }
 }
 
 int main(int argc, char **argv)
