@@ -2160,15 +2160,17 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         res["ok"] = true;
         if (args.contains("key") && args.contains("value")) {
             std::string k = args["key"].get<std::string>();
-            std::string v = args["value"].get<std::string>();
-            targetRunner->config().set(k, v);
-            targetRunner->policyEngine().configure(targetRunner->config());
-            res["updated"] = {{"key", k}, {"value", v}};
-
-            if (args.value("save_to_file", false)) {
-                std::string err;
-                targetRunner->config().saveFile(OctiBotConfigStore::defaultConfigFilePath(), err);
-                res["saved"] = err.empty() ? "ok" : err;
+            std::string v = args["value"].is_string()
+                ? args["value"].get<std::string>()
+                : args["value"].dump();
+            bool saveToFile = args.value("save_to_file", false);
+            std::string err;
+            if (!targetRunner->applyConfigUpdates({{k, v}}, saveToFile, err)) {
+                return nlohmann::json({{"ok", false}, {"error", err}}).dump(2);
+            }
+            res["updated"] = {{"key", k}, {"value", targetRunner->config().getString(k, v)}};
+            if (saveToFile) {
+                res["saved"] = "ok";
             }
         } else {
             res["table_behavior"] = targetRunner->policyEngine().tableBehavior();
@@ -3411,151 +3413,17 @@ nlohmann::json OctiBotMcpServer::buildStatusJson() {
 
 nlohmann::json OctiBotMcpServer::buildConfigJson() const {
     nlohmann::json root;
-    std::map<std::string, std::string> effectiveDefaults;
+    std::map<std::string, std::string> effectiveDefaults =
+        _runner.buildEffectiveConfigMap();
 
-    // 1. Seed all 43 BotTuningProfile parameters with real C++ defaults
-    BotTuningProfile prof;
-    applyConfigToTuningProfile(_runner.config(), prof);
+    effectiveDefaults["helper_octi_dir"] = expandUserPath(
+        _runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
+    effectiveDefaults["helper_octibot_dir"] = expandUserPath(
+        _runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
+    effectiveDefaults["helper_feedback_file"] = expandUserPath(
+        _runner.config().getString("helper_feedback_file", getDefaultFeedbackFile()));
 
-    effectiveDefaults["time_budget_ms"] = std::to_string(prof.timeBudgetMs);
-    effectiveDefaults["max_search_depth"] = std::to_string(prof.maxSearchDepth);
-    effectiveDefaults["max_quiesce_depth"] = std::to_string(prof.maxQuiesceDepth);
-    effectiveDefaults["quiesce_branch_cap"] = std::to_string(prof.quiesceBranchCap);
-    effectiveDefaults["root_branch_cap"] = std::to_string(prof.rootBranchCap);
-    effectiveDefaults["tree_branch_cap"] = std::to_string(prof.treeBranchCap);
-    effectiveDefaults["lazy_smp_threads"] = std::to_string(prof.lazySmpThreads);
-    effectiveDefaults["composite_move_max_ply"] = std::to_string(prof.compositeMoveMaxPly);
-    effectiveDefaults["composite_tactical_only_min_ply"] = std::to_string(prof.compositeTacticalOnlyMinPly);
-    effectiveDefaults["qsearch_include_base_threat_prongs"] = prof.qsearchIncludeBaseThreatProngs ? "true" : "false";
-    effectiveDefaults["root_score_jitter"] = std::to_string(prof.rootScoreJitter);
-
-    effectiveDefaults["captured_enemy_base_bonus"] = std::to_string(prof.capturedEnemyBaseBonus);
-    effectiveDefaults["lost_allied_base_penalty"] = std::to_string(prof.lostAlliedBasePenalty);
-    effectiveDefaults["neutral_octi_square_bonus"] = std::to_string(prof.neutralOctiSquareBonus);
-    effectiveDefaults["closest_pod_dist_weight"] = std::to_string(prof.closestPodDistWeight);
-    effectiveDefaults["second_closest_pod_dist_weight"] = std::to_string(prof.secondClosestPodDistWeight);
-    effectiveDefaults["one_step_base_threat_bonus"] = std::to_string(prof.oneStepBaseThreatBonus);
-    effectiveDefaults["one_jump_base_threat_bonus"] = std::to_string(prof.oneJumpBaseThreatBonus);
-    effectiveDefaults["two_ply_base_threat_weight"] = std::to_string(prof.twoPlyBaseThreatWeight);
-    effectiveDefaults["empty_allied_base_penalty_1b"] = std::to_string(prof.emptyAlliedBasePenalty1B);
-
-    effectiveDefaults["pod_zero_prong_val"] = std::to_string(prof.podZeroProngVal);
-    effectiveDefaults["pod_one_prong_val"] = std::to_string(prof.podOneProngVal);
-    effectiveDefaults["pod_two_prong_val"] = std::to_string(prof.podTwoProngVal);
-    effectiveDefaults["pod_three_plus_prong_val"] = std::to_string(prof.podThreePlusProngVal);
-    effectiveDefaults["normal_prong_val"] = std::to_string(prof.normalProngVal);
-    effectiveDefaults["super_prong_val"] = std::to_string(prof.superProngVal);
-    effectiveDefaults["orth_diag_versatility_bonus"] = std::to_string(prof.orthDiagVersatilityBonus);
-    effectiveDefaults["diag_only_parity_penalty"] = std::to_string(prof.diagOnlyParityPenalty);
-    effectiveDefaults["first_armed_pod_bonus"] = std::to_string(prof.firstArmedPodBonus);
-    effectiveDefaults["second_armed_pod_bonus"] = std::to_string(prof.secondArmedPodBonus);
-    effectiveDefaults["third_armed_pod_bonus"] = std::to_string(prof.thirdArmedPodBonus);
-    effectiveDefaults["single_pod_monopoly_penalty"] = std::to_string(prof.singlePodMonopolyPenalty);
-    effectiveDefaults["lone_one_prong_rush_penalty"] = std::to_string(prof.loneOneProngRushPenalty);
-    effectiveDefaults["fix_stack_and_home_eval_mirage"] = prof.fixStackAndHomeEvalMirage ? "true" : "false";
-
-    effectiveDefaults["leapfrog_battery_weight"] = std::to_string(prof.leapfrogBatteryWeight);
-    effectiveDefaults["leapfrog_forward_bonus"] = std::to_string(prof.leapfrogForwardBonus);
-    effectiveDefaults["jump_reachable_square_weight"] = std::to_string(prof.jumpReachableSquareWeight);
-    effectiveDefaults["jump_reach_step_weight"] = std::to_string(prof.jumpReachStepWeight);
-    effectiveDefaults["jump_capturable_pod_weight"] = std::to_string(prof.jumpCapturablePodWeight);
-    effectiveDefaults["jump_capturable_prong_weight"] = std::to_string(prof.jumpCapturableProngWeight);
-
-    effectiveDefaults["hanging_pod_base_penalty"] = std::to_string(prof.hangingPodBasePenalty);
-    effectiveDefaults["hanging_prong_weight"] = std::to_string(prof.hangingProngWeight);
-    effectiveDefaults["ofk_prong_seizure_weight"] = std::to_string(prof.ofkProngSeizureWeight);
-    effectiveDefaults["opponent_turn_hanging_pct"] = std::to_string(prof.opponentTurnHangingPct);
-    effectiveDefaults["sole_armed_pod_danger_penalty"] = std::to_string(prof.soleArmedPodDangerPenalty);
-    effectiveDefaults["wipeout_danger_penalty"] = std::to_string(prof.wipeoutDangerPenalty);
-    effectiveDefaults["move_order_capture_bonus"] = std::to_string(prof.moveOrderCaptureBonus);
-    effectiveDefaults["move_order_base_entry_bonus"] = std::to_string(prof.moveOrderBaseEntryBonus);
-    effectiveDefaults["move_order_leapfrog_bonus"] = std::to_string(prof.moveOrderLeapfrogBonus);
-    effectiveDefaults["move_order_blunder_penalty"] = std::to_string(prof.moveOrderBlunderPenalty);
-
-    // 2. Policy defaults
-    effectiveDefaults["table_behavior"] = _runner.config().getString("table_behavior", "auto");
-    effectiveDefaults["accept_modes"] = _runner.config().getString("accept_modes", "2P, 4P, OFK");
-    effectiveDefaults["accept_bases"] = _runner.config().getString("accept_bases", "any");
-    effectiveDefaults["accept_super_prongs"] = _runner.config().getString("accept_super_prongs", "any");
-    effectiveDefaults["accept_edgeless"] = _runner.config().getString("accept_edgeless", "any");
-    effectiveDefaults["accept_time_control"] = _runner.config().getString("accept_time_control", "any");
-    effectiveDefaults["min_initial_time_sec"] = std::to_string(_runner.config().getInt("min_initial_time_sec", 0));
-    effectiveDefaults["max_initial_time_sec"] = std::to_string(_runner.config().getInt("max_initial_time_sec", 14400));
-    effectiveDefaults["min_increment_sec"] = std::to_string(_runner.config().getInt("min_increment_sec", 0));
-    effectiveDefaults["accept_takeback"] = _runner.config().getString("accept_takeback", "any");
-    effectiveDefaults["friends_only"] = _runner.config().getBool("friends_only", false) ? "true" : "false";
-    effectiveDefaults["opponent_filter"] = _runner.config().getString("opponent_filter", "any");
-    effectiveDefaults["friend_list"] = _runner.config().getString("friend_list", "");
-    effectiveDefaults["ban_list"] = _runner.config().getString("ban_list", "");
-
-    effectiveDefaults["host_mode"] = _runner.config().getString("host_mode", "2P");
-    effectiveDefaults["host_bases"] = std::to_string(_runner.config().getInt("host_bases", 3));
-    effectiveDefaults["host_super_prongs"] = _runner.config().getBool("host_super_prongs", false) ? "true" : "false";
-    effectiveDefaults["host_edgeless"] = _runner.config().getBool("host_edgeless", false) ? "true" : "false";
-    effectiveDefaults["host_time_control_enabled"] = _runner.config().getBool("host_time_control_enabled", false) ? "true" : "false";
-    effectiveDefaults["host_initial_ms"] = std::to_string(_runner.config().getInt64("host_initial_ms", 600000));
-    effectiveDefaults["host_increment_ms"] = std::to_string(_runner.config().getInt64("host_increment_ms", 5000));
-    effectiveDefaults["host_seat"] = _runner.config().getString("host_seat", "wait_for_human");
-
-    effectiveDefaults["accept_draw_eval_threshold"] = std::to_string(_runner.config().getInt("accept_draw_eval_threshold", -1500));
-    effectiveDefaults["accept_undo"] = _runner.config().getString("accept_undo", "friends_only");
-    effectiveDefaults["accept_pause"] = _runner.config().getString("accept_pause", "always");
-    effectiveDefaults["accept_rematch"] = _runner.config().getString("accept_rematch", "always");
-    effectiveDefaults["max_consecutive_rematches"] = std::to_string(_runner.config().getInt("max_consecutive_rematches", 5));
-    effectiveDefaults["claim_forfeit_delay_sec"] = std::to_string(_runner.config().getInt("claim_forfeit_delay_sec", 10));
-    effectiveDefaults["min_move_think_ms"] = std::to_string(_runner.config().getInt("min_move_think_ms", 0));
-
-    // 3. Runner, chat, AI CLI & locked defaults
-    effectiveDefaults["algorithm"] = _runner.config().getString("algorithm", "alpha_beta");
-    effectiveDefaults["move_control"] = _runner.moveControl();
-    effectiveDefaults["publish_move_telemetry"] = _runner.publishMoveTelemetry() ? "true" : "false";
-    effectiveDefaults["announce_move_search_chat"] = _runner.announceMoveSearchChat() ? "true" : "false";
-    effectiveDefaults["allow_public_eval_chat"] = _runner.config().getBool("allow_public_eval_chat", true) ? "true" : "false";
-    effectiveDefaults["agent_move_timeout_ms"] = std::to_string(_runner.config().getInt("agent_move_timeout_ms", 15000));
-    effectiveDefaults["ai_cli_backend"] = _runner.config().getString("ai_cli_backend", "none");
-    effectiveDefaults["ai_cli_executable"] = _runner.config().getString("ai_cli_executable", "agy");
-    effectiveDefaults["ai_cli_model"] = _runner.config().getString("ai_cli_model", "flash");
-    effectiveDefaults["ai_cli_prompt"] = _runner.config().getString("ai_cli_prompt",
-        "Inspect OCTI skill guide with octibot_get_skill_guide and assist with move analysis.");
-    effectiveDefaults["ai_personality"] = _runner.config().getString("ai_personality",
-        "You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). "
-        "You speak in a relaxed, warm, down-to-earth tone—never boastful, theatrical, or condescending. "
-        "Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.");
-    effectiveDefaults["greeting_lobby"] = _runner.config().getString("greeting_lobby", "Hello! I am an automated OCTI robot player.");
-    effectiveDefaults["greeting_game_start"] = _runner.config().getString("greeting_game_start", "Good luck and have fun!");
-    effectiveDefaults["chat_game_over_win"] = _runner.config().getString("chat_game_over_win", "Good game!");
-    effectiveDefaults["chat_game_over_loss"] = _runner.config().getString("chat_game_over_loss", "Good game, well played!");
-    effectiveDefaults["chat_game_over_draw"] = _runner.config().getString("chat_game_over_draw", "Good game, well fought!");
-    effectiveDefaults["post_game_linger_sec"] = std::to_string(_runner.config().getInt("post_game_linger_sec", 60));
-    effectiveDefaults["chat_goodbye"] = _runner.config().getString("chat_goodbye",
-        "Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!");
-    effectiveDefaults["ai_proactive_commentary"] = _runner.config().getBool("ai_proactive_commentary", true) ? "true" : "false";
-    effectiveDefaults["ai_commentary_eval_swing_threshold"] = std::to_string(_runner.config().getInt("ai_commentary_eval_swing_threshold", 2500));
-    effectiveDefaults["ai_commentary_cooldown_plies"] = std::to_string(_runner.config().getInt("ai_commentary_cooldown_plies", 8));
-    effectiveDefaults["verbosity"] = std::to_string(_runner.verbosity());
-
-    effectiveDefaults["max_chat_reply_chunks"] = std::to_string(_runner.config().getInt("max_chat_reply_chunks", _runner.isLobbyOnly() ? 3 : 1));
-    effectiveDefaults["helper_repo_access"] = _runner.config().getBool("helper_repo_access", _runner.isLobbyOnly()) ? "true" : "false";
-    effectiveDefaults["helper_feedback_enabled"] = _runner.config().getBool("helper_feedback_enabled", _runner.isLobbyOnly()) ? "true" : "false";
-    effectiveDefaults["helper_octi_dir"] = expandUserPath(_runner.config().getString("helper_octi_dir", getDefaultRepoDir("octi")));
-    effectiveDefaults["helper_octibot_dir"] = expandUserPath(_runner.config().getString("helper_octibot_dir", getDefaultRepoDir("octibot")));
-    effectiveDefaults["helper_feedback_file"] = expandUserPath(_runner.config().getString("helper_feedback_file", getDefaultFeedbackFile()));
-    effectiveDefaults["lobby_only"] = _runner.isLobbyOnly() ? "true" : "false";
-
-    effectiveDefaults["aimon_enabled"] = _runner.config().getBool("aimon_enabled", false) ? "true" : "false";
-    effectiveDefaults["aimon_host"] = _runner.config().getString("aimon_host", "127.0.0.1");
-    effectiveDefaults["aimon_port"] = std::to_string(_runner.config().getInt("aimon_port", 3883));
-    effectiveDefaults["aimon_gateway_port"] = std::to_string(_runner.config().getInt("aimon_gateway_port", 0));
-    effectiveDefaults["expose_mcp_tools"] = _runner.config().getBool("expose_mcp_tools", true) ? "true" : "false";
-    effectiveDefaults["web_port"] = std::to_string(_runner.config().getInt("web_port", 3888));
-    effectiveDefaults["web_bind"] = _runner.config().getString("web_bind", "0.0.0.0");
-    effectiveDefaults["server_host"] = _runner.config().getString("server_host", "octi.selfso.com");
-    effectiveDefaults["server_port"] = std::to_string(_runner.config().getInt("server_port", 443));
-    effectiveDefaults["server_use_ssl"] = _runner.config().getBool("server_use_ssl", true) ? "true" : "false";
-    effectiveDefaults["default_profile"] = _runner.config().getString("default_profile", "stock");
-    effectiveDefaults["robot_name"] = _runner.config().getString("robot_name", "stock");
-
-    // 4. Overlay explicit entries from _runner.config().entries()
+    // Overlay explicit entries from _runner.config().entries()
     for (const auto &kv : _runner.config().entries()) {
         if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
             continue;
@@ -4142,27 +4010,87 @@ input[type="checkbox"].input-control:disabled {
       </div>
       <div class="field-group">
         <label>quiesce_branch_cap <span class="field-desc">quiesce branching limit</span></label>
-        <input type="number" id="cfg_quiesce_branch_cap" class="input-control" min="1" max="64">
+        <input type="number" id="cfg_quiesce_branch_cap" class="input-control" min="0" max="64">
       </div>
       <div class="field-group">
         <label>root_branch_cap <span class="field-desc">root move branching limit</span></label>
-        <input type="number" id="cfg_root_branch_cap" class="input-control" min="1" max="128">
+        <input type="number" id="cfg_root_branch_cap" class="input-control" min="0" max="256">
       </div>
       <div class="field-group">
         <label>tree_branch_cap <span class="field-desc">interior tree branching cap</span></label>
-        <input type="number" id="cfg_tree_branch_cap" class="input-control" min="1" max="128">
+        <input type="number" id="cfg_tree_branch_cap" class="input-control" min="0" max="256">
       </div>
       <div class="field-group">
         <label>lazy_smp_threads <span class="field-desc">parallel search threads</span></label>
         <input type="number" id="cfg_lazy_smp_threads" class="input-control" min="1" max="64">
       </div>
       <div class="field-group">
-        <label>composite_move_max_ply <span class="field-desc">leapfrog composite depth cap</span></label>
-        <input type="number" id="cfg_composite_move_max_ply" class="input-control" min="1" max="16">
+        <label>composite_move_max_ply <span class="field-desc">leapfrog composite depth cap (-1 = off)</span></label>
+        <input type="number" id="cfg_composite_move_max_ply" class="input-control" min="-1" max="16">
+      </div>
+      <div class="field-group">
+        <label>composite_tactical_only_min_ply <span class="field-desc">min ply for tactical-only composite filter</span></label>
+        <input type="number" id="cfg_composite_tactical_only_min_ply" class="input-control" min="0" max="16">
+      </div>
+      <div class="field-group">
+        <label>qsearch_include_base_threat_prongs <span class="field-desc">qsearch dist-1 base-threat +prong moves</span></label>
+        <input type="checkbox" id="cfg_qsearch_include_base_threat_prongs" class="input-control">
       </div>
       <div class="field-group">
         <label>root_score_jitter <span class="field-desc">centipawn tie-break noise</span></label>
         <input type="number" id="cfg_root_score_jitter" class="input-control" min="0" max="1000">
+      </div>
+      <div class="field-group">
+        <label>book_selection_window <span class="field-desc">opening book score window</span></label>
+        <input type="number" id="cfg_book_selection_window" class="input-control" min="0" max="10000">
+      </div>
+      <div class="field-group">
+        <label>use_opening_book <span class="field-desc">probe Zobrist opening book</span></label>
+        <input type="checkbox" id="cfg_use_opening_book" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>use_pvs <span class="field-desc">principal variation search</span></label>
+        <input type="checkbox" id="cfg_use_pvs" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>aspiration_window_cp <span class="field-desc">root aspiration half-window</span></label>
+        <input type="number" id="cfg_aspiration_window_cp" class="input-control" min="0" max="50000">
+      </div>
+      <div class="field-group">
+        <label>use_killers <span class="field-desc">killer move heuristic</span></label>
+        <input type="checkbox" id="cfg_use_killers" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>use_history <span class="field-desc">quiet beta-cutoff history heuristic</span></label>
+        <input type="checkbox" id="cfg_use_history" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>lmr_min_depth <span class="field-desc">late-move reduction min depth</span></label>
+        <input type="number" id="cfg_lmr_min_depth" class="input-control" min="0" max="64">
+      </div>
+      <div class="field-group">
+        <label>lmr_min_move_index <span class="field-desc">late-move reduction min move index</span></label>
+        <input type="number" id="cfg_lmr_min_move_index" class="input-control" min="0" max="128">
+      </div>
+      <div class="field-group">
+        <label>null_move_min_depth <span class="field-desc">null-move pruning min depth</span></label>
+        <input type="number" id="cfg_null_move_min_depth" class="input-control" min="0" max="64">
+      </div>
+      <div class="field-group">
+        <label>null_move_reduction <span class="field-desc">null-move depth reduction R</span></label>
+        <input type="number" id="cfg_null_move_reduction" class="input-control" min="1" max="16">
+      </div>
+      <div class="field-group">
+        <label>qsearch_use_tt <span class="field-desc">quiescence transposition table</span></label>
+        <input type="checkbox" id="cfg_qsearch_use_tt" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>tt_size_log2 <span class="field-desc">TT size log2 (12..26)</span></label>
+        <input type="number" id="cfg_tt_size_log2" class="input-control" min="12" max="26">
+      </div>
+      <div class="field-group">
+        <label>lazy_smp_diversify_helpers <span class="field-desc">stagger Lazy SMP helper threads</span></label>
+        <input type="checkbox" id="cfg_lazy_smp_diversify_helpers" class="input-control">
       </div>
     </div>
 
@@ -4199,6 +4127,14 @@ input[type="checkbox"].input-control:disabled {
       <div class="field-group">
         <label>two_ply_base_threat_weight <span class="field-desc">two-ply base siege threat</span></label>
         <input type="number" id="cfg_two_ply_base_threat_weight" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>contested_enemy_base_threat_scale_pct <span class="field-desc">contested base-threat scale pct</span></label>
+        <input type="number" id="cfg_contested_enemy_base_threat_scale_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>empty_allied_base_penalty_1b <span class="field-desc">1-base empty home defense penalty</span></label>
+        <input type="number" id="cfg_empty_allied_base_penalty_1b" class="input-control">
       </div>
       <div class="field-group">
         <label>pod_zero_prong_val <span class="field-desc">unarmed pod material</span></label>
@@ -4249,8 +4185,40 @@ input[type="checkbox"].input-control:disabled {
         <input type="number" id="cfg_single_pod_monopoly_penalty" class="input-control">
       </div>
       <div class="field-group">
+        <label>ofk_single_pod_monopoly_penalty <span class="field-desc">OFK single-pod monopoly override (-1 = default)</span></label>
+        <input type="number" id="cfg_ofk_single_pod_monopoly_penalty" class="input-control">
+      </div>
+      <div class="field-group">
         <label>lone_one_prong_rush_penalty <span class="field-desc">premature 1-prong rush</span></label>
         <input type="number" id="cfg_lone_one_prong_rush_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>enemy_heavy_pod_threat_penalty <span class="field-desc">enemy 4+ prong pod threat penalty</span></label>
+        <input type="number" id="cfg_enemy_heavy_pod_threat_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>unarmed_home_pod_penalty <span class="field-desc">unarmed home pod penalty</span></label>
+        <input type="number" id="cfg_unarmed_home_pod_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>can_liberate_bonus <span class="field-desc">captured pod liberation bonus</span></label>
+        <input type="number" id="cfg_can_liberate_bonus" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>reserve_free_pod_val <span class="field-desc">unplaced reserve pod value</span></label>
+        <input type="number" id="cfg_reserve_free_pod_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>captured_pod_penalty <span class="field-desc">captured pod penalty (2P/4P)</span></label>
+        <input type="number" id="cfg_captured_pod_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>reserve_free_prong_val <span class="field-desc">unplaced reserve prong value (2P/4P)</span></label>
+        <input type="number" id="cfg_reserve_free_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>fix_stack_and_home_eval_mirage <span class="field-desc">armed battery stack/home mirage fix</span></label>
+        <input type="checkbox" id="cfg_fix_stack_and_home_eval_mirage" class="input-control">
       </div>
       <div class="field-group">
         <label>leapfrog_battery_weight <span class="field-desc">aligned pod leap battery</span></label>
@@ -4315,6 +4283,62 @@ input[type="checkbox"].input-control:disabled {
       <div class="field-group">
         <label>move_order_blunder_penalty <span class="field-desc">move ordering blunder down-weight</span></label>
         <input type="number" id="cfg_move_order_blunder_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ofk_pod_val_scale_pct <span class="field-desc">OFK armed-pod material scale pct</span></label>
+        <input type="number" id="cfg_ofk_pod_val_scale_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ofk_captured_pod_penalty <span class="field-desc">OFK captured pod penalty</span></label>
+        <input type="number" id="cfg_ofk_captured_pod_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ofk_reserve_free_prong_val <span class="field-desc">OFK reserve free prong value</span></label>
+        <input type="number" id="cfg_ofk_reserve_free_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>four_player_eliminated_penalty <span class="field-desc">4P eliminated seat penalty</span></label>
+        <input type="number" id="cfg_four_player_eliminated_penalty" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>four_player_wipeout_danger_pct <span class="field-desc">4P single-seat wipeout danger pct</span></label>
+        <input type="number" id="cfg_four_player_wipeout_danger_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>reserve_free_super_prong_val <span class="field-desc">unplaced superprong reserve value</span></label>
+        <input type="number" id="cfg_reserve_free_super_prong_val" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>non_edgeless_back_rank_penalty_2p <span class="field-desc">2P non-edgeless back-rank eval penalty</span></label>
+        <input type="number" id="cfg_non_edgeless_back_rank_penalty_2p" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>move_order_back_rank_retreat_penalty_2p <span class="field-desc">2P non-edgeless back-rank retreat order penalty</span></label>
+        <input type="number" id="cfg_move_order_back_rank_retreat_penalty_2p" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>multi_base_two_needed_threat_scale_pct <span class="field-desc">2-bases-needed threat/dist scale pct</span></label>
+        <input type="number" id="cfg_multi_base_two_needed_threat_scale_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>multi_base_three_needed_threat_scale_pct <span class="field-desc">3+-bases-needed threat/dist scale pct</span></label>
+        <input type="number" id="cfg_multi_base_three_needed_threat_scale_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>multi_base_two_needed_scale_floor_pct <span class="field-desc">2-bases-needed captured/lost base floor pct</span></label>
+        <input type="number" id="cfg_multi_base_two_needed_scale_floor_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>multi_base_three_needed_scale_floor_pct <span class="field-desc">3+-bases-needed captured/lost base floor pct</span></label>
+        <input type="number" id="cfg_multi_base_three_needed_scale_floor_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>empty_allied_base_1b_close_urgency_pct <span class="field-desc">1B empty home close urgency pct (dist &lt;= 2)</span></label>
+        <input type="number" id="cfg_empty_allied_base_1b_close_urgency_pct" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>empty_allied_base_1b_mid_urgency_pct <span class="field-desc">1B empty home mid urgency pct (dist == 3)</span></label>
+        <input type="number" id="cfg_empty_allied_base_1b_mid_urgency_pct" class="input-control">
       </div>
     </div>
 

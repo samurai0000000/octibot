@@ -257,6 +257,207 @@ static bool normalizeAiCliExecutable(const std::string &raw, std::string &outNor
     return false;
 }
 
+static std::string normalizeCliExeOrRaw(const std::string &raw) {
+    std::string norm;
+    if (normalizeAiCliExecutable(raw, norm)) {
+        return norm;
+    }
+    return raw;
+}
+
+static bool isBooleanConfigKey(const std::string &key) {
+    static const std::set<std::string> kBoolKeys = {
+        "qsearch_include_base_threat_prongs",
+        "use_opening_book",
+        "use_pvs",
+        "use_killers",
+        "use_history",
+        "qsearch_use_tt",
+        "lazy_smp_diversify_helpers",
+        "lazy_smp_stagger_helpers",
+        "fix_stack_and_home_eval_mirage",
+        "friends_only",
+        "host_super_prongs",
+        "host_edgeless",
+        "host_time_control_enabled",
+        "publish_move_telemetry",
+        "announce_move_search_chat",
+        "allow_public_eval_chat",
+        "ai_proactive_commentary",
+        "helper_repo_access",
+        "helper_feedback_enabled",
+        "ai_cli_interactive",
+        "aimon_enabled",
+        "expose_mcp_tools",
+        "server_use_ssl",
+        "lobby_only"
+    };
+    return kBoolKeys.count(key) > 0;
+}
+
+static bool parseStrictBoolToken(const std::string &raw, bool &outVal) {
+    size_t s = 0;
+    while (s < raw.size() && std::isspace(static_cast<unsigned char>(raw[s]))) {
+        ++s;
+    }
+    size_t e = raw.size();
+    while (e > s && std::isspace(static_cast<unsigned char>(raw[e - 1]))) {
+        --e;
+    }
+    std::string lower = raw.substr(s, e - s);
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
+        outVal = true;
+        return true;
+    }
+    if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
+        outVal = false;
+        return true;
+    }
+    return false;
+}
+
+static bool configValueEquals(const std::string &key,
+                              const std::string &a,
+                              const std::string &b) {
+    if (a == b) {
+        return true;
+    }
+    if (key == "verbosity") {
+        int la = OctiBotConfigStore::parseVerbosityLevel(a, -1);
+        int lb = OctiBotConfigStore::parseVerbosityLevel(b, -2);
+        return la >= 0 && la == lb;
+    }
+    if (key == "ai_cli_executable") {
+        return normalizeCliExeOrRaw(a) == normalizeCliExeOrRaw(b);
+    }
+    if (isBooleanConfigKey(key)) {
+        bool ba = false;
+        bool bb = false;
+        if (parseStrictBoolToken(a, ba) && parseStrictBoolToken(b, bb)) {
+            return ba == bb;
+        }
+    }
+    return false;
+}
+
+static std::map<std::string, std::string> buildEffectiveConfigMapImpl(
+    const OctiBotConfigStore &cfg,
+    bool lobbyOnlyFlag,
+    const std::string &moveCtrl,
+    bool pubTelemetry,
+    bool announceSearchChat,
+    int verbosityLevel) {
+    std::map<std::string, std::string> effectiveDefaults;
+
+    // 1. Seed all 85 BotTuningProfile parameters with real C++ defaults + store overrides
+    BotTuningProfile prof;
+    applyConfigToTuningProfile(cfg, prof);
+    serializeTuningProfileToMap(prof, effectiveDefaults);
+
+    // 2. Policy defaults
+    effectiveDefaults["table_behavior"] = cfg.getString("table_behavior", "auto");
+    effectiveDefaults["accept_modes"] = cfg.getString("accept_modes", "2P, 4P, OFK");
+    effectiveDefaults["accept_bases"] = cfg.getString("accept_bases", "any");
+    effectiveDefaults["accept_super_prongs"] = cfg.getString("accept_super_prongs", "any");
+    effectiveDefaults["accept_edgeless"] = cfg.getString("accept_edgeless", "any");
+    effectiveDefaults["accept_time_control"] = cfg.getString("accept_time_control", "any");
+    effectiveDefaults["min_initial_time_sec"] = std::to_string(cfg.getInt("min_initial_time_sec", 0));
+    effectiveDefaults["max_initial_time_sec"] = std::to_string(cfg.getInt("max_initial_time_sec", 14400));
+    effectiveDefaults["min_increment_sec"] = std::to_string(cfg.getInt("min_increment_sec", 0));
+    effectiveDefaults["accept_takeback"] = cfg.getString("accept_takeback", "any");
+    effectiveDefaults["friends_only"] = cfg.getBool("friends_only", false) ? "true" : "false";
+    effectiveDefaults["opponent_filter"] = cfg.getString("opponent_filter", "any");
+    effectiveDefaults["friend_list"] = cfg.getString("friend_list", "");
+    effectiveDefaults["ban_list"] = cfg.getString("ban_list", "");
+
+    effectiveDefaults["host_mode"] = cfg.getString("host_mode", "2P");
+    effectiveDefaults["host_bases"] = std::to_string(cfg.getInt("host_bases", 3));
+    effectiveDefaults["host_super_prongs"] = cfg.getBool("host_super_prongs", false) ? "true" : "false";
+    effectiveDefaults["host_edgeless"] = cfg.getBool("host_edgeless", false) ? "true" : "false";
+    effectiveDefaults["host_time_control_enabled"] = cfg.getBool("host_time_control_enabled", false) ? "true" : "false";
+    effectiveDefaults["host_initial_ms"] = std::to_string(cfg.getInt64("host_initial_ms", 600000));
+    effectiveDefaults["host_increment_ms"] = std::to_string(cfg.getInt64("host_increment_ms", 5000));
+    effectiveDefaults["host_seat"] = cfg.getString("host_seat", "wait_for_human");
+
+    effectiveDefaults["accept_draw_eval_threshold"] = std::to_string(cfg.getInt("accept_draw_eval_threshold", -1500));
+    effectiveDefaults["accept_undo"] = cfg.getString("accept_undo", "friends_only");
+    effectiveDefaults["accept_pause"] = cfg.getString("accept_pause", "always");
+    effectiveDefaults["accept_rematch"] = cfg.getString("accept_rematch", "always");
+    effectiveDefaults["max_consecutive_rematches"] = std::to_string(cfg.getInt("max_consecutive_rematches", 5));
+    effectiveDefaults["claim_forfeit_delay_sec"] = std::to_string(cfg.getInt("claim_forfeit_delay_sec", 10));
+    effectiveDefaults["min_move_think_ms"] = std::to_string(cfg.getInt("min_move_think_ms", 0));
+
+    // 3. Runner, chat, AI CLI & locked defaults
+    effectiveDefaults["algorithm"] = cfg.getString("algorithm", "alpha_beta");
+    effectiveDefaults["move_control"] = moveCtrl;
+    effectiveDefaults["publish_move_telemetry"] = pubTelemetry ? "true" : "false";
+    effectiveDefaults["announce_move_search_chat"] = announceSearchChat ? "true" : "false";
+    effectiveDefaults["allow_public_eval_chat"] = cfg.getBool("allow_public_eval_chat", true) ? "true" : "false";
+    effectiveDefaults["agent_move_timeout_ms"] = std::to_string(cfg.getInt("agent_move_timeout_ms", 15000));
+    effectiveDefaults["ai_cli_backend"] = cfg.getString("ai_cli_backend", "none");
+    effectiveDefaults["ai_cli_executable"] = cfg.getString("ai_cli_executable", "agy");
+    effectiveDefaults["ai_cli_model"] = cfg.getString("ai_cli_model", "flash");
+    effectiveDefaults["ai_cli_prompt"] = cfg.getString(
+        "ai_cli_prompt",
+        "Inspect OCTI skill guide with octibot_get_skill_guide and assist with move analysis.");
+    effectiveDefaults["ai_personality"] = cfg.getString(
+        "ai_personality",
+        "You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). "
+        "You speak in a relaxed, warm, down-to-earth tone\xe2\x80\x94never boastful, theatrical, or condescending. "
+        "Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.");
+    effectiveDefaults["greeting_lobby"] = cfg.getString("greeting_lobby", "Hello! I am an automated OCTI robot player.");
+    effectiveDefaults["greeting_game_start"] = cfg.getString("greeting_game_start", "Good luck and have fun!");
+    effectiveDefaults["chat_game_over_win"] = cfg.getString("chat_game_over_win", "Good game!");
+    effectiveDefaults["chat_game_over_loss"] = cfg.getString("chat_game_over_loss", "Good game, well played!");
+    effectiveDefaults["chat_game_over_draw"] = cfg.getString("chat_game_over_draw", "Good game, well fought!");
+    effectiveDefaults["post_game_linger_sec"] = std::to_string(cfg.getInt("post_game_linger_sec", 60));
+    effectiveDefaults["chat_goodbye"] = cfg.getString(
+        "chat_goodbye",
+        "Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table\xe2\x80\x94see you next time!");
+    effectiveDefaults["ai_proactive_commentary"] = cfg.getBool("ai_proactive_commentary", true) ? "true" : "false";
+    effectiveDefaults["ai_commentary_eval_swing_threshold"] = std::to_string(cfg.getInt("ai_commentary_eval_swing_threshold", 2500));
+    effectiveDefaults["ai_commentary_cooldown_plies"] = std::to_string(cfg.getInt("ai_commentary_cooldown_plies", 8));
+    effectiveDefaults["verbosity"] = std::to_string(verbosityLevel);
+
+    effectiveDefaults["max_chat_reply_chunks"] = std::to_string(cfg.getInt("max_chat_reply_chunks", lobbyOnlyFlag ? 3 : 1));
+    effectiveDefaults["helper_repo_access"] = cfg.getBool("helper_repo_access", lobbyOnlyFlag) ? "true" : "false";
+    effectiveDefaults["helper_feedback_enabled"] = cfg.getBool("helper_feedback_enabled", lobbyOnlyFlag) ? "true" : "false";
+    effectiveDefaults["lobby_only"] = lobbyOnlyFlag ? "true" : "false";
+
+    effectiveDefaults["aimon_enabled"] = cfg.getBool("aimon_enabled", false) ? "true" : "false";
+    effectiveDefaults["aimon_host"] = cfg.getString("aimon_host", "127.0.0.1");
+    effectiveDefaults["aimon_port"] = std::to_string(cfg.getInt("aimon_port", 3883));
+    effectiveDefaults["aimon_gateway_port"] = std::to_string(cfg.getInt("aimon_gateway_port", 0));
+    effectiveDefaults["expose_mcp_tools"] = cfg.getBool("expose_mcp_tools", true) ? "true" : "false";
+    effectiveDefaults["web_port"] = std::to_string(cfg.getInt("web_port", 3888));
+    effectiveDefaults["web_bind"] = cfg.getString("web_bind", "0.0.0.0");
+    effectiveDefaults["server_host"] = cfg.getString("server_host", "octi.selfso.com");
+    effectiveDefaults["server_port"] = std::to_string(cfg.getInt("server_port", 443));
+    effectiveDefaults["server_use_ssl"] = cfg.getBool("server_use_ssl", true) ? "true" : "false";
+    effectiveDefaults["default_profile"] = cfg.getString("default_profile", "stock");
+    effectiveDefaults["robot_name"] = cfg.getString("robot_name", "stock");
+
+    // 4. Overlay explicit entries from cfg.entries() (excluding tokens)
+    for (const auto &kv : cfg.entries()) {
+        if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
+            continue;
+        }
+        effectiveDefaults[kv.first] = kv.second;
+    }
+
+    if (effectiveDefaults.count("ai_cli_executable") > 0) {
+        effectiveDefaults["ai_cli_executable"] = normalizeCliExeOrRaw(effectiveDefaults["ai_cli_executable"]);
+    }
+    return effectiveDefaults;
+}
+
+std::map<std::string, std::string> OctiBotRunner::buildEffectiveConfigMap() const {
+    return buildEffectiveConfigMapImpl(
+        _config, _lobbyOnly, _moveControl, _publishMoveTelemetry, _announceMoveSearchChat, _verbosity);
+}
+
 bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> &updates,
                                       bool saveToDisk,
                                       std::string &errorOut) {
@@ -310,7 +511,15 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
         }
     }
 
-    std::string activeProf = _config.getString("profile", _config.getString("robot_name", ""));
+    const std::string activeProf = _config.getString(
+        "profile",
+        !_config.activeProfile().empty()
+            ? _config.activeProfile()
+            : _config.getString("robot_name", ""));
+
+    // Snapshot pre-update effective values before mutating _config so untouched
+    // inherited/default keys submitted by the Web UI never bloat [activeProf].
+    const std::map<std::string, std::string> prevEffective = buildEffectiveConfigMap();
 
     for (const auto &kv : updates) {
         const std::string &k = kv.first;
@@ -319,8 +528,13 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
             normalizeAiCliExecutable(v, v);
         }
 
+        auto prevIt = prevEffective.find(k);
+        const bool valueChanged = (prevIt == prevEffective.end()) ||
+                                  !configValueEquals(k, prevIt->second, v);
+
         _config.set(k, v);
-        if (!activeProf.empty()) {
+        if (!activeProf.empty() && _config.hasProfile(activeProf) &&
+            (_config.hasProfileKey(activeProf, k) || valueChanged)) {
             _config.setProfileEntry(activeProf, k, v);
         }
 
@@ -329,9 +543,9 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
         } else if (k == "move_control") {
             _moveControl = v;
         } else if (k == "publish_move_telemetry") {
-            _publishMoveTelemetry = (v == "true" || v == "1" || v == "yes");
+            _publishMoveTelemetry = _config.getBool("publish_move_telemetry", false);
         } else if (k == "announce_move_search_chat") {
-            _announceMoveSearchChat = (v == "true" || v == "1" || v == "yes");
+            _announceMoveSearchChat = _config.getBool("announce_move_search_chat", true);
         } else if (k == "table_behavior") {
             _policy.setTableBehavior(v);
         }
@@ -354,22 +568,60 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
             std::string loadErr;
             if (std::ifstream(savePath).good() && diskConfig.loadFile(savePath, loadErr)) {
                 if (!activeProf.empty() && diskConfig.hasProfile(activeProf)) {
+                    const OctiBotConfigStore diskResolved = diskConfig.resolveProfile(activeProf);
+                    const std::string diskAlgo = diskResolved.getString("algorithm", "alpha_beta");
+                    const std::string diskBeh = diskResolved.getString("table_behavior", "auto");
+                    const bool diskLobbyOnly =
+                        diskResolved.getBool("lobby_only", false) ||
+                        diskBeh == "lobby_only" ||
+                        diskAlgo == "helper" || diskAlgo == "lobby_helper" || diskAlgo == "none";
+                    const std::map<std::string, std::string> diskEffective =
+                        buildEffectiveConfigMapImpl(
+                            diskResolved,
+                            diskLobbyOnly,
+                            diskResolved.getString("move_control", "engine"),
+                            diskResolved.getBool("publish_move_telemetry", false),
+                            diskResolved.getBool("announce_move_search_chat", true),
+                            diskResolved.getVerbosityLevel(3));
+
                     for (const auto &kv : updates) {
                         std::string v = kv.second;
                         if (kv.first == "ai_cli_executable") {
                             normalizeAiCliExecutable(v, v);
                         }
-                        diskConfig.setProfileEntry(activeProf, kv.first, v);
+                        auto dIt = diskEffective.find(kv.first);
+                        const bool changedFromDisk = (dIt == diskEffective.end()) ||
+                                                     !configValueEquals(kv.first, dIt->second, v);
+                        if (diskConfig.hasProfileKey(activeProf, kv.first) || changedFromDisk) {
+                            diskConfig.setProfileEntry(activeProf, kv.first, v);
+                        }
                     }
                 } else {
+                    const std::string diskAlgo = diskConfig.getString("algorithm", "alpha_beta");
+                    const std::string diskBeh = diskConfig.getString("table_behavior", "auto");
+                    const bool diskLobbyOnly =
+                        diskConfig.getBool("lobby_only", false) ||
+                        diskBeh == "lobby_only" ||
+                        diskAlgo == "helper" || diskAlgo == "lobby_helper" || diskAlgo == "none";
+                    const std::map<std::string, std::string> diskEffective =
+                        buildEffectiveConfigMapImpl(
+                            diskConfig,
+                            diskLobbyOnly,
+                            diskConfig.getString("move_control", "engine"),
+                            diskConfig.getBool("publish_move_telemetry", false),
+                            diskConfig.getBool("announce_move_search_chat", true),
+                            diskConfig.getVerbosityLevel(3));
+
                     for (const auto &kv : updates) {
                         std::string v = kv.second;
                         if (kv.first == "ai_cli_executable") {
                             normalizeAiCliExecutable(v, v);
                         }
-                        diskConfig.set(kv.first, v);
-                        if (!activeProf.empty()) {
-                            diskConfig.setProfileEntry(activeProf, kv.first, v);
+                        auto dIt = diskEffective.find(kv.first);
+                        const bool changedFromDisk = (dIt == diskEffective.end()) ||
+                                                     !configValueEquals(kv.first, dIt->second, v);
+                        if (diskConfig.hasKey(kv.first) || changedFromDisk) {
+                            diskConfig.set(kv.first, v);
                         }
                     }
                 }

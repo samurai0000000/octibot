@@ -14,6 +14,7 @@
 #include <sstream>
 
 #if !defined(_WIN32)
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -114,6 +115,7 @@ std::string OctiBotConfigStore::defaultTokensFilePath() {
 bool OctiBotConfigStore::parseString(const std::string &content, std::string &errorOut) {
     _entries.clear();
     _profiles.clear();
+    _activeProfile.clear();
 
     std::istringstream stream(content);
     std::string line;
@@ -289,46 +291,78 @@ bool OctiBotConfigStore::loadTokensFile(const std::string &path, std::string &er
 }
 
 bool OctiBotConfigStore::saveFile(const std::string &path, std::string &errorOut) const {
+    std::ostringstream oss;
+    oss << "# OCTIBOT Configuration\n";
+    for (const auto &kv : _entries) {
+        if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
+            continue;
+        }
+        oss << kv.first << " = " << kv.second << "\n";
+    }
+
+    for (const auto &prof : _profiles) {
+        oss << "\n[" << prof.first << "]\n";
+        for (const auto &kv : prof.second) {
+            if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
+                continue;
+            }
+            oss << kv.first << " = " << kv.second << "\n";
+        }
+    }
+
+    const std::string serialized = oss.str();
+
 #if !defined(_WIN32)
     size_t slashPos = path.find_last_of('/');
     if (slashPos != std::string::npos) {
         std::string parentDir = path.substr(0, slashPos);
         ensureDirectoryPermissions(parentDir);
     }
-#endif
 
+    int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        errorOut = "Failed to create/write config file: " + path;
+        return false;
+    }
+    (void) ::fchmod(fd, 0600);
+
+    const char *buf = serialized.data();
+    size_t remaining = serialized.size();
+    while (remaining > 0) {
+        ssize_t written = ::write(fd, buf, remaining);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            ::close(fd);
+            errorOut = "Failed to write config file: " + path;
+            return false;
+        }
+        buf += static_cast<size_t>(written);
+        remaining -= static_cast<size_t>(written);
+    }
+
+    if (::close(fd) != 0) {
+        errorOut = "Failed to finalize config file: " + path;
+        return false;
+    }
+    ::chmod(path.c_str(), 0600);
+    return true;
+#else
     std::ofstream file(path, std::ios::out | std::ios::trunc);
     if (!file.is_open()) {
         errorOut = "Failed to create/write config file: " + path;
         return false;
     }
-
-    file << "# OCTIBOT Configuration\n";
-    for (const auto &kv : _entries) {
-        if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
-            continue;
-        }
-        file << kv.first << " = " << kv.second << "\n";
-    }
-
-    for (const auto &prof : _profiles) {
-        file << "\n[" << prof.first << "]\n";
-        for (const auto &kv : prof.second) {
-            if (kv.first == "bot_token" || kv.first.rfind("bot_token_", 0) == 0) {
-                continue;
-            }
-            file << kv.first << " = " << kv.second << "\n";
-        }
-    }
-
+    file << serialized;
     file.flush();
+    if (!file.good()) {
+        errorOut = "Failed to write config file: " + path;
+        return false;
+    }
     file.close();
-
-#if !defined(_WIN32)
-    ::chmod(path.c_str(), 0600);
-#endif
-
     return true;
+#endif
 }
 
 std::vector<std::string> OctiBotConfigStore::profileNames() const {
@@ -343,10 +377,20 @@ bool OctiBotConfigStore::hasProfile(const std::string &profileName) const {
     return _profiles.find(profileName) != _profiles.end();
 }
 
+bool OctiBotConfigStore::hasProfileKey(const std::string &profileName,
+                                       const std::string &key) const {
+    auto pit = _profiles.find(profileName);
+    if (pit == _profiles.end()) {
+        return false;
+    }
+    return pit->second.find(key) != pit->second.end();
+}
+
 OctiBotConfigStore OctiBotConfigStore::resolveProfile(const std::string &profileName) const {
     OctiBotConfigStore res;
     res._entries = _entries; // Inherit global entries
     res._profiles = _profiles;
+    res._activeProfile = profileName;
 
     auto it = _profiles.find(profileName);
     if (it != _profiles.end()) {
@@ -632,6 +676,129 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.moveOrderBaseEntryBonus = config.getInt("move_order_base_entry_bonus", profile.moveOrderBaseEntryBonus);
     profile.moveOrderLeapfrogBonus = config.getInt("move_order_leapfrog_bonus", profile.moveOrderLeapfrogBonus);
     profile.moveOrderBlunderPenalty = config.getInt("move_order_blunder_penalty", profile.moveOrderBlunderPenalty);
+
+    profile.ofkPodValScalePct = config.getInt(
+        "ofk_pod_val_scale_pct", profile.ofkPodValScalePct);
+    profile.ofkCapturedPodPenalty = config.getInt(
+        "ofk_captured_pod_penalty", profile.ofkCapturedPodPenalty);
+    profile.ofkReserveFreeProngVal = config.getInt(
+        "ofk_reserve_free_prong_val", profile.ofkReserveFreeProngVal);
+    profile.fourPlayerEliminatedPenalty = config.getInt(
+        "four_player_eliminated_penalty", profile.fourPlayerEliminatedPenalty);
+    profile.fourPlayerWipeoutDangerPct = config.getInt(
+        "four_player_wipeout_danger_pct", profile.fourPlayerWipeoutDangerPct);
+    profile.reserveFreeSuperProngVal = config.getInt(
+        "reserve_free_super_prong_val", profile.reserveFreeSuperProngVal);
+    profile.nonEdgelessBackRankPenalty2P = config.getInt(
+        "non_edgeless_back_rank_penalty_2p", profile.nonEdgelessBackRankPenalty2P);
+    profile.moveOrderBackRankRetreatPenalty2P = config.getInt(
+        "move_order_back_rank_retreat_penalty_2p", profile.moveOrderBackRankRetreatPenalty2P);
+    profile.multiBaseTwoNeededThreatScalePct = config.getInt(
+        "multi_base_two_needed_threat_scale_pct", profile.multiBaseTwoNeededThreatScalePct);
+    profile.multiBaseThreeNeededThreatScalePct = config.getInt(
+        "multi_base_three_needed_threat_scale_pct", profile.multiBaseThreeNeededThreatScalePct);
+    profile.multiBaseTwoNeededScaleFloorPct = config.getInt(
+        "multi_base_two_needed_scale_floor_pct", profile.multiBaseTwoNeededScaleFloorPct);
+    profile.multiBaseThreeNeededScaleFloorPct = config.getInt(
+        "multi_base_three_needed_scale_floor_pct", profile.multiBaseThreeNeededScaleFloorPct);
+    profile.emptyAlliedBase1BCloseUrgencyPct = config.getInt(
+        "empty_allied_base_1b_close_urgency_pct", profile.emptyAlliedBase1BCloseUrgencyPct);
+    profile.emptyAlliedBase1BMidUrgencyPct = config.getInt(
+        "empty_allied_base_1b_mid_urgency_pct", profile.emptyAlliedBase1BMidUrgencyPct);
+}
+
+void serializeTuningProfileToMap(const BotTuningProfile &prof,
+                                 std::map<std::string, std::string> &out) {
+    out["time_budget_ms"] = std::to_string(prof.timeBudgetMs);
+    out["max_search_depth"] = std::to_string(prof.maxSearchDepth);
+    out["max_quiesce_depth"] = std::to_string(prof.maxQuiesceDepth);
+    out["quiesce_branch_cap"] = std::to_string(prof.quiesceBranchCap);
+    out["root_branch_cap"] = std::to_string(prof.rootBranchCap);
+    out["tree_branch_cap"] = std::to_string(prof.treeBranchCap);
+    out["lazy_smp_threads"] = std::to_string(prof.lazySmpThreads);
+    out["composite_move_max_ply"] = std::to_string(prof.compositeMoveMaxPly);
+    out["composite_tactical_only_min_ply"] = std::to_string(prof.compositeTacticalOnlyMinPly);
+    out["qsearch_include_base_threat_prongs"] = prof.qsearchIncludeBaseThreatProngs ? "true" : "false";
+    out["root_score_jitter"] = std::to_string(prof.rootScoreJitter);
+    out["book_selection_window"] = std::to_string(prof.bookSelectionWindow);
+    out["use_opening_book"] = prof.useOpeningBook ? "true" : "false";
+    out["use_pvs"] = prof.usePvs ? "true" : "false";
+    out["aspiration_window_cp"] = std::to_string(prof.aspirationWindowCp);
+    out["use_killers"] = prof.useKillers ? "true" : "false";
+    out["use_history"] = prof.useHistory ? "true" : "false";
+    out["lmr_min_depth"] = std::to_string(prof.lmrMinDepth);
+    out["lmr_min_move_index"] = std::to_string(prof.lmrMinMoveIndex);
+    out["null_move_min_depth"] = std::to_string(prof.nullMoveMinDepth);
+    out["null_move_reduction"] = std::to_string(prof.nullMoveReduction);
+    out["qsearch_use_tt"] = prof.qsearchUseTt ? "true" : "false";
+    out["tt_size_log2"] = std::to_string(prof.ttSizeLog2);
+    out["lazy_smp_diversify_helpers"] = prof.lazySmpDiversifyHelpers ? "true" : "false";
+
+    out["captured_enemy_base_bonus"] = std::to_string(prof.capturedEnemyBaseBonus);
+    out["lost_allied_base_penalty"] = std::to_string(prof.lostAlliedBasePenalty);
+    out["neutral_octi_square_bonus"] = std::to_string(prof.neutralOctiSquareBonus);
+    out["closest_pod_dist_weight"] = std::to_string(prof.closestPodDistWeight);
+    out["second_closest_pod_dist_weight"] = std::to_string(prof.secondClosestPodDistWeight);
+    out["one_step_base_threat_bonus"] = std::to_string(prof.oneStepBaseThreatBonus);
+    out["one_jump_base_threat_bonus"] = std::to_string(prof.oneJumpBaseThreatBonus);
+    out["two_ply_base_threat_weight"] = std::to_string(prof.twoPlyBaseThreatWeight);
+    out["contested_enemy_base_threat_scale_pct"] = std::to_string(prof.contestedEnemyBaseThreatScalePct);
+    out["empty_allied_base_penalty_1b"] = std::to_string(prof.emptyAlliedBasePenalty1B);
+
+    out["pod_zero_prong_val"] = std::to_string(prof.podZeroProngVal);
+    out["pod_one_prong_val"] = std::to_string(prof.podOneProngVal);
+    out["pod_two_prong_val"] = std::to_string(prof.podTwoProngVal);
+    out["pod_three_plus_prong_val"] = std::to_string(prof.podThreePlusProngVal);
+    out["normal_prong_val"] = std::to_string(prof.normalProngVal);
+    out["super_prong_val"] = std::to_string(prof.superProngVal);
+    out["orth_diag_versatility_bonus"] = std::to_string(prof.orthDiagVersatilityBonus);
+    out["diag_only_parity_penalty"] = std::to_string(prof.diagOnlyParityPenalty);
+    out["first_armed_pod_bonus"] = std::to_string(prof.firstArmedPodBonus);
+    out["second_armed_pod_bonus"] = std::to_string(prof.secondArmedPodBonus);
+    out["third_armed_pod_bonus"] = std::to_string(prof.thirdArmedPodBonus);
+    out["single_pod_monopoly_penalty"] = std::to_string(prof.singlePodMonopolyPenalty);
+    out["ofk_single_pod_monopoly_penalty"] = std::to_string(prof.ofkSinglePodMonopolyPenalty);
+    out["lone_one_prong_rush_penalty"] = std::to_string(prof.loneOneProngRushPenalty);
+    out["enemy_heavy_pod_threat_penalty"] = std::to_string(prof.enemyHeavyPodThreatPenalty);
+    out["unarmed_home_pod_penalty"] = std::to_string(prof.unarmedHomePodPenalty);
+    out["can_liberate_bonus"] = std::to_string(prof.canLiberateBonus);
+    out["reserve_free_pod_val"] = std::to_string(prof.reserveFreePodVal);
+    out["captured_pod_penalty"] = std::to_string(prof.capturedPodPenalty);
+    out["reserve_free_prong_val"] = std::to_string(prof.reserveFreeProngVal);
+    out["fix_stack_and_home_eval_mirage"] = prof.fixStackAndHomeEvalMirage ? "true" : "false";
+
+    out["leapfrog_battery_weight"] = std::to_string(prof.leapfrogBatteryWeight);
+    out["leapfrog_forward_bonus"] = std::to_string(prof.leapfrogForwardBonus);
+    out["jump_reachable_square_weight"] = std::to_string(prof.jumpReachableSquareWeight);
+    out["jump_reach_step_weight"] = std::to_string(prof.jumpReachStepWeight);
+    out["jump_capturable_pod_weight"] = std::to_string(prof.jumpCapturablePodWeight);
+    out["jump_capturable_prong_weight"] = std::to_string(prof.jumpCapturableProngWeight);
+
+    out["hanging_pod_base_penalty"] = std::to_string(prof.hangingPodBasePenalty);
+    out["hanging_prong_weight"] = std::to_string(prof.hangingProngWeight);
+    out["ofk_prong_seizure_weight"] = std::to_string(prof.ofkProngSeizureWeight);
+    out["opponent_turn_hanging_pct"] = std::to_string(prof.opponentTurnHangingPct);
+    out["sole_armed_pod_danger_penalty"] = std::to_string(prof.soleArmedPodDangerPenalty);
+    out["wipeout_danger_penalty"] = std::to_string(prof.wipeoutDangerPenalty);
+    out["move_order_capture_bonus"] = std::to_string(prof.moveOrderCaptureBonus);
+    out["move_order_base_entry_bonus"] = std::to_string(prof.moveOrderBaseEntryBonus);
+    out["move_order_leapfrog_bonus"] = std::to_string(prof.moveOrderLeapfrogBonus);
+    out["move_order_blunder_penalty"] = std::to_string(prof.moveOrderBlunderPenalty);
+
+    out["ofk_pod_val_scale_pct"] = std::to_string(prof.ofkPodValScalePct);
+    out["ofk_captured_pod_penalty"] = std::to_string(prof.ofkCapturedPodPenalty);
+    out["ofk_reserve_free_prong_val"] = std::to_string(prof.ofkReserveFreeProngVal);
+    out["four_player_eliminated_penalty"] = std::to_string(prof.fourPlayerEliminatedPenalty);
+    out["four_player_wipeout_danger_pct"] = std::to_string(prof.fourPlayerWipeoutDangerPct);
+    out["reserve_free_super_prong_val"] = std::to_string(prof.reserveFreeSuperProngVal);
+    out["non_edgeless_back_rank_penalty_2p"] = std::to_string(prof.nonEdgelessBackRankPenalty2P);
+    out["move_order_back_rank_retreat_penalty_2p"] = std::to_string(prof.moveOrderBackRankRetreatPenalty2P);
+    out["multi_base_two_needed_threat_scale_pct"] = std::to_string(prof.multiBaseTwoNeededThreatScalePct);
+    out["multi_base_three_needed_threat_scale_pct"] = std::to_string(prof.multiBaseThreeNeededThreatScalePct);
+    out["multi_base_two_needed_scale_floor_pct"] = std::to_string(prof.multiBaseTwoNeededScaleFloorPct);
+    out["multi_base_three_needed_scale_floor_pct"] = std::to_string(prof.multiBaseThreeNeededScaleFloorPct);
+    out["empty_allied_base_1b_close_urgency_pct"] = std::to_string(prof.emptyAlliedBase1BCloseUrgencyPct);
+    out["empty_allied_base_1b_mid_urgency_pct"] = std::to_string(prof.emptyAlliedBase1BMidUrgencyPct);
 }
 
 } // namespace octi

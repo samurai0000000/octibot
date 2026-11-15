@@ -30,7 +30,11 @@ public:
 
     std::vector<std::string> profileNames() const;
     bool hasProfile(const std::string &profileName) const;
+    bool hasProfileKey(const std::string &profileName,
+                       const std::string &key) const;
     OctiBotConfigStore resolveProfile(const std::string &profileName) const;
+    const std::string &activeProfile() const { return _activeProfile; }
+    void setActiveProfile(const std::string &profileName) { _activeProfile = profileName; }
 
     std::vector<std::pair<std::string, std::string>> tokenPool() const;
     std::string resolveTokenForRobot(const std::string &robotName) const;
@@ -62,10 +66,13 @@ public:
 private:
     std::map<std::string, std::string> _entries;
     std::map<std::string, std::map<std::string, std::string>> _profiles;
+    std::string _activeProfile;
 };
 
 void applyConfigToTuningProfile(const OctiBotConfigStore &config,
                                BotTuningProfile &profile);
+void serializeTuningProfileToMap(const BotTuningProfile &profile,
+                                 std::map<std::string, std::string> &out);
 
 } // namespace octi
 

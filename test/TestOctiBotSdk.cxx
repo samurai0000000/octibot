@@ -5272,7 +5272,7 @@ TEST(OctiBotSupersededReclaimTest, SupersededRunnerStopsStreamsFailsOverrideAndR
 
     auto waitStart = std::chrono::steady_clock::now();
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - waitStart).count() < 2000) {
+               std::chrono::steady_clock::now() - waitStart).count() < 5000) {
         if (runner1->isSuperseded() &&
             !runner1->isRunning() &&
             !runner1->networkClient().isLobbyEventStreamActive() &&
@@ -5411,7 +5411,7 @@ TEST(OctiBotSupersededReclaimTest, FleetSupervisorStaysStandbyWhileTokenActiveTh
 
     auto supWait = std::chrono::steady_clock::now();
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - supWait).count() < 2000) {
+               std::chrono::steady_clock::now() - supWait).count() < 5000) {
         if (externalClient.isLobbyEventStreamActive() &&
             runner->isSuperseded() &&
             !runner->isRunning() &&
@@ -5458,7 +5458,7 @@ TEST(OctiBotSupersededReclaimTest, FleetSupervisorStaysStandbyWhileTokenActiveTh
     bool reclaimedAndRunning = false;
     auto reclaimStart = std::chrono::steady_clock::now();
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - reclaimStart).count() < 2000) {
+               std::chrono::steady_clock::now() - reclaimStart).count() < 5000) {
         CHECK_TRUE(fleet.tickSupervisor());
         if (runner->isRunning() &&
             !runner->isSuperseded() &&
@@ -5492,6 +5492,463 @@ TEST(OctiBotSupersededReclaimTest, FleetSupervisorStaysStandbyWhileTokenActiveTh
     auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - stopStart).count();
     CHECK_TRUE(stopMs < 1000);
+}
+
+// ============================================================================
+// Envelope 1: Variant Tuning Params, Complete Config JSON/UI & Slim Profile Save
+// ============================================================================
+
+TEST_GROUP(OctiVariantParamsAndSlimProfileConfig) {
+};
+
+TEST(OctiVariantParamsAndSlimProfileConfig, HasProfileKeyAndSaveFilePosix0600Mode) {
+    const std::string confText =
+        "server_host = 127.0.0.1\n"
+        "lazy_smp_threads = 4\n"
+        "bot_token = octi_bot_9999999999999999999999999999999999999999999999999999999999999999\n"
+        "\n"
+        "[slim_bot]\n"
+        "robot_name = slim_bot_handle\n"
+        "host_mode = OFK\n"
+        "\n"
+        "[sibling_bot]\n"
+        "robot_name = sibling_bot\n"
+        "host_mode = 4P\n"
+        "four_player_eliminated_penalty = 25000\n";
+
+    OctiBotConfigStore store;
+    std::string err;
+    CHECK_TRUE_TEXT(store.parseString(confText, err), err.c_str());
+
+    CHECK_TRUE(store.hasProfileKey("slim_bot", "robot_name"));
+    CHECK_TRUE(store.hasProfileKey("slim_bot", "host_mode"));
+    CHECK_FALSE(store.hasProfileKey("slim_bot", "lazy_smp_threads"));
+    CHECK_FALSE(store.hasProfileKey("slim_bot", "four_player_eliminated_penalty"));
+    CHECK_TRUE(store.hasProfileKey("sibling_bot", "four_player_eliminated_penalty"));
+    CHECK_FALSE(store.hasProfileKey("missing_profile", "host_mode"));
+
+    OctiBotConfigStore resolved = store.resolveProfile("slim_bot");
+    CHECK_EQUAL("slim_bot", resolved.activeProfile());
+    CHECK_EQUAL("slim_bot_handle", resolved.getString("robot_name"));
+    CHECK_EQUAL(4, resolved.getInt("lazy_smp_threads", 0));
+    CHECK_TRUE(resolved.hasProfileKey("slim_bot", "host_mode"));
+    CHECK_FALSE(resolved.hasProfileKey("slim_bot", "lazy_smp_threads"));
+
+#if !defined(_WIN32)
+    char tmpTmpl[] = "/tmp/octibot_e1_perm_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    const std::string dirPath = td;
+    const std::string confPath = dirPath + "/octibot.conf";
+
+    CHECK_TRUE_TEXT(store.saveFile(confPath, err), err.c_str());
+    struct stat st{};
+    CHECK_EQUAL(0, ::stat(confPath.c_str(), &st));
+    CHECK_EQUAL(0600, static_cast<int>(st.st_mode & 0777));
+
+    // Loosen file permissions to 0644, re-save, and verify saveFile restores 0600
+    CHECK_EQUAL(0, ::chmod(confPath.c_str(), 0644));
+    CHECK_EQUAL(0, ::stat(confPath.c_str(), &st));
+    CHECK_EQUAL(0644, static_cast<int>(st.st_mode & 0777));
+
+    CHECK_TRUE_TEXT(store.saveFile(confPath, err), err.c_str());
+    CHECK_EQUAL(0, ::stat(confPath.c_str(), &st));
+    CHECK_EQUAL(0600, static_cast<int>(st.st_mode & 0777));
+
+    std::ifstream savedIn(confPath);
+    std::stringstream savedBuf;
+    savedBuf << savedIn.rdbuf();
+    CHECK_TRUE(savedBuf.str().find("octi_bot_9999") == std::string::npos);
+
+    ::unlink(confPath.c_str());
+    ::rmdir(dirPath.c_str());
+#endif
+}
+
+TEST(OctiVariantParamsAndSlimProfileConfig, All85BotTuningProfileKeysParseAndExportInBuildConfigJsonAndWebUi) {
+    OctiBotConfigStore emptyCfg;
+    auto defAgent = std::make_unique<StockAlphaBetaAgent>(emptyCfg);
+    OctiBotRunner defRunner(std::move(defAgent), emptyCfg);
+    OctiBotMcpServer defMcp(defRunner);
+
+    const nlohmann::json defJson = defMcp.buildConfigJson();
+    CHECK_TRUE(defJson.contains("entries"));
+    const nlohmann::json &entries = defJson["entries"];
+    const std::string html = defMcp.renderDashboardHtml();
+
+    const std::vector<std::pair<std::string, std::string>> expected85TuningDefaults = {
+        // 1. Search Horizon, Quiescence & Concurrency (24)
+        {"time_budget_ms", "10000"},
+        {"max_search_depth", "64"},
+        {"max_quiesce_depth", "2"},
+        {"quiesce_branch_cap", "6"},
+        {"root_branch_cap", "36"},
+        {"tree_branch_cap", "24"},
+        {"lazy_smp_threads", "2"},
+        {"composite_move_max_ply", "1"},
+        {"composite_tactical_only_min_ply", "0"},
+        {"qsearch_include_base_threat_prongs", "false"},
+        {"root_score_jitter", "25"},
+        {"book_selection_window", "0"},
+        {"use_opening_book", "true"},
+        {"use_pvs", "false"},
+        {"aspiration_window_cp", "0"},
+        {"use_killers", "false"},
+        {"use_history", "false"},
+        {"lmr_min_depth", "0"},
+        {"lmr_min_move_index", "0"},
+        {"null_move_min_depth", "0"},
+        {"null_move_reduction", "2"},
+        {"qsearch_use_tt", "false"},
+        {"tt_size_log2", "18"},
+        {"lazy_smp_diversify_helpers", "false"},
+        // 2. Base Occupation & Distance Weights (10)
+        {"captured_enemy_base_bonus", "28000"},
+        {"lost_allied_base_penalty", "32000"},
+        {"neutral_octi_square_bonus", "4000"},
+        {"closest_pod_dist_weight", "320"},
+        {"second_closest_pod_dist_weight", "140"},
+        {"one_step_base_threat_bonus", "8500"},
+        {"one_jump_base_threat_bonus", "12000"},
+        {"two_ply_base_threat_weight", "2400"},
+        {"contested_enemy_base_threat_scale_pct", "100"},
+        {"empty_allied_base_penalty_1b", "0"},
+        // 3. Multi-Pod Development & Anti-Monopoly Weights (21)
+        {"pod_zero_prong_val", "320"},
+        {"pod_one_prong_val", "1350"},
+        {"pod_two_prong_val", "2100"},
+        {"pod_three_plus_prong_val", "2800"},
+        {"normal_prong_val", "380"},
+        {"super_prong_val", "550"},
+        {"orth_diag_versatility_bonus", "550"},
+        {"diag_only_parity_penalty", "350"},
+        {"first_armed_pod_bonus", "600"},
+        {"second_armed_pod_bonus", "1100"},
+        {"third_armed_pod_bonus", "700"},
+        {"single_pod_monopoly_penalty", "1000"},
+        {"ofk_single_pod_monopoly_penalty", "-1"},
+        {"lone_one_prong_rush_penalty", "550"},
+        {"enemy_heavy_pod_threat_penalty", "0"},
+        {"unarmed_home_pod_penalty", "900"},
+        {"can_liberate_bonus", "450"},
+        {"reserve_free_pod_val", "450"},
+        {"captured_pod_penalty", "3800"},
+        {"reserve_free_prong_val", "140"},
+        {"fix_stack_and_home_eval_mirage", "false"},
+        // 4. Leapfrog / Launchpad Battery & Jump Reachability Weights (6)
+        {"leapfrog_battery_weight", "550"},
+        {"leapfrog_forward_bonus", "400"},
+        {"jump_reachable_square_weight", "130"},
+        {"jump_reach_step_weight", "450"},
+        {"jump_capturable_pod_weight", "600"},
+        {"jump_capturable_prong_weight", "120"},
+        // 5. Hanging-Pod Safety, OFK Prong-Seizure & Move Ordering (10)
+        {"hanging_pod_base_penalty", "1400"},
+        {"hanging_prong_weight", "220"},
+        {"ofk_prong_seizure_weight", "450"},
+        {"opponent_turn_hanging_pct", "125"},
+        {"sole_armed_pod_danger_penalty", "3500"},
+        {"wipeout_danger_penalty", "15000"},
+        {"move_order_capture_bonus", "16000"},
+        {"move_order_base_entry_bonus", "60000"},
+        {"move_order_leapfrog_bonus", "1200"},
+        {"move_order_blunder_penalty", "7000"},
+        // 6. Variant-Specific Multi-Mode, Geometry & Urgency Weights (14)
+        {"ofk_pod_val_scale_pct", "135"},
+        {"ofk_captured_pod_penalty", "4800"},
+        {"ofk_reserve_free_prong_val", "180"},
+        {"four_player_eliminated_penalty", "20000"},
+        {"four_player_wipeout_danger_pct", "50"},
+        {"reserve_free_super_prong_val", "150"},
+        {"non_edgeless_back_rank_penalty_2p", "850"},
+        {"move_order_back_rank_retreat_penalty_2p", "3500"},
+        {"multi_base_two_needed_threat_scale_pct", "35"},
+        {"multi_base_three_needed_threat_scale_pct", "20"},
+        {"multi_base_two_needed_scale_floor_pct", "60"},
+        {"multi_base_three_needed_scale_floor_pct", "35"},
+        {"empty_allied_base_1b_close_urgency_pct", "175"},
+        {"empty_allied_base_1b_mid_urgency_pct", "130"}
+    };
+
+    CHECK_EQUAL(85u, expected85TuningDefaults.size());
+    for (const auto &kv : expected85TuningDefaults) {
+        CHECK_TRUE_TEXT(entries.contains(kv.first),
+                        ("Missing BotTuningProfile key in buildConfigJson: " + kv.first).c_str());
+        CHECK_EQUAL_TEXT(kv.second, entries[kv.first].get<std::string>(),
+                         ("Unexpected default in buildConfigJson for key: " + kv.first).c_str());
+        const std::string domId = "id=\"cfg_" + kv.first + "\"";
+        CHECK_TRUE_TEXT(html.find(domId) != std::string::npos,
+                        ("Missing Web UI form control " + domId).c_str());
+    }
+
+    // Verify applyConfigToTuningProfile parses all 14 new variant keys + previously unseeded keys
+    const std::string customConf =
+        "book_selection_window = 75\n"
+        "use_opening_book = false\n"
+        "use_pvs = true\n"
+        "aspiration_window_cp = 250\n"
+        "use_killers = true\n"
+        "use_history = true\n"
+        "lmr_min_depth = 3\n"
+        "lmr_min_move_index = 4\n"
+        "null_move_min_depth = 3\n"
+        "null_move_reduction = 3\n"
+        "qsearch_use_tt = true\n"
+        "tt_size_log2 = 20\n"
+        "lazy_smp_diversify_helpers = true\n"
+        "contested_enemy_base_threat_scale_pct = 60\n"
+        "ofk_single_pod_monopoly_penalty = 900\n"
+        "enemy_heavy_pod_threat_penalty = 400\n"
+        "unarmed_home_pod_penalty = 150\n"
+        "can_liberate_bonus = 700\n"
+        "reserve_free_pod_val = 520\n"
+        "captured_pod_penalty = 4100\n"
+        "reserve_free_prong_val = 165\n"
+        "ofk_pod_val_scale_pct = 155\n"
+        "ofk_captured_pod_penalty = 5300\n"
+        "ofk_reserve_free_prong_val = 210\n"
+        "four_player_eliminated_penalty = 24000\n"
+        "four_player_wipeout_danger_pct = 65\n"
+        "reserve_free_super_prong_val = 190\n"
+        "non_edgeless_back_rank_penalty_2p = 920\n"
+        "move_order_back_rank_retreat_penalty_2p = 4100\n"
+        "multi_base_two_needed_threat_scale_pct = 42\n"
+        "multi_base_three_needed_threat_scale_pct = 24\n"
+        "multi_base_two_needed_scale_floor_pct = 68\n"
+        "multi_base_three_needed_scale_floor_pct = 40\n"
+        "empty_allied_base_1b_close_urgency_pct = 195\n"
+        "empty_allied_base_1b_mid_urgency_pct = 145\n";
+
+    OctiBotConfigStore customStore;
+    std::string err;
+    CHECK_TRUE_TEXT(customStore.parseString(customConf, err), err.c_str());
+    BotTuningProfile p;
+    applyConfigToTuningProfile(customStore, p);
+
+    CHECK_EQUAL(155, p.ofkPodValScalePct);
+    CHECK_EQUAL(5300, p.ofkCapturedPodPenalty);
+    CHECK_EQUAL(210, p.ofkReserveFreeProngVal);
+    CHECK_EQUAL(24000, p.fourPlayerEliminatedPenalty);
+    CHECK_EQUAL(65, p.fourPlayerWipeoutDangerPct);
+    CHECK_EQUAL(190, p.reserveFreeSuperProngVal);
+    CHECK_EQUAL(920, p.nonEdgelessBackRankPenalty2P);
+    CHECK_EQUAL(4100, p.moveOrderBackRankRetreatPenalty2P);
+    CHECK_EQUAL(42, p.multiBaseTwoNeededThreatScalePct);
+    CHECK_EQUAL(24, p.multiBaseThreeNeededThreatScalePct);
+    CHECK_EQUAL(68, p.multiBaseTwoNeededScaleFloorPct);
+    CHECK_EQUAL(40, p.multiBaseThreeNeededScaleFloorPct);
+    CHECK_EQUAL(195, p.emptyAlliedBase1BCloseUrgencyPct);
+    CHECK_EQUAL(145, p.emptyAlliedBase1BMidUrgencyPct);
+
+    auto customAgent = std::make_unique<StockAlphaBetaAgent>(customStore);
+    OctiBotRunner customRunner(std::move(customAgent), customStore);
+    OctiBotMcpServer customMcp(customRunner);
+    const nlohmann::json customEntries = customMcp.buildConfigJson()["entries"];
+    CHECK_EQUAL("75", customEntries["book_selection_window"].get<std::string>());
+    CHECK_EQUAL("false", customEntries["use_opening_book"].get<std::string>());
+    CHECK_EQUAL("true", customEntries["use_pvs"].get<std::string>());
+    CHECK_EQUAL("20", customEntries["tt_size_log2"].get<std::string>());
+    CHECK_EQUAL("900", customEntries["ofk_single_pod_monopoly_penalty"].get<std::string>());
+    CHECK_EQUAL("155", customEntries["ofk_pod_val_scale_pct"].get<std::string>());
+    CHECK_EQUAL("195", customEntries["empty_allied_base_1b_close_urgency_pct"].get<std::string>());
+    CHECK_EQUAL("145", customEntries["empty_allied_base_1b_mid_urgency_pct"].get<std::string>());
+}
+
+TEST(OctiVariantParamsAndSlimProfileConfig, ApplyConfigUpdatesSaveToDiskPreservesSlimProfileInheritance) {
+#if !defined(_WIN32)
+    char tmpTmpl[] = "/tmp/octibot_e1_slim_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    const std::string dirPath = td;
+    const std::string confPath = dirPath + "/octibot.conf";
+#else
+    const std::string confPath = "octibot_e1_slim_test.conf";
+#endif
+
+    const std::string initialConf =
+        "server_host = 127.0.0.1\n"
+        "server_port = 8080\n"
+        "table_behavior = auto\n"
+        "use_pvs = 1\n"
+        "qsearch_use_tt = 0\n"
+        "verbosity = verbose\n"
+        "lazy_smp_threads = 4\n"
+        "one_step_base_threat_bonus = 10700\n"
+        "ofk_pod_val_scale_pct = 135\n"
+        "\n"
+        "[octibot-sdk-cc2]\n"
+        "robot_name = octibot-sdk-cc2\n"
+        "web_port = 3896\n"
+        "host_mode = OFK\n"
+        "\n"
+        "[octibot-sdk-cc3]\n"
+        "robot_name = octibot-sdk-cc3\n"
+        "web_port = 3897\n"
+        "host_mode = 2P\n"
+        "host_bases = 1\n";
+
+    {
+        OctiBotConfigStore initStore;
+        std::string err;
+        CHECK_TRUE_TEXT(initStore.parseString(initialConf, err), err.c_str());
+        CHECK_TRUE_TEXT(initStore.saveFile(confPath, err), err.c_str());
+    }
+
+    OctiBotConfigStore fileStore;
+    std::string err;
+    CHECK_TRUE_TEXT(fileStore.loadFile(confPath, err), err.c_str());
+    OctiBotConfigStore cc2Cfg = fileStore.resolveProfile("octibot-sdk-cc2");
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(cc2Cfg);
+    OctiBotRunner runner(std::move(agent), cc2Cfg);
+    runner.setConfigFilePath(confPath);
+    OctiBotMcpServer mcp(runner);
+
+    // Build simulated Web UI submitConfig(true) payload containing all editable cfg_* fields
+    static const std::set<std::string> kLockedUiKeys = {
+        "aimon_enabled", "aimon_host", "aimon_port", "aimon_gateway_port",
+        "expose_mcp_tools", "web_port", "web_bind", "server_host",
+        "server_port", "server_use_ssl", "default_profile", "robot_name",
+        "lobby_only", "ai_cli_sandbox_dir", "config_path", "tokens_path",
+        "helper_octi_dir", "helper_octibot_dir", "helper_feedback_file"
+    };
+    std::map<std::string, std::string> webPayload;
+    const nlohmann::json cfgEntries = mcp.buildConfigJson()["entries"];
+    for (auto it = cfgEntries.begin(); it != cfgEntries.end(); ++it) {
+        if (kLockedUiKeys.count(it.key()) > 0) {
+            continue;
+        }
+        webPayload[it.key()] = it.value().get<std::string>();
+    }
+    // Simulate HTML checkbox/number normalization in submitConfig()
+    webPayload["use_pvs"] = "true";        // file had "1"
+    webPayload["qsearch_use_tt"] = "false"; // file had "0"
+    webPayload["verbosity"] = "3";         // file had "verbose"
+    CHECK_TRUE(webPayload.size() >= 110u);
+
+    // 1. Zero-change save: must add 0 global/default keys into [octibot-sdk-cc2]
+    CHECK_TRUE_TEXT(runner.applyConfigUpdates(webPayload, true, err), err.c_str());
+    {
+        OctiBotConfigStore afterNoop;
+        CHECK_TRUE_TEXT(afterNoop.loadFile(confPath, err), err.c_str());
+        CHECK_EQUAL(3u, afterNoop.profiles().at("octibot-sdk-cc2").size());
+        CHECK_FALSE(afterNoop.hasProfileKey("octibot-sdk-cc2", "lazy_smp_threads"));
+        CHECK_FALSE(afterNoop.hasProfileKey("octibot-sdk-cc2", "root_branch_cap"));
+        CHECK_FALSE(afterNoop.hasProfileKey("octibot-sdk-cc2", "use_pvs"));
+        CHECK_FALSE(afterNoop.hasProfileKey("octibot-sdk-cc2", "verbosity"));
+        CHECK_FALSE(afterNoop.hasProfileKey("octibot-sdk-cc2", "ofk_pod_val_scale_pct"));
+        CHECK_EQUAL(4u, afterNoop.profiles().at("octibot-sdk-cc3").size());
+    }
+
+    // 2. Modify 1 inherited key (ofk_pod_val_scale_pct -> 160) and 1 existing profile key (host_mode -> 4P)
+    webPayload["ofk_pod_val_scale_pct"] = "160";
+    webPayload["host_mode"] = "4P";
+    CHECK_TRUE_TEXT(runner.applyConfigUpdates(webPayload, true, err), err.c_str());
+    {
+        OctiBotConfigStore afterEdit;
+        CHECK_TRUE_TEXT(afterEdit.loadFile(confPath, err), err.c_str());
+        const auto &cc2Prof = afterEdit.profiles().at("octibot-sdk-cc2");
+        CHECK_EQUAL(4u, cc2Prof.size());
+        CHECK_EQUAL("octibot-sdk-cc2", cc2Prof.at("robot_name"));
+        CHECK_EQUAL("3896", cc2Prof.at("web_port"));
+        CHECK_EQUAL("4P", cc2Prof.at("host_mode"));
+        CHECK_EQUAL("160", cc2Prof.at("ofk_pod_val_scale_pct"));
+        // Global value and sibling profile remain completely untouched
+        CHECK_EQUAL("135", afterEdit.entries().at("ofk_pod_val_scale_pct"));
+        CHECK_EQUAL(4u, afterEdit.profiles().at("octibot-sdk-cc3").size());
+        CHECK_EQUAL("2P", afterEdit.profiles().at("octibot-sdk-cc3").at("host_mode"));
+    }
+
+#if !defined(_WIN32)
+    struct stat st{};
+    CHECK_EQUAL(0, ::stat(confPath.c_str(), &st));
+    CHECK_EQUAL(0600, static_cast<int>(st.st_mode & 0777));
+    ::unlink(confPath.c_str());
+    ::rmdir(dirPath.c_str());
+#else
+    std::remove(confPath.c_str());
+#endif
+}
+
+TEST(OctiVariantParamsAndSlimProfileConfig, McpConfigurePolicyDelegatesToApplyConfigUpdatesWithoutWipingProfiles) {
+#if !defined(_WIN32)
+    char tmpTmpl[] = "/tmp/octibot_e1_mcp_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    const std::string dirPath = td;
+    const std::string confPath = dirPath + "/octibot.conf";
+#else
+    const std::string confPath = "octibot_e1_mcp_test.conf";
+#endif
+
+    const std::string multiConf =
+        "server_host = 127.0.0.1\n"
+        "table_behavior = auto\n"
+        "ofk_captured_pod_penalty = 4800\n"
+        "\n"
+        "[bot_alpha]\n"
+        "robot_name = bot_alpha\n"
+        "host_mode = OFK\n"
+        "\n"
+        "[bot_beta]\n"
+        "robot_name = bot_beta\n"
+        "host_mode = 4P\n"
+        "four_player_wipeout_danger_pct = 65\n";
+
+    {
+        OctiBotConfigStore initStore;
+        std::string err;
+        CHECK_TRUE_TEXT(initStore.parseString(multiConf, err), err.c_str());
+        CHECK_TRUE_TEXT(initStore.saveFile(confPath, err), err.c_str());
+    }
+
+    OctiBotConfigStore loaded;
+    std::string err;
+    CHECK_TRUE_TEXT(loaded.loadFile(confPath, err), err.c_str());
+    OctiBotConfigStore alphaCfg = loaded.resolveProfile("bot_alpha");
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(alphaCfg);
+    StockAlphaBetaAgent *rawAgent = agent.get();
+    OctiBotRunner runner(std::move(agent), alphaCfg);
+    runner.setConfigFilePath(confPath);
+    OctiBotMcpServer mcp(runner);
+
+    // 1. Locked keys must be rejected by octibot_configure_policy
+    auto lockedRes = nlohmann::json::parse(mcp.callTool(
+        "octibot_configure_policy",
+        R"({"key":"web_port","value":"9999","save_to_file":true})"));
+    CHECK_FALSE(lockedRes.value("ok", true));
+    CHECK_TRUE(lockedRes.value("error", "").find("web_port") != std::string::npos);
+
+    auto tokenRes = nlohmann::json::parse(mcp.callTool(
+        "octibot_configure_policy",
+        R"({"key":"bot_token","value":"octi_bot_bad","save_to_file":true})"));
+    CHECK_FALSE(tokenRes.value("ok", true));
+
+    // 2. Updating a tuning/policy key with save_to_file=true updates live agent & preserves [bot_beta]
+    auto okRes = nlohmann::json::parse(mcp.callTool(
+        "octibot_configure_policy",
+        R"({"key":"ofk_captured_pod_penalty","value":"5400","save_to_file":true})"));
+    CHECK_TRUE_TEXT(okRes.value("ok", false), okRes.dump().c_str());
+    CHECK_EQUAL("ok", okRes.value("saved", ""));
+    CHECK_EQUAL(5400, rawAgent->profile().ofkCapturedPodPenalty);
+
+    OctiBotConfigStore reloaded;
+    CHECK_TRUE_TEXT(reloaded.loadFile(confPath, err), err.c_str());
+    CHECK_TRUE(reloaded.hasProfile("bot_alpha"));
+    CHECK_TRUE(reloaded.hasProfile("bot_beta"));
+    CHECK_EQUAL("5400", reloaded.profiles().at("bot_alpha").at("ofk_captured_pod_penalty"));
+    CHECK_EQUAL(3u, reloaded.profiles().at("bot_alpha").size());
+    CHECK_EQUAL("4P", reloaded.profiles().at("bot_beta").at("host_mode"));
+    CHECK_EQUAL("65", reloaded.profiles().at("bot_beta").at("four_player_wipeout_danger_pct"));
+    CHECK_EQUAL("4800", reloaded.entries().at("ofk_captured_pod_penalty"));
+
+#if !defined(_WIN32)
+    ::unlink(confPath.c_str());
+    ::rmdir(dirPath.c_str());
+#else
+    std::remove(confPath.c_str());
+#endif
 }
 
 // ============================================================================

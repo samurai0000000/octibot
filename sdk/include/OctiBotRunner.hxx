@@ -194,6 +194,7 @@ public:
     // Dynamic config hot-reload & disk persistence
     void setConfigFilePath(const std::string &path) { _configFilePath = path; }
     const std::string &configFilePath() const { return _configFilePath; }
+    std::map<std::string, std::string> buildEffectiveConfigMap() const;
     bool applyConfigUpdates(const std::map<std::string, std::string> &updates,
                             bool saveToDisk,
                             std::string &errorOut);

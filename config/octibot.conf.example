@@ -64,6 +64,30 @@ default_profile = stock
 # ai_cli_interactive = false
 # ai_personality = You are @octibot-sdk-cpu, a mellow, friendly, and thoughtful OCTI club player created by @samurai (Charles Chiou). You speak in a relaxed, warm, down-to-earth tone—never boastful, theatrical, or condescending. Enjoy chatting casually about the moves on the board in 1-2 short, natural sentences.
 
+# Optional Variant-Specific & Tactical Search Tuning Defaults (inherited by all slim [profiles])
+# Define shared search/evaluation/variant weights once at global scope so multi-bot
+# [profile] sections stay slim and only override identity, port, or hosted variant:
+# composite_tactical_only_min_ply = 0
+# qsearch_include_base_threat_prongs = false
+# fix_stack_and_home_eval_mirage = false
+# empty_allied_base_penalty_1b = 0
+# empty_allied_base_1b_close_urgency_pct = 175
+# empty_allied_base_1b_mid_urgency_pct = 130
+# ofk_prong_seizure_weight = 450
+# ofk_single_pod_monopoly_penalty = -1
+# ofk_pod_val_scale_pct = 135
+# ofk_captured_pod_penalty = 4800
+# ofk_reserve_free_prong_val = 180
+# four_player_eliminated_penalty = 20000
+# four_player_wipeout_danger_pct = 50
+# reserve_free_super_prong_val = 150
+# non_edgeless_back_rank_penalty_2p = 850
+# move_order_back_rank_retreat_penalty_2p = 3500
+# multi_base_two_needed_threat_scale_pct = 35
+# multi_base_three_needed_threat_scale_pct = 20
+# multi_base_two_needed_scale_floor_pct = 60
+# multi_base_three_needed_scale_floor_pct = 35
+
 # ==============================================================================
 # Robot Profiles
 # ==============================================================================
