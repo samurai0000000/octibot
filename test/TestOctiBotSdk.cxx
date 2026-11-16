@@ -5951,6 +5951,95 @@ TEST(OctiVariantParamsAndSlimProfileConfig, McpConfigurePolicyDelegatesToApplyCo
 #endif
 }
 
+namespace {
+
+class CustomSdkTestEngine : public OctiBotEngine {
+public:
+    explicit CustomSdkTestEngine(bool ctorFinishedFlag)
+        : OctiBotEngine(BotDifficulty::TACTICAL, 0x5EED2026ULL)
+        , createdAfterSubclassCtor(ctorFinishedFlag)
+    {
+    }
+
+    bool createdAfterSubclassCtor = false;
+    mutable int customSearchMovesCalls = 0;
+
+protected:
+    void generateSearchMoves(const OctiGame &game,
+                             OctiPlayer turn,
+                             int ply,
+                             std::vector<OctiMove> &outMoves) const override
+    {
+        ++customSearchMovesCalls;
+        OctiBotEngine::generateSearchMoves(game, turn, ply, outMoves);
+    }
+};
+
+class CustomFactoryTestAgent : public StockAlphaBetaAgent {
+public:
+    explicit CustomFactoryTestAgent(const OctiBotConfigStore &config)
+        : StockAlphaBetaAgent(config)
+    {
+        subclassCtorFinished = true;
+    }
+
+    bool subclassCtorFinished = false;
+    mutable int createEngineCalls = 0;
+
+protected:
+    std::unique_ptr<OctiBotEngine> createEngine() const override
+    {
+        ++createEngineCalls;
+        return std::make_unique<CustomSdkTestEngine>(subclassCtorFinished);
+    }
+};
+
+} // namespace
+
+TEST(OctiBotSdkExtensionHooks, CustomEngineSubclassFactoryInvokedByStockAlphaBetaAgent) {
+    OctiBotConfigStore cfg;
+    std::string err;
+    CHECK_TRUE_TEXT(cfg.parseString(
+        "max_search_depth = 2\n"
+        "time_budget_ms = 200\n"
+        "use_opening_book = false\n"
+        "lazy_smp_threads = 1\n", err), err.c_str());
+
+    CustomFactoryTestAgent agent(cfg);
+    // Base constructor StockAlphaBetaAgent(config) calls onConfigure(config),
+    // which MUST NOT call ensureEngine() before CustomFactoryTestAgent ctor finishes.
+    CHECK_TRUE(agent.subclassCtorFinished);
+    CHECK_EQUAL(0, agent.createEngineCalls);
+
+    OctiBotEngine *engPtr = &agent.engine();
+    CHECK_EQUAL(1, agent.createEngineCalls);
+    auto *customEng = dynamic_cast<CustomSdkTestEngine *>(engPtr);
+    CHECK_TRUE(customEng != nullptr);
+    CHECK_TRUE(customEng->createdAfterSubclassCtor);
+    CHECK_EQUAL(2, customEng->tuningProfile().maxSearchDepth);
+
+    // Re-configuring must update the existing engine in-place without reallocating it
+    OctiBotConfigStore cfg2;
+    CHECK_TRUE_TEXT(cfg2.parseString(
+        "max_search_depth = 3\n"
+        "time_budget_ms = 250\n"
+        "use_opening_book = false\n"
+        "lazy_smp_threads = 1\n", err), err.c_str());
+    agent.onConfigure(cfg2);
+    CHECK_EQUAL(1, agent.createEngineCalls);
+    CHECK_EQUAL(engPtr, &agent.engine());
+    CHECK_EQUAL(3, customEng->tuningProfile().maxSearchDepth);
+
+    OctiBoard board(GAME_MODE_2, false, false, GAME_BASES_1);
+    board.getGame()->start(PLAYER_A);
+    GameViewData gv;
+    gv.roomId = "factory-test";
+    BotMoveTelemetry tel;
+    std::string mv = agent.computeMove(board, gv, 1, 0, &tel);
+    CHECK_FALSE(mv.empty());
+    CHECK_TRUE(customEng->customSearchMovesCalls > 0);
+}
+
 // ============================================================================
 
 int main(int argc, char **argv) {

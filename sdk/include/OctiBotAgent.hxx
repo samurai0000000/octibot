@@ -117,15 +117,19 @@ public:
                             std::int64_t remainingClockMs,
                             BotMoveTelemetry *outTelemetry = nullptr) override;
 
-    OctiBotEngine &engine() { return _engine; }
+    OctiBotEngine &engine() { return ensureEngine(); }
     const BotTuningProfile &profile() const { return _profile; }
     void setProgressCallback(ProgressCallback cb) { _progressCallback = std::move(cb); }
 
 protected:
+    virtual std::unique_ptr<OctiBotEngine> createEngine() const;
+    OctiBotEngine &ensureEngine();
+    OctiBotEngine *existingEngine() noexcept { return _engine.get(); }
+    const OctiBotEngine *existingEngine() const noexcept { return _engine.get(); }
     BotTuningProfile &mutableProfile() { return _profile; }
 
 private:
-    OctiBotEngine _engine;
+    std::unique_ptr<OctiBotEngine> _engine;
     BotTuningProfile _profile;
     int _verbosity = 2;
     ProgressCallback _progressCallback;

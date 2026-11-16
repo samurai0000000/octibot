@@ -643,6 +643,21 @@ bool OctiBotRunner::applyConfigUpdates(const std::map<std::string, std::string> 
 
 // --- StockAlphaBetaAgent Implementation ---
 
+std::unique_ptr<OctiBotEngine> StockAlphaBetaAgent::createEngine() const {
+    return std::make_unique<OctiBotEngine>();
+}
+
+OctiBotEngine &StockAlphaBetaAgent::ensureEngine() {
+    if (!_engine) {
+        _engine = createEngine();
+        if (!_engine) {
+            _engine = std::make_unique<OctiBotEngine>();
+        }
+        _engine->setTuningProfile(_profile);
+    }
+    return *_engine;
+}
+
 StockAlphaBetaAgent::StockAlphaBetaAgent(const OctiBotConfigStore &config) {
     onConfigure(config);
 }
@@ -650,7 +665,9 @@ StockAlphaBetaAgent::StockAlphaBetaAgent(const OctiBotConfigStore &config) {
 void StockAlphaBetaAgent::onConfigure(const OctiBotConfigStore &config) {
     applyConfigToTuningProfile(config, _profile);
     _verbosity = config.getVerbosityLevel(2);
-    _engine.setTuningProfile(_profile);
+    if (_engine) {
+        _engine->setTuningProfile(_profile);
+    }
 }
 
 std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
@@ -670,7 +687,8 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
         }
         searchProfile.timeBudgetMs = std::min(_profile.timeBudgetMs, dynamicBudget);
     }
-    _engine.setTuningProfile(searchProfile);
+    OctiBotEngine &eng = ensureEngine();
+    eng.setTuningProfile(searchProfile);
 
     std::atomic<bool> searching{true};
     std::thread monitorThread;
@@ -678,14 +696,14 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
         _progressCallback(0, 0, 0);
     }
     if (_verbosity >= 3 || _progressCallback) {
-        monitorThread = std::thread([this, &searching]() {
+        monitorThread = std::thread([this, &eng, &searching]() {
             int lastDepth = 0;
             while (searching.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 if (!searching.load()) break;
-                int d = _engine.liveDepthReached();
-                std::uint64_t n = _engine.liveNodesVisited();
-                int s = _engine.liveBestScore();
+                int d = eng.liveDepthReached();
+                std::uint64_t n = eng.liveNodesVisited();
+                int s = eng.liveBestScore();
                 if (d > lastDepth && d > 0) {
                     lastDepth = d;
                     if (_progressCallback) {
@@ -700,7 +718,7 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
     }
 
     BotSearchStats stats;
-    std::string moveNotation = _engine.chooseMove(board, &stats);
+    std::string moveNotation = eng.chooseMove(board, &stats);
     searching.store(false);
     if (monitorThread.joinable()) {
         monitorThread.join();
