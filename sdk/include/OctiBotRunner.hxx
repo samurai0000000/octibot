@@ -71,14 +71,22 @@ enum class PendingSseActionType {
     APPLY_SIBLING_LOBBY_OVERRIDE,
     APPLY_SIBLING_GAME_OVERRIDE,
     APPLY_COMMAND_JOIN_OVERRIDE,
+    APPLY_COMMAND_PLAY_OVERRIDE,
     APPLY_OWNER_DIRECTIVE_OVERRIDE,
     LEAVE_INCOMPATIBLE_WAITING_ROOM,
+    HANDLE_GAME_PROPOSAL,
+    EMIT_VARIANT_DECLINE,
     LEAVE_ROOM
 };
 
 struct PendingSseAction {
     PendingSseActionType type = PendingSseActionType::LEAVE_ROOM;
     BotMatchOverride overrideReq;
+    GameProposalInfo proposal;
+    OctiVariantSpec declineSpec;
+    std::string declineReason;
+    std::string declineChannel;
+    bool senderIsRobot = false;
     std::string senderHandle;
     std::string originalText;
     std::string roomId;
@@ -211,6 +219,22 @@ public:
     BotMatchOverride matchOverride() const;
     bool applyMatchOverride(const BotMatchOverride &ov, std::string &outSummary, std::string &errorOut);
     void clearMatchOverride();
+    bool checkAgentSupportsVariant(const OctiVariantSpec &spec, std::string &outReason) const;
+    bool checkPolicyAndAgentSupportsVariant(const OctiVariantSpec &spec, std::string &outReason) const;
+    static std::string selectAutoBotHandleForVariant(const OctiVariantSpec &spec,
+                                                     const OctiBotRunner *excludeRunner = nullptr);
+    bool leaveAndSummonReplacementBot(const std::string &roomId,
+                                      const std::string &replacementBotHandle,
+                                      const std::string &opponentHandle,
+                                      std::string &outSelectedBot,
+                                      std::string &errorOut);
+    bool emitVariantDeclineMessage(const std::string &channel,
+                                   const std::string &roomId,
+                                   const std::string &senderHandle,
+                                   bool senderIsRobot,
+                                   const OctiVariantSpec &spec,
+                                   const std::string &agentReason = "",
+                                   bool waitForCompletion = false);
     void dispatchOwnerPrompt(const std::string &promptText,
                              const std::string &channel = "dashboard",
                              const std::string &roomId = "");
@@ -227,6 +251,11 @@ public:
     bool isAiChatBusy() const { return _aiChatBusy.load(); }
 
 private:
+    bool applyMatchOverrideImpl(const BotMatchOverride &ov,
+                                std::string &outSummary,
+                                std::string &errorOut,
+                                bool *outVariantUnsupported,
+                                OctiVariantSpec *outUnsupportedSpec);
     void loopStep();
     void pollRecentLobbyChat();
     void enqueuePendingSseAction(PendingSseAction action);
@@ -284,6 +313,8 @@ private:
     std::uint64_t _nextLogSeq = 1;
 
     mutable std::mutex _overrideMutex;
+    mutable std::mutex _declineMutex;
+    std::map<std::string, std::int64_t> _variantDeclineCooldownsMs;
     mutable std::mutex _stateMutex;
     std::string _currentRoomId;
     std::string _currentPhase = "IDLE";
@@ -294,6 +325,8 @@ private:
     std::string _pendingAgentMove;
     bool _hasAgentMove = false;
     BotMatchOverride _matchOverride;
+    std::string _matchOverrideRequesterHandle;
+    bool _matchOverrideRequesterIsRobot = false;
     std::string _pendingLeaveAfterChatRoomId;
     std::string _pendingLeaveReplacementBot;
     std::string _excludedRoomId;

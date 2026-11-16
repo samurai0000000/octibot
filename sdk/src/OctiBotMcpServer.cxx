@@ -1193,6 +1193,17 @@ std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &re
         std::string toolName = params.value("name", "");
         nlohmann::json args = params.value("arguments", nlohmann::json::object());
         std::string toolResult = callTool(toolName, args.dump());
+        bool isError = (toolResult.rfind("Unknown tool: ", 0) == 0);
+        if (!isError) {
+            try {
+                auto parsedRes = nlohmann::json::parse(toolResult);
+                if (parsedRes.is_object() &&
+                    parsedRes.contains("ok") && parsedRes["ok"].is_boolean() &&
+                    !parsedRes["ok"].get<bool>()) {
+                    isError = true;
+                }
+            } catch (...) {}
+        }
 
         nlohmann::json content = nlohmann::json::array();
         content.push_back({
@@ -1201,7 +1212,7 @@ std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &re
         });
         resp["result"] = {
             {"content", content},
-            {"isError", false}
+            {"isError", isError}
         };
         return resp.dump();
     }
@@ -1532,8 +1543,16 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             return res.dump(2);
         }
 
-        auto ranked = targetRunner->policyEngine().rankCompatibleTables(
+        auto policyRanked = targetRunner->policyEngine().rankCompatibleTables(
             tablesRes.data, targetRunner->identity().ownerHandle, targetRunner->identity().handle);
+        std::vector<TableSummaryInfo> ranked;
+        ranked.reserve(policyRanked.size());
+        for (const auto &t : policyRanked) {
+            std::string varErr;
+            if (targetRunner->checkAgentSupportsVariant(OctiVariantSpec::fromTable(t), varErr)) {
+                ranked.push_back(t);
+            }
+        }
 
         nlohmann::json rankedJson = nlohmann::json::array();
         for (const auto &t : ranked) {
@@ -1552,16 +1571,42 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["action_taken"] = "joined";
             res["joined_room_id"] = roomId;
             res["join_status"] = ok ? "success" : joinErr;
+            if (!ok) {
+                res["error"] = joinErr;
+            }
         } else if (autoHost && ranked.empty()) {
-            auto hostReq = targetRunner->policyEngine().buildHostTableRequest();
-            std::string hostedRoomId;
-            int hostedSeat = 0;
-            std::string hostErr;
-            bool ok = targetRunner->hostRoomWithRequest(hostReq, hostedRoomId, hostedSeat, hostErr);
-            res["ok"] = ok;
-            res["action_taken"] = "hosted";
-            res["hosted_room_id"] = hostedRoomId;
-            res["host_status"] = ok ? "success" : hostErr;
+            std::size_t maxAttempts =
+                std::max<std::size_t>(1, targetRunner->policyEngine().hostVariants().size());
+            CreateTableRequest selectedReq;
+            bool foundSupportedHost = false;
+            std::string lastVarErr;
+            for (std::size_t attempt = 0; attempt < maxAttempts; ++attempt) {
+                auto candReq = targetRunner->policyEngine().buildHostTableRequest();
+                if (targetRunner->checkAgentSupportsVariant(
+                        OctiVariantSpec::fromHostRequest(candReq), lastVarErr)) {
+                    selectedReq = candReq;
+                    foundSupportedHost = true;
+                    break;
+                }
+            }
+            if (!foundSupportedHost) {
+                res["ok"] = false;
+                res["action_taken"] = "declined_unsupported_variant";
+                res["host_status"] = lastVarErr;
+                res["error"] = lastVarErr;
+            } else {
+                std::string hostedRoomId;
+                int hostedSeat = 0;
+                std::string hostErr;
+                bool ok = targetRunner->hostRoomWithRequest(selectedReq, hostedRoomId, hostedSeat, hostErr);
+                res["ok"] = ok;
+                res["action_taken"] = "hosted";
+                res["hosted_room_id"] = hostedRoomId;
+                res["host_status"] = ok ? "success" : hostErr;
+                if (!ok) {
+                    res["error"] = hostErr;
+                }
+            }
         } else {
             res["action_taken"] = "none";
         }
@@ -1638,11 +1683,18 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             std::string roomId;
             int seat = 0;
             std::string err;
-            bool ok = targetRunner->hostRoomWithRequest(req, roomId, seat, err);
-            res["ok"] = ok;
-            res["room_id"] = roomId;
-            res["seat"] = seat;
-            if (!ok) res["error"] = err;
+            if (!targetRunner->checkAgentSupportsVariant(OctiVariantSpec::fromHostRequest(req), err)) {
+                res["ok"] = false;
+                res["room_id"] = "";
+                res["seat"] = 0;
+                res["error"] = err;
+            } else {
+                bool ok = targetRunner->hostRoomWithRequest(req, roomId, seat, err);
+                res["ok"] = ok;
+                res["room_id"] = roomId;
+                res["seat"] = seat;
+                if (!ok) res["error"] = err;
+            }
         } else if (action == "join") {
             std::string roomId = stripRoomPrefix(args.value("room_id", ""));
             BotMatchOverride ov;
@@ -1673,6 +1725,16 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                 if (!repBot.empty()) {
                     res["replacement_bot"] = repBot;
                 }
+            } else if (!repBot.empty()) {
+                std::string selectedBot, err;
+                bool ok = targetRunner->leaveAndSummonReplacementBot(roomId, repBot, "", selectedBot, err);
+                res["ok"] = ok;
+                if (!selectedBot.empty()) {
+                    res["replacement_bot"] = selectedBot;
+                }
+                if (!ok && !err.empty()) {
+                    res["error"] = err;
+                }
             } else {
                 std::string err;
                 bool ok = targetRunner->leaveRoomById(roomId, err);
@@ -1694,8 +1756,17 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["ok"] = r.ok;
         } else if (action == "enqueue_matchmaking") {
             auto req = targetRunner->policyEngine().buildMatchmakingRequest();
-            auto r = targetRunner->networkClient().enqueueMatchmaking(req);
-            res["ok"] = r.ok;
+            std::string mmVarErr;
+            if (!targetRunner->checkAgentSupportsVariant(OctiVariantSpec::fromMatchmaking(req), mmVarErr)) {
+                res["ok"] = false;
+                res["error"] = mmVarErr;
+            } else {
+                auto r = targetRunner->networkClient().enqueueMatchmaking(req);
+                res["ok"] = r.ok;
+                if (!r.ok && !r.errorMessage.empty()) {
+                    res["error"] = r.errorMessage;
+                }
+            }
         } else if (action == "dequeue_matchmaking") {
             auto r = targetRunner->networkClient().dequeueMatchmaking();
             res["ok"] = r.ok;
@@ -2602,6 +2673,36 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         int games = std::max(1, args.value("games", 1));
         int preferredSeat = args.value("seat", 0);
 
+        OctiVariantSpec reqSpec;
+        reqSpec.mode = mode;
+        reqSpec.bases = (mode == "OFK") ? 1 : ((mode == "4P") ? 3 : bases);
+        reqSpec.superProngs = (mode == "OFK") ? false : superProngs;
+        reqSpec.edgeless = (mode == "OFK") ? false : edgeless;
+        if (!roomId.empty() && _runner.networkClient().isAuthenticated()) {
+            auto gvRoom = _runner.networkClient().fetchGameView(roomId);
+            if (gvRoom.ok) {
+                reqSpec = OctiVariantSpec::fromGameView(gvRoom.data);
+                if (!args.contains("mode")) mode = reqSpec.mode;
+                if (!args.contains("bases")) bases = reqSpec.bases;
+                if (!hasSuperProngs) superProngs = reqSpec.superProngs;
+                if (!hasEdgeless) edgeless = reqSpec.edgeless;
+            } else {
+                auto tRes = _runner.networkClient().listTables(false);
+                if (tRes.ok) {
+                    for (const auto &t : tRes.data) {
+                        if (t.roomId == roomId) {
+                            reqSpec = OctiVariantSpec::fromTable(t);
+                            if (!args.contains("mode")) mode = reqSpec.mode;
+                            if (!args.contains("bases")) bases = reqSpec.bases;
+                            if (!hasSuperProngs) superProngs = reqSpec.superProngs;
+                            if (!hasEdgeless) edgeless = reqSpec.edgeless;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Multi-bot batch orchestration path (bot_handles array)
         if (args.contains("bot_handles") && args["bot_handles"].is_array() && !args["bot_handles"].empty()) {
             if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
@@ -2650,6 +2751,12 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                 if (r->isLobbyOnly()) {
                     res["ok"] = false;
                     res["error"] = "Bot @" + canon + " is configured as lobby_only and cannot play games";
+                    return res.dump(2);
+                }
+                std::string batchVarErr;
+                if (!r->checkAgentSupportsVariant(reqSpec, batchVarErr)) {
+                    res["ok"] = false;
+                    res["error"] = batchVarErr;
                     return res.dump(2);
                 }
                 canonHandles.push_back(canon);
@@ -2787,27 +2894,52 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             }
         }
 
-        if (botHandle.empty() || lowerBot == "auto") {
-            std::string primarySdk = OctiBotRunner::resolvePrimarySdkBotHandle();
-            if (mode == "2P" && bases == 3 && !superProngs && !edgeless) {
-                botHandle = primarySdk;
-            } else {
-                botHandle = "octibot-cc-nnue";
-                if (OctiBotRunner::findActiveRunnerByHandle(botHandle) == nullptr &&
-                    OctiBotRunner::findActiveRunnerByHandle(primarySdk) != nullptr) {
-                    botHandle = primarySdk;
+        if (roomId.empty() && !playerHandle.empty() &&
+            !args.contains("mode") && !args.contains("bases") &&
+            !hasSuperProngs && !hasEdgeless &&
+            _runner.networkClient().isAuthenticated()) {
+            auto tRes = _runner.networkClient().listTables(false);
+            if (tRes.ok) {
+                for (const auto &t : tRes.data) {
+                    if (t.phase != "WAITING_FOR_PLAYERS") continue;
+                    bool hasPlayer = (t.hostHandle == playerHandle);
+                    for (const auto &s : t.seats) {
+                        if (s.handle == playerHandle) {
+                            hasPlayer = true;
+                            break;
+                        }
+                    }
+                    if (hasPlayer) {
+                        reqSpec = OctiVariantSpec::fromTable(t);
+                        break;
+                    }
                 }
             }
-            if (botHandle == _runner.identity().handle) {
-                if (botHandle == primarySdk) {
-                    botHandle = "octibot-cc-nnue";
-                    if (OctiBotRunner::findActiveRunnerByHandle(botHandle) == nullptr &&
-                        OctiBotRunner::findActiveRunnerByHandle("octibot-sdk-cc2") != nullptr) {
-                        botHandle = "octibot-sdk-cc2";
-                    }
-                } else {
-                    botHandle = primarySdk;
-                }
+        }
+
+        if (botHandle.empty() || lowerBot == "auto") {
+            const OctiBotRunner *excludeSelf =
+                (!_runner.isLobbyOnly() && !_runner.currentRoomId().empty() &&
+                 !_runner.activeChatSenderHandle().empty())
+                    ? &_runner
+                    : nullptr;
+            botHandle = OctiBotRunner::selectAutoBotHandleForVariant(reqSpec, excludeSelf);
+        }
+
+        auto targetRunner = OctiBotRunner::findActiveRunnerByHandle(botHandle);
+        if (targetRunner) {
+            if (targetRunner->isLobbyOnly()) {
+                res["ok"] = false;
+                res["target_bot"] = botHandle;
+                res["error"] = "Bot @" + botHandle + " is configured as lobby_only and cannot play games";
+                return res.dump(2);
+            }
+            std::string targetVarErr;
+            if (!targetRunner->checkAgentSupportsVariant(reqSpec, targetVarErr)) {
+                res["ok"] = false;
+                res["target_bot"] = botHandle;
+                res["error"] = targetVarErr;
+                return res.dump(2);
             }
         }
 
@@ -2824,7 +2956,6 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             return res.dump(2);
         }
 
-        auto targetRunner = OctiBotRunner::findActiveRunnerByHandle(botHandle);
         if (targetRunner) {
             BotMatchOverride ov;
             ov.active = true;
@@ -2855,7 +2986,10 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         } else {
             std::string directive = "@" + botHandle + " [MATCH player=@" + playerHandle;
             if (!roomId.empty()) directive += " room=#" + roomId;
-            directive += " mode=" + mode + " bases=" + std::to_string(bases) + "] Hi @" + botHandle + ", please play a match with @" + playerHandle + "!";
+            directive += " mode=" + mode + " bases=" + std::to_string(bases);
+            if (superProngs) directive += " super_prongs=true";
+            if (edgeless) directive += " edgeless=true";
+            directive += "] Hi @" + botHandle + ", please play a match with @" + playerHandle + "!";
             auto postRes = _runner.networkClient().postLobbyChat(directive);
             res["ok"] = postRes.ok;
             res["dispatch_mode"] = "lobby_directive";

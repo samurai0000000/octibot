@@ -6041,6 +6041,989 @@ TEST(OctiBotSdkExtensionHooks, CustomEngineSubclassFactoryInvokedByStockAlphaBet
 }
 
 // ============================================================================
+// Envelope 1: Agent Variant Competency, Match Gating, Companion Decline & MCP
+// ============================================================================
+
+namespace {
+
+class NonCartesian2P3BAnd4PAgent : public StockAlphaBetaAgent {
+public:
+    using StockAlphaBetaAgent::StockAlphaBetaAgent;
+
+    std::atomic<bool> allow2P3B{true};
+    std::atomic<bool> allow4P{true};
+    std::atomic<int> computeCalls{0};
+
+    bool supportsVariant(const OctiVariantSpec &spec,
+                         std::string &outUnsupportedReason) const override {
+        const std::string label = formatVariantLabel(spec);
+        if (!spec.superProngs && !spec.edgeless) {
+            if (spec.mode == "2P" && spec.bases == 3 && allow2P3B.load()) {
+                outUnsupportedReason.clear();
+                return true;
+            }
+            if (spec.mode == "4P" && allow4P.load()) {
+                outUnsupportedReason.clear();
+                return true;
+            }
+        }
+        outUnsupportedReason = "I have not yet been trained to play " + label + ".";
+        return false;
+    }
+
+    std::string computeMove(const OctiBoard &board,
+                            const GameViewData &game,
+                            int mySeat,
+                            std::int64_t remainingClockMs,
+                            BotMoveTelemetry *outTelemetry = nullptr) override {
+        ++computeCalls;
+        OctiVariantSpec spec = OctiVariantSpec::fromGameView(game);
+        std::string reason;
+        if (!supportsVariant(spec, reason)) {
+            if (outTelemetry) {
+                *outTelemetry = BotMoveTelemetry{};
+            }
+            return "";
+        }
+        return StockAlphaBetaAgent::computeMove(board, game, mySeat, remainingClockMs, outTelemetry);
+    }
+};
+
+class EmptyMoveSpinTestAgent : public StockAlphaBetaAgent {
+public:
+    using StockAlphaBetaAgent::StockAlphaBetaAgent;
+
+    std::atomic<int> computeCalls{0};
+
+    std::string computeMove(const OctiBoard &board,
+                            const GameViewData &game,
+                            int mySeat,
+                            std::int64_t remainingClockMs,
+                            BotMoveTelemetry *outTelemetry = nullptr) override {
+        (void) board;
+        (void) game;
+        (void) mySeat;
+        (void) remainingClockMs;
+        ++computeCalls;
+        if (outTelemetry) {
+            *outTelemetry = BotMoveTelemetry{};
+        }
+        return "";
+    }
+};
+
+static LoginResult loginTestHuman(TestServerEnv &env,
+                                  const std::string &sub,
+                                  const std::string &handle) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = sub;
+    claims.name = handle;
+    claims.email = handle + "@selfso.com";
+    return env.store.loginWithSso(claims, "test-agent");
+}
+
+static bool waitForLobbyChatMatching(OctiNetworkClient &client,
+                                     std::int64_t afterSeq,
+                                     const std::string &fromHandle,
+                                     const std::string &substring,
+                                     std::string &outMatchedText,
+                                     std::int64_t &outNewLatestSeq,
+                                     int timeoutMs = 2000) {
+    int loops = std::max(1, timeoutMs / 25);
+    for (int i = 0; i < loops; ++i) {
+        auto lobby = client.fetchLobbyState();
+        if (lobby.ok) {
+            outNewLatestSeq = lobby.data.latestSeq;
+            for (const auto &c : lobby.data.recentChat) {
+                if (c.seq > afterSeq &&
+                    (fromHandle.empty() || c.handle == fromHandle) &&
+                    c.text.find(substring) != std::string::npos) {
+                    outMatchedText = c.text;
+                    return true;
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    return false;
+}
+
+static bool waitForGameChatMatching(OctiNetworkClient &client,
+                                    const std::string &roomId,
+                                    const std::string &fromHandle,
+                                    const std::string &substring,
+                                    std::string &outMatchedText,
+                                    int timeoutMs = 2000) {
+    int loops = std::max(1, timeoutMs / 25);
+    for (int i = 0; i < loops; ++i) {
+        auto evs = client.pollGameEvents(roomId, 0, 100);
+        if (evs.ok) {
+            for (const auto &ev : evs.data) {
+                if (ev.event == "CHAT" || ev.event == "BOARD_CHAT") {
+                    try {
+                        auto j = nlohmann::json::parse(ev.dataJson);
+                        std::string h = j.value("handle", "");
+                        std::string txt = j.value("text", "");
+                        if ((fromHandle.empty() || h == fromHandle) &&
+                            txt.find(substring) != std::string::npos) {
+                            outMatchedText = txt;
+                            return true;
+                        }
+                    } catch (...) {}
+                }
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_GROUP(AgentVariantCompetency) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+        if (env && env->rooms) {
+            RoomLimits lim;
+            lim.lobbyChatBurst = 100;
+            lim.boardChatBurst = 100;
+            env->rooms->setLimits(lim);
+        }
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(AgentVariantCompetency, NonCartesianSubsetGatesLobbyOverridesDirectivesCommandsInvitesAndRematch) {
+    auto ownerLogin = loginTestHuman(*env, "sub-avc-owner", "samurai");
+    auto aliceLogin = loginTestHuman(*env, "sub-avc-alice", "alice");
+    auto bobLogin = loginTestHuman(*env, "sub-avc-bob", "bob");
+    CHECK_TRUE(ownerLogin.profile.playerId > 0);
+    CHECK_TRUE(aliceLogin.profile.playerId > 0);
+    CHECK_TRUE(bobLogin.profile.playerId > 0);
+
+    OctiNetworkClient ownerClient;
+    ownerClient.setEndpoint("127.0.0.1", env->port);
+    ownerClient.setSessionToken(ownerLogin.sessionToken);
+
+    OctiNetworkClient aliceClient;
+    aliceClient.setEndpoint("127.0.0.1", env->port);
+    aliceClient.setSessionToken(aliceLogin.sessionToken);
+
+    OctiNetworkClient bobClient;
+    bobClient.setEndpoint("127.0.0.1", env->port);
+    bobClient.setSessionToken(bobLogin.sessionToken);
+
+    auto rSubset = env->store.createRobot(ownerLogin.profile.playerId, "octibot-subset", "2P_3B+4P Bot");
+    auto rSibling = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sibling", "Sibling Bot");
+    auto rSdk = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sdk-cc1", "All Variants SDK");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rSubset.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rSibling.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rSdk.status));
+
+    OctiNetworkClient siblingRawClient;
+    siblingRawClient.setEndpoint("127.0.0.1", env->port);
+    siblingRawClient.setBotToken(rSibling.rawToken);
+    CHECK_TRUE(siblingRawClient.connectRobot(false).ok);
+
+    OctiBotConfigStore sdkCfg;
+    sdkCfg.set("server_host", "127.0.0.1");
+    sdkCfg.set("server_port", std::to_string(env->port));
+    sdkCfg.set("robot_name", "octibot-sdk-cc1");
+    sdkCfg.set("bot_token", rSdk.rawToken);
+    sdkCfg.set("table_behavior", "idle");
+    sdkCfg.set("verbosity", "0");
+    OctiBotRunner sdkRunner(std::make_unique<StockAlphaBetaAgent>(sdkCfg), sdkCfg);
+    std::string err;
+    CHECK_TRUE_TEXT(sdkRunner.connectAndAuthenticate(err), err.c_str());
+
+    OctiBotConfigStore subsetCfg;
+    subsetCfg.set("server_host", "127.0.0.1");
+    subsetCfg.set("server_port", std::to_string(env->port));
+    subsetCfg.set("robot_name", "octibot-subset");
+    subsetCfg.set("bot_token", rSubset.rawToken);
+    subsetCfg.set("table_behavior", "join_only");
+    subsetCfg.set("accept_modes", "2P, 4P, OFK");
+    subsetCfg.set("accept_bases", "any");
+    subsetCfg.set("accept_super_prongs", "any");
+    subsetCfg.set("accept_edgeless", "any");
+    subsetCfg.set("ai_cli_backend", "none");
+    subsetCfg.set("time_budget_ms", "20");
+    subsetCfg.set("max_search_depth", "1");
+    subsetCfg.set("verbosity", "0");
+
+    auto subsetAgentUPtr = std::make_unique<NonCartesian2P3BAnd4PAgent>(subsetCfg);
+    NonCartesian2P3BAnd4PAgent *subsetAgent = subsetAgentUPtr.get();
+
+    // 1. Verify exact non-Cartesian truth table on agent
+    for (const auto &code : allOctiVariantCodes()) {
+        OctiVariantSpec spec = OctiVariantSpec::fromCode(code);
+        std::string reason;
+        bool expected = (code == "2P_3B" || code == "4P");
+        CHECK_EQUAL_TEXT(expected, subsetAgent->supportsVariant(spec, reason),
+                         ("Mismatch on variant " + code).c_str());
+        if (!expected) {
+            CHECK_FALSE(reason.empty());
+        }
+    }
+
+    // 2. Host 5 unsupported open tables before starting join_only runner: passive scan must skip all 5 silently
+    auto createUnsupportedTable = [&](OctiNetworkClient &cli, const std::string &mode,
+                                      int bases, bool sp, bool ed) -> std::string {
+        CreateTableRequest req;
+        req.mode = mode;
+        req.bases = bases;
+        req.superProngs = sp;
+        req.edgeless = ed;
+        req.allowRobots = true;
+        req.seat = 1;
+        auto res = cli.createTable(req);
+        CHECK_TRUE_TEXT(res.ok, res.errorMessage.c_str());
+        return res.data.roomId;
+    };
+
+    std::string r2p1b = createUnsupportedTable(ownerClient, "2P", 1, false, false);
+    std::string rOfk = createUnsupportedTable(aliceClient, "OFK", 1, false, false);
+    std::string rSp = createUnsupportedTable(siblingRawClient, "2P", 3, true, false);
+    OctiBotRunner subsetRunner(std::move(subsetAgentUPtr), subsetCfg);
+    CHECK_TRUE_TEXT(subsetRunner.connectAndAuthenticate(err), err.c_str());
+
+    {
+        std::string varReason;
+        CHECK_TRUE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("2P_3B"), varReason));
+        CHECK_TRUE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("4P"), varReason));
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("2P_1B"), varReason));
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("OFK"), varReason));
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("2P_3B_SP"), varReason));
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("2P_3B_ED"), varReason));
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(OctiVariantSpec::fromCode("2P_3B_SPED"), varReason));
+        OctiVariantSpec bogusSpec;
+        bogusSpec.mode = "3P_BOGUS";
+        bogusSpec.bases = 3;
+        CHECK_FALSE(subsetRunner.checkAgentSupportsVariant(bogusSpec, varReason));
+        CHECK_TRUE(subsetRunner.checkPolicyAndAgentSupportsVariant(OctiVariantSpec::fromCode("2P_3B"), varReason));
+        CHECK_FALSE(subsetRunner.checkPolicyAndAgentSupportsVariant(OctiVariantSpec::fromCode("OFK"), varReason));
+    }
+
+    std::int64_t seqBeforeScan = ownerClient.fetchLobbyState().data.latestSeq;
+    subsetRunner.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK_EQUAL_TEXT("", subsetRunner.currentRoomId(),
+                     "Passive lobby scan must skip 2P_1B, OFK, and 2P_3B_SP tables");
+    auto lobbyAfterScan = ownerClient.fetchLobbyState();
+    CHECK_TRUE(lobbyAfterScan.ok);
+    CHECK_EQUAL_TEXT(seqBeforeScan, lobbyAfterScan.data.latestSeq,
+                     "Passive lobby table scan must NOT spam lobby chat");
+
+    // Also verify 4P IS accepted and joined by the non-Cartesian 2P_3B+4P subset agent
+    ownerClient.leaveTable(r2p1b);
+    std::string r4p = createUnsupportedTable(ownerClient, "4P", 3, false, false);
+    for (int i = 0; i < 60 && subsetRunner.currentRoomId().empty(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_EQUAL_TEXT(r4p, subsetRunner.currentRoomId(),
+                     "Non-Cartesian 2P_3B+4P agent must accept and join 4P waiting table");
+    std::string leaveErr;
+    CHECK_TRUE(subsetRunner.leaveRoomById(r4p, leaveErr));
+    ownerClient.leaveTable(r4p);
+
+    // 3. Seat subsetRunner in a valid 2P_3B waiting room and verify applyMatchOverride pre-leave checks
+    subsetRunner.policyEngine().setTableBehavior("idle");
+    CreateTableRequest validHostReq;
+    validHostReq.mode = "2P";
+    validHostReq.bases = 3;
+    validHostReq.allowRobots = true;
+    validHostReq.seat = 1;
+    std::string validRoomId;
+    int validSeat = 0;
+    CHECK_TRUE(subsetRunner.hostRoomWithRequest(validHostReq, validRoomId, validSeat, err));
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+
+    std::string rEd = createUnsupportedTable(ownerClient, "2P", 3, false, true);
+    r2p1b = createUnsupportedTable(bobClient, "2P", 1, false, false);
+
+    // 3a. Override by unsupported roomId (OFK, 2P_1B, 2P_3B_SP, 2P_3B_ED) must fail WITHOUT leaving validRoomId
+    for (const std::string &badRoom : {rOfk, r2p1b, rSp, rEd}) {
+        BotMatchOverride badRoomOv;
+        badRoomOv.active = true;
+        badRoomOv.targetRoomId = badRoom;
+        badRoomOv.allowRobots = true;
+        std::string sum, ovErr;
+        CHECK_FALSE_TEXT(subsetRunner.applyMatchOverride(badRoomOv, sum, ovErr),
+                         ("Expected applyMatchOverride to reject unsupported room " + badRoom).c_str());
+        CHECK_FALSE(ovErr.empty());
+        CHECK_FALSE(subsetRunner.matchOverride().active);
+        CHECK_EQUAL_TEXT(validRoomId, subsetRunner.currentRoomId(),
+                         "applyMatchOverride must NOT leave current valid room on unsupported targetRoomId");
+    }
+
+    // 3b. Override by targetPlayerHandle ("alice" seated in OFK waiting room) must fail WITHOUT leaving validRoomId
+    {
+        BotMatchOverride badPlayerOv;
+        badPlayerOv.active = true;
+        badPlayerOv.targetPlayerHandle = "alice";
+        badPlayerOv.allowRobots = true;
+        std::string sum, ovErr;
+        CHECK_FALSE_TEXT(subsetRunner.applyMatchOverride(badPlayerOv, sum, ovErr),
+                         "Expected applyMatchOverride to reject player waiting in OFK room");
+        CHECK_FALSE(ovErr.empty());
+        CHECK_FALSE(subsetRunner.matchOverride().active);
+        CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+    }
+
+    // 3c. Override hosting unsupported variants (OFK, 2P_1B, 2P_3B_SPED) must fail WITHOUT leaving validRoomId
+    {
+        BotMatchOverride badHostOv;
+        badHostOv.active = true;
+        badHostOv.hostMode = "2P";
+        badHostOv.hostBases = 3;
+        badHostOv.hasHostSuperProngs = true;
+        badHostOv.hostSuperProngs = true;
+        badHostOv.hasHostEdgeless = true;
+        badHostOv.hostEdgeless = true;
+        std::string sum, ovErr;
+        CHECK_FALSE_TEXT(subsetRunner.applyMatchOverride(badHostOv, sum, ovErr),
+                         "Expected applyMatchOverride to reject 2P_3B_SPED host override");
+        CHECK_FALSE(subsetRunner.matchOverride().active);
+        CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+    }
+
+    // 4. Owner 2-mention passive directive (mentions[1] == subsetRunner) while alice waits in 2P_3B_SPED room
+    aliceClient.leaveTable(rOfk);
+    std::string aliceSpedRoom = createUnsupportedTable(aliceClient, "2P", 3, true, true);
+    std::int64_t seqCursor = ownerClient.fetchLobbyState().data.latestSeq;
+    CHECK_TRUE(ownerClient.postLobbyChat("@alice play a match with @octibot-subset").ok);
+    std::string matchedDecline;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on owner 2-mention mentions[1] for unsupported 2P_3B_SPED table");
+    CHECK_TRUE(matchedDecline.find("2P_3B_SPED") != std::string::npos);
+    CHECK_TRUE(matchedDecline.find("g-") == std::string::npos);
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+    CHECK_FALSE(subsetRunner.matchOverride().active);
+
+    // 5. Sibling [MATCH] directive for 2P_1B
+    CHECK_TRUE(siblingRawClient.postLobbyChat(
+        "@octibot-subset [MATCH player=@alice mode=2P bases=1] Hi @octibot-subset, please play @alice!").ok);
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on sibling [MATCH] directive for 2P_1B");
+    CHECK_TRUE(matchedDecline.find("2P_1B") != std::string::npos);
+    CHECK_TRUE(matchedDecline.find("@octibot-sibling") == std::string::npos);
+    CHECK_TRUE(matchedDecline.find("g-") == std::string::npos);
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+
+    // 6. Chat commands: @bot host ofk, @bot joinroom #<2P_3B_ED>, and @bot play (from alice in 2P_3B_SP)
+    CHECK_TRUE(ownerClient.postLobbyChat("@octibot-subset host ofk").ok);
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on '@bot host ofk'");
+    CHECK_TRUE(matchedDecline.find("OFK") != std::string::npos);
+    CHECK_EQUAL("idle", subsetRunner.policyEngine().tableBehavior());
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+
+    CHECK_TRUE(ownerClient.postLobbyChat("@octibot-subset joinroom #" + rEd).ok);
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on '@bot joinroom #<2P_3B_ED>'");
+    CHECK_TRUE(matchedDecline.find("2P_3B_ED") != std::string::npos);
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+
+    aliceClient.leaveTable(aliceSpedRoom);
+    std::string aliceSpRoom = createUnsupportedTable(aliceClient, "2P", 3, true, false);
+    CHECK_TRUE(aliceClient.postLobbyChat("@octibot-subset play").ok);
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on '@bot play' when challenger waits in 2P_3B_SP table");
+    CHECK_TRUE(matchedDecline.find("2P_3B_SP") != std::string::npos);
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+    aliceClient.leaveTable(aliceSpRoom);
+
+    // 7. Sibling invite inside another waiting table (pollGameEvents / sibling #g-... invite)
+    CHECK_TRUE(siblingRawClient.postGameChat(rSp, "ALL", "@octibot-subset Join my table!").ok);
+    CHECK_TRUE(siblingRawClient.postLobbyChat("@octibot-subset Join my table #" + rSp).ok);
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(ownerClient, seqCursor, "octibot-subset", "Sorry,", matchedDecline, seqCursor),
+        "Expected lobby decline explanation on sibling #g-... table invite");
+    CHECK_EQUAL(validRoomId, subsetRunner.currentRoomId());
+
+    // 8. REMATCH_REQUEST on a finished game whose variant is unsupported:
+    //    Play/finish validRoomId (2P_3B) with alice, then disable allow2P3B and offer REMATCH_REQUEST.
+    CHECK_TRUE(aliceClient.joinTable(validRoomId, 2).ok);
+    for (int i = 0; i < 60; ++i) {
+        auto gv = aliceClient.fetchGameView(validRoomId);
+        if (gv.ok && gv.data.phase == "IN_PROGRESS") {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE(aliceClient.resignGame(validRoomId).ok);
+    for (int i = 0; i < 60; ++i) {
+        if (subsetRunner.currentPhase() == "FINISHED" || subsetRunner.currentPhase() == "GAME_OVER") {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+
+    subsetAgent->allow2P3B.store(false);
+    auto remRes = aliceClient.submitGameAction(validRoomId, "request_rematch");
+    CHECK_TRUE_TEXT(remRes.ok, remRes.errorMessage.c_str());
+
+    std::string rematchGameDecline;
+    CHECK_TRUE_TEXT(
+        waitForGameChatMatching(aliceClient, validRoomId, "octibot-subset", "Sorry,", rematchGameDecline, 2500),
+        "Expected game-chat decline explanation on unsupported REMATCH_REQUEST");
+    CHECK_TRUE_TEXT(rematchGameDecline.find("@alice") != std::string::npos,
+                    ("Expected proposer UUID to resolve to @alice in: " + rematchGameDecline).c_str());
+    CHECK_TRUE(rematchGameDecline.find("2P_3B") != std::string::npos);
+
+    for (int i = 0; i < 60 && !subsetRunner.currentRoomId().empty(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_EQUAL_TEXT("", subsetRunner.currentRoomId(),
+                     "Runner must leave finished room after declining unsupported rematch");
+    auto gvAfterRematch = aliceClient.fetchGameView(validRoomId);
+    if (gvAfterRematch.ok) {
+        CHECK_EQUAL_TEXT("", gvAfterRematch.data.rematchRoomId,
+                         "Unsupported REMATCH_REQUEST must be declined, never accepted");
+    }
+
+    subsetRunner.stop();
+    sdkRunner.stop();
+    siblingRawClient.disconnectRobot();
+}
+
+TEST(AgentVariantCompetency, CompanionAgyWhenIdleAndDeterministicFallbackWhenBusyFailedEmptyOrNone) {
+    char tmpTmpl[] = "/tmp/octibot_avc_cli_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    std::string testDir = td;
+
+    auto ownerLogin = loginTestHuman(*env, "sub-avc-cli-owner", "samurai");
+    auto aliceLogin = loginTestHuman(*env, "sub-avc-cli-alice", "alice");
+    auto bobLogin = loginTestHuman(*env, "sub-avc-cli-bob", "bob");
+    auto carolLogin = loginTestHuman(*env, "sub-avc-cli-carol", "carol");
+    auto daveLogin = loginTestHuman(*env, "sub-avc-cli-dave", "dave");
+    auto erinLogin = loginTestHuman(*env, "sub-avc-cli-erin", "erin");
+
+    auto makeHumanClient = [&](const LoginResult &login) {
+        auto cli = std::make_unique<OctiNetworkClient>();
+        cli->setEndpoint("127.0.0.1", env->port);
+        cli->setSessionToken(login.sessionToken);
+        return cli;
+    };
+    auto aliceCli = makeHumanClient(aliceLogin);
+    auto bobCli = makeHumanClient(bobLogin);
+    auto carolCli = makeHumanClient(carolLogin);
+    auto daveCli = makeHumanClient(daveLogin);
+    auto erinCli = makeHumanClient(erinLogin);
+
+    auto rBot = env->store.createRobot(ownerLogin.profile.playerId, "octibot-trained-2p3b", "Trained 2P_3B Bot");
+    auto rAlt = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sdk-cc1", "All Variants Bot");
+
+    OctiBotConfigStore altCfg;
+    altCfg.set("server_host", "127.0.0.1");
+    altCfg.set("server_port", std::to_string(env->port));
+    altCfg.set("robot_name", "octibot-sdk-cc1");
+    altCfg.set("bot_token", rAlt.rawToken);
+    altCfg.set("table_behavior", "idle");
+    altCfg.set("verbosity", "0");
+    OctiBotRunner altRunner(std::make_unique<StockAlphaBetaAgent>(altCfg), altCfg);
+    std::string err;
+    CHECK_TRUE(altRunner.connectAndAuthenticate(err));
+
+    // 1. Idle mocked agy script: captures prompt, tests #g-... sanitization, and posts companion reply
+    std::string promptPath = testDir + "/decline_prompt.txt";
+    std::string mockAgyOk = testDir + "/mock_agy_ok.py";
+    CHECK_TRUE(writeExecutableScript(mockAgyOk,
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "with open(" + nlohmann::json(promptPath).dump() + ", 'w', encoding='utf-8') as f:\n"
+        "    f.write(sys.argv[-1] if len(sys.argv) > 1 else '')\n"
+        "print('Hi @alice, @octibot-trained-2p3b has not yet been trained for OFK in #g-abc123; try @octibot-sdk-cc1!')\n"));
+
+    OctiBotConfigStore botCfg;
+    botCfg.set("server_host", "127.0.0.1");
+    botCfg.set("server_port", std::to_string(env->port));
+    botCfg.set("robot_name", "octibot-trained-2p3b");
+    botCfg.set("bot_token", rBot.rawToken);
+    botCfg.set("table_behavior", "idle");
+    botCfg.set("ai_cli_backend", "agy");
+    botCfg.set("ai_cli_executable", mockAgyOk);
+    botCfg.set("ai_cli_sandbox_dir", testDir + "/sandbox");
+    botCfg.set("verbosity", "0");
+
+    auto agentUPtr = std::make_unique<NonCartesian2P3BAnd4PAgent>(botCfg);
+    agentUPtr->allow4P.store(false);
+    OctiBotRunner botRunner(std::move(agentUPtr), botCfg);
+    CHECK_TRUE(botRunner.connectAndAuthenticate(err));
+    botRunner.start();
+
+    CreateTableRequest ofkReq;
+    ofkReq.mode = "OFK";
+    ofkReq.bases = 1;
+    ofkReq.allowRobots = true;
+    ofkReq.seat = 1;
+    std::string aliceOfkRoom = aliceCli->createTable(ofkReq).data.roomId;
+    CHECK_FALSE(aliceOfkRoom.empty());
+
+    std::int64_t seq = aliceCli->fetchLobbyState().data.latestSeq;
+    CHECK_TRUE(aliceCli->postLobbyChat("@octibot-trained-2p3b play").ok);
+    std::string agyReply;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(*aliceCli, seq, "octibot-trained-2p3b", "has not yet been trained for OFK", agyReply, seq, 3000),
+        "Expected companion agy decline reply when idle");
+    CHECK_TRUE_TEXT(agyReply.find("g-abc123") == std::string::npos,
+                    ("Companion decline reply must strip #g-... room IDs: " + agyReply).c_str());
+    std::string capturedPrompt = readTextFileAll(promptPath);
+    CHECK_TRUE(capturedPrompt.find("OFK") != std::string::npos);
+    CHECK_TRUE(capturedPrompt.find("octibot-sdk-cc1") != std::string::npos);
+
+    // 2. _aiChatBusy contention: hold _aiChatBusy=true with a slow chat script and trigger decline for @bob
+    std::string slowCli = testDir + "/mock_agy_slow.py";
+    CHECK_TRUE(writeExecutableScript(slowCli,
+        "#!/usr/bin/env python3\n"
+        "import time\n"
+        "time.sleep(0.7)\n"
+        "print('Slow casual chat reply')\n"));
+    botRunner.config().set("ai_cli_executable", slowCli);
+
+    std::string bobOfkRoom = bobCli->createTable(ofkReq).data.roomId;
+    botRunner.dispatchAiChatReply("lobby", "", "alice", "How is your day going?", false);
+    for (int i = 0; i < 40 && !botRunner.isAiChatBusy(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK_TRUE_TEXT(botRunner.isAiChatBusy(), "Expected _aiChatBusy == true during slow chat");
+
+    CHECK_TRUE(bobCli->postLobbyChat("@octibot-trained-2p3b play").ok);
+    std::string busyFallback;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(*bobCli, seq, "octibot-trained-2p3b", "@bob Sorry,", busyFallback, seq, 550),
+        "Decline message MUST NOT be dropped when _aiChatBusy == true; expected immediate deterministic fallback");
+    CHECK_TRUE(busyFallback.find("OFK") != std::string::npos);
+    CHECK_TRUE(busyFallback.find("@octibot-sdk-cc1") != std::string::npos);
+    CHECK_TRUE(busyFallback.find("g-") == std::string::npos);
+
+    for (int i = 0; i < 60 && botRunner.isAiChatBusy(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+
+    // 3. Non-zero CLI exit code (even with stdout noise) falls back to deterministic "Sorry, ..."
+    std::string failCli = testDir + "/mock_agy_fail.py";
+    CHECK_TRUE(writeExecutableScript(failCli,
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "print('UNEXPECTED_CLI_CRASH_STDOUT')\n"
+        "sys.exit(1)\n"));
+    botRunner.config().set("ai_cli_executable", failCli);
+
+    CreateTableRequest req1b;
+    req1b.mode = "2P";
+    req1b.bases = 1;
+    req1b.allowRobots = true;
+    req1b.seat = 1;
+    std::string carol1bRoom = carolCli->createTable(req1b).data.roomId;
+    seq = carolCli->fetchLobbyState().data.latestSeq;
+    CHECK_TRUE(carolCli->postLobbyChat("@octibot-trained-2p3b play").ok);
+    std::string failFallback;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(*carolCli, seq, "octibot-trained-2p3b", "@carol Sorry,", failFallback, seq, 2500),
+        "Expected deterministic 'Sorry, ...' fallback when CLI exits non-zero");
+    CHECK_TRUE(failFallback.find("UNEXPECTED_CLI_CRASH_STDOUT") == std::string::npos);
+    CHECK_TRUE(failFallback.find("2P_1B") != std::string::npos);
+
+    // 4. Empty CLI stdout (/bin/true) falls back to deterministic "Sorry, ..."
+    botRunner.config().set("ai_cli_executable", "/bin/true");
+    CreateTableRequest reqSp;
+    reqSp.mode = "2P";
+    reqSp.bases = 3;
+    reqSp.superProngs = true;
+    reqSp.allowRobots = true;
+    reqSp.seat = 1;
+    std::string daveSpRoom = daveCli->createTable(reqSp).data.roomId;
+    seq = daveCli->fetchLobbyState().data.latestSeq;
+    CHECK_TRUE(daveCli->postLobbyChat("@octibot-trained-2p3b play").ok);
+    std::string emptyFallback;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(*daveCli, seq, "octibot-trained-2p3b", "@dave Sorry,", emptyFallback, seq, 2500),
+        "Expected deterministic 'Sorry, ...' fallback when CLI outputs empty stdout");
+    CHECK_TRUE(emptyFallback.find("2P_3B_SP") != std::string::npos);
+
+    // 5. ai_cli_backend = "none" posts deterministic "Sorry, ..." directly
+    botRunner.config().set("ai_cli_backend", "none");
+    CreateTableRequest reqEd;
+    reqEd.mode = "2P";
+    reqEd.bases = 3;
+    reqEd.edgeless = true;
+    reqEd.allowRobots = true;
+    reqEd.seat = 1;
+    std::string erinEdRoom = erinCli->createTable(reqEd).data.roomId;
+    seq = erinCli->fetchLobbyState().data.latestSeq;
+    CHECK_TRUE(erinCli->postLobbyChat("@octibot-trained-2p3b play").ok);
+    std::string noneFallback;
+    CHECK_TRUE_TEXT(
+        waitForLobbyChatMatching(*erinCli, seq, "octibot-trained-2p3b", "@erin Sorry,", noneFallback, seq, 2000),
+        "Expected deterministic 'Sorry, ...' fallback when ai_cli_backend=none");
+    CHECK_TRUE(noneFallback.find("2P_3B_ED") != std::string::npos);
+
+    botRunner.stop();
+    altRunner.stop();
+    std::error_code ec;
+    std::filesystem::remove_all(testDir, ec);
+}
+
+TEST(AgentVariantCompetency, ForcedInProgressUnsupportedVariantAndEmptyComputeMoveResignAndLeaveWithoutSpinning) {
+    auto ownerLogin = loginTestHuman(*env, "sub-avc-spin-owner", "samurai");
+    auto aliceLogin = loginTestHuman(*env, "sub-avc-spin-alice", "alice");
+
+    OctiNetworkClient aliceClient;
+    aliceClient.setEndpoint("127.0.0.1", env->port);
+    aliceClient.setSessionToken(aliceLogin.sessionToken);
+
+    // 1. computeMove("") anti-spin test: must resign & leave after 1 call, NEVER spin every 250ms
+    auto rSpin = env->store.createRobot(ownerLogin.profile.playerId, "octibot-empty-move", "Empty Move Test Bot");
+    OctiBotConfigStore spinCfg;
+    spinCfg.set("server_host", "127.0.0.1");
+    spinCfg.set("server_port", std::to_string(env->port));
+    spinCfg.set("robot_name", "octibot-empty-move");
+    spinCfg.set("bot_token", rSpin.rawToken);
+    spinCfg.set("table_behavior", "idle");
+    spinCfg.set("ai_cli_backend", "none");
+    spinCfg.set("verbosity", "0");
+
+    auto spinAgentUPtr = std::make_unique<EmptyMoveSpinTestAgent>(spinCfg);
+    EmptyMoveSpinTestAgent *spinAgent = spinAgentUPtr.get();
+    OctiBotRunner spinRunner(std::move(spinAgentUPtr), spinCfg);
+    std::string err;
+    CHECK_TRUE(spinRunner.connectAndAuthenticate(err));
+    spinRunner.start();
+
+    CreateTableRequest req2p3b;
+    req2p3b.mode = "2P";
+    req2p3b.bases = 3;
+    req2p3b.allowRobots = true;
+    req2p3b.seat = 2; // Alice takes Seat 2 so bot gets Seat 1 and moves immediately on ply 0
+    std::string spinRoomId = aliceClient.createTable(req2p3b).data.roomId;
+    CHECK_FALSE(spinRoomId.empty());
+
+    int joinedSeat = 0;
+    CHECK_TRUE(spinRunner.joinRoomById(spinRoomId, 1, joinedSeat, err));
+    CHECK_EQUAL(1, joinedSeat);
+
+    for (int i = 0; i < 40; ++i) {
+        if (spinAgent->computeCalls.load() >= 1 && spinRunner.currentRoomId().empty()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // Hold an extra 350ms to catch any 250ms spin-loop regression
+    std::this_thread::sleep_for(std::chrono::milliseconds(350));
+
+    CHECK_EQUAL_TEXT(1, spinAgent->computeCalls.load(),
+                     "computeMove returning '' must trigger immediate resign+leave after 1 call without spinning");
+    CHECK_EQUAL_TEXT("", spinRunner.currentRoomId(),
+                     "Runner must leave room after computeMove('')");
+    CHECK_EQUAL("IDLE", spinRunner.currentPhase());
+    CHECK_FALSE(spinRunner.matchOverride().active);
+
+    auto gvSpin = aliceClient.fetchGameView(spinRoomId);
+    CHECK_TRUE(gvSpin.ok);
+    CHECK_TRUE_TEXT(gvSpin.data.phase == "FINISHED" || gvSpin.data.phase == "GAME_OVER",
+                    ("Expected resigned game to be FINISHED, got " + gvSpin.data.phase).c_str());
+    std::string spinChat;
+    CHECK_TRUE_TEXT(
+        waitForGameChatMatching(aliceClient, spinRoomId, "octibot-empty-move", "Sorry,", spinChat, 500),
+        "Expected game-chat explanation before resigning on computeMove('')");
+    spinRunner.stop();
+
+    // 2. Session-recovered forced IN_PROGRESS unsupported OFK room resigns immediately with 0 computeMove calls
+    auto rForced = env->store.createRobot(ownerLogin.profile.playerId, "octibot-forced-ofk", "Forced OFK Bot");
+    OctiNetworkClient rawBotClient;
+    rawBotClient.setEndpoint("127.0.0.1", env->port);
+    rawBotClient.setBotToken(rForced.rawToken);
+    CHECK_TRUE(rawBotClient.connectRobot(false).ok);
+
+    CreateTableRequest ofkReq;
+    ofkReq.mode = "OFK";
+    ofkReq.bases = 1;
+    ofkReq.allowRobots = true;
+    ofkReq.seat = 2;
+    std::string forcedOfkRoom = aliceClient.createTable(ofkReq).data.roomId;
+    CHECK_TRUE(rawBotClient.joinTable(forcedOfkRoom, 1).ok);
+    rawBotClient.disconnectRobot();
+
+    OctiBotConfigStore forcedCfg = spinCfg;
+    forcedCfg.set("robot_name", "octibot-forced-ofk");
+    forcedCfg.set("bot_token", rForced.rawToken);
+    auto forcedAgentUPtr = std::make_unique<NonCartesian2P3BAnd4PAgent>(forcedCfg);
+    forcedAgentUPtr->allow4P.store(false);
+    NonCartesian2P3BAnd4PAgent *forcedAgent = forcedAgentUPtr.get();
+    OctiBotRunner forcedRunner(std::move(forcedAgentUPtr), forcedCfg);
+    CHECK_TRUE(forcedRunner.connectAndAuthenticate(err));
+    CHECK_EQUAL(forcedOfkRoom, forcedRunner.currentRoomId());
+    forcedRunner.start();
+
+    for (int i = 0; i < 60 && !forcedRunner.currentRoomId().empty(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_EQUAL_TEXT("", forcedRunner.currentRoomId(),
+                     "Forced IN_PROGRESS unsupported room must be resigned and left immediately");
+    CHECK_EQUAL_TEXT(0, forcedAgent->computeCalls.load(),
+                     "Unsupported IN_PROGRESS room must resign before calling computeMove");
+    std::string forcedChat;
+    CHECK_TRUE(waitForGameChatMatching(aliceClient, forcedOfkRoom, "octibot-forced-ofk", "Sorry,", forcedChat, 500));
+    forcedRunner.stop();
+}
+
+TEST(AgentVariantCompetency, McpServerAutoRoutingReplacementBotAutoAndToolVariantEnforcement) {
+    auto ownerLogin = loginTestHuman(*env, "sub-avc-mcp-owner", "samurai");
+    auto aliceLogin = loginTestHuman(*env, "sub-avc-mcp-alice", "alice");
+
+    OctiNetworkClient aliceClient;
+    aliceClient.setEndpoint("127.0.0.1", env->port);
+    aliceClient.setSessionToken(aliceLogin.sessionToken);
+
+    const std::string specialistHandle = OctiBotRunner::resolveCanonicalBotHandle("nnue");
+    auto rHelper = env->store.createRobot(ownerLogin.profile.playerId, "octibot-helper", "Concierge");
+    auto rSpec = env->store.createRobot(ownerLogin.profile.playerId, specialistHandle, "2P_3B Specialist");
+    auto rCc1 = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sdk-cc1", "SDK CC1");
+    auto rCc2 = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sdk-cc2", "SDK CC2");
+
+    auto makeRunnerCfg = [&](const std::string &name, const std::string &token, bool lobbyOnly) {
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("robot_name", name);
+        cfg.set("bot_token", token);
+        cfg.set("verbosity", "0");
+        if (lobbyOnly) {
+            cfg.set("lobby_only", "true");
+            cfg.set("algorithm", "helper");
+            cfg.set("table_behavior", "lobby_only");
+        } else {
+            cfg.set("table_behavior", "idle");
+            cfg.set("move_control", "agent");
+            cfg.set("agent_move_timeout_ms", "5000");
+        }
+        return cfg;
+    };
+
+    OctiBotConfigStore helperCfg = makeRunnerCfg("octibot-helper", rHelper.rawToken, true);
+    OctiBotConfigStore specCfg = makeRunnerCfg(specialistHandle, rSpec.rawToken, false);
+    OctiBotConfigStore cc1Cfg = makeRunnerCfg("octibot-sdk-cc1", rCc1.rawToken, false);
+    OctiBotConfigStore cc2Cfg = makeRunnerCfg("octibot-sdk-cc2", rCc2.rawToken, false);
+
+    auto specAgent = std::make_unique<NonCartesian2P3BAnd4PAgent>(specCfg);
+    specAgent->allow4P.store(false); // strictly 2P_3B only
+
+    OctiBotRunner helperRunner(std::make_unique<LobbyHelperAgent>(helperCfg), helperCfg);
+    OctiBotRunner specRunner(std::move(specAgent), specCfg);
+    OctiBotRunner cc1Runner(std::make_unique<StockAlphaBetaAgent>(cc1Cfg), cc1Cfg);
+    OctiBotRunner cc2Runner(std::make_unique<StockAlphaBetaAgent>(cc2Cfg), cc2Cfg);
+
+    std::string err;
+    CHECK_TRUE(helperRunner.connectAndAuthenticate(err));
+    CHECK_TRUE(specRunner.connectAndAuthenticate(err));
+    CHECK_TRUE(cc1Runner.connectAndAuthenticate(err));
+    CHECK_TRUE(cc2Runner.connectAndAuthenticate(err));
+    helperRunner.start();
+    specRunner.start();
+    cc1Runner.start();
+    cc2Runner.start();
+
+    OctiBotMcpServer helperMcp(helperRunner);
+    OctiBotMcpServer specMcp(specRunner);
+    OctiBotMcpServer cc1Mcp(cc1Runner);
+
+    // 1. octibot_assist_match(bot_handle="auto") for OFK, 2P_1B, and 2P_3B_SP must route to cc1, NOT 2P_3B-only specialist
+    for (const auto &non2p3bArgs : std::vector<nlohmann::json>{
+             {{"player_handle", "alice"}, {"bot_handle", "auto"}, {"mode", "OFK"}, {"bases", 1}},
+             {{"player_handle", "alice"}, {"bot_handle", "auto"}, {"mode", "2P"}, {"bases", 1}},
+             {{"player_handle", "alice"}, {"bot_handle", "auto"}, {"mode", "2P"}, {"bases", 3}, {"super_prongs", true}}}) {
+        auto res = nlohmann::json::parse(helperMcp.callTool("octibot_assist_match", non2p3bArgs.dump()));
+        CHECK_TRUE_TEXT(res.value("ok", false), res.dump().c_str());
+        CHECK_EQUAL_TEXT("octibot-sdk-cc1", res.value("target_bot", ""),
+                         ("bot_handle='auto' misrouted non-2P_3B request: " + res.dump()).c_str());
+        std::string rId = cc1Runner.currentRoomId();
+        if (!rId.empty()) {
+            cc1Runner.leaveRoomById(rId, err);
+        }
+        cc1Runner.clearMatchOverride();
+    }
+
+    // 2. Explicit octibot_assist_match to 2P_3B-only specialist on OFK fails closed with JSON-RPC isError=true
+    nlohmann::json badExplicitRpc = {
+        {"jsonrpc", "2.0"},
+        {"id", 901},
+        {"method", "tools/call"},
+        {"params", {
+            {"name", "octibot_assist_match"},
+            {"arguments", {{"player_handle", "alice"}, {"bot_handle", "nnue"}, {"mode", "OFK"}, {"bases", 1}}}
+        }}
+    };
+    auto rpcOut = nlohmann::json::parse(helperMcp.handleJsonRpc(badExplicitRpc.dump()));
+    CHECK_TRUE_TEXT(rpcOut["result"].value("isError", false),
+                    ("Expected isError=true on unsupported MCP tool call: " + rpcOut.dump()).c_str());
+    auto innerErr = nlohmann::json::parse(rpcOut["result"]["content"][0].value("text", "{}"));
+    CHECK_FALSE(innerErr.value("ok", true));
+    CHECK_FALSE(innerErr.value("error", "").empty());
+
+    // 3. Batch bot_handles with 2P_3B-only specialist on OFK fails closed without hosting orphan room
+    auto badBatch = nlohmann::json::parse(helperMcp.callTool(
+        "octibot_assist_match",
+        nlohmann::json({{"bot_handles", {"cc1", "nnue"}}, {"mode", "OFK"}, {"bases", 1}}).dump()));
+    CHECK_FALSE(badBatch.value("ok", true));
+    CHECK_EQUAL("", cc1Runner.currentRoomId());
+    CHECK_EQUAL("", specRunner.currentRoomId());
+
+    // 4. octibot_find_or_host_table & octibot_table_action (create, join, enqueue_matchmaking) enforce checkAgentSupportsVariant
+    CreateTableRequest ofkReq;
+    ofkReq.mode = "OFK";
+    ofkReq.bases = 1;
+    ofkReq.allowRobots = true;
+    ofkReq.seat = 1;
+    std::string aliceOfkRoom = aliceClient.createTable(ofkReq).data.roomId;
+    CHECK_FALSE(aliceOfkRoom.empty());
+
+    auto findRes = nlohmann::json::parse(specMcp.callTool(
+        "octibot_find_or_host_table", R"({"auto_join":true,"auto_host":false})"));
+    CHECK_TRUE(findRes["compatible_tables"].empty());
+    CHECK_EQUAL("", specRunner.currentRoomId());
+
+    specRunner.config().set("host_mode", "OFK");
+    specRunner.policyEngine().configure(specRunner.config());
+    auto autoHostBad = nlohmann::json::parse(specMcp.callTool(
+        "octibot_find_or_host_table", R"({"auto_join":false,"auto_host":true})"));
+    CHECK_FALSE_TEXT(autoHostBad.value("ok", true), autoHostBad.dump().c_str());
+    CHECK_EQUAL("", specRunner.currentRoomId());
+
+    auto createBad = nlohmann::json::parse(specMcp.callTool(
+        "octibot_table_action", R"({"action":"create","mode":"OFK","bases":1})"));
+    CHECK_FALSE(createBad.value("ok", true));
+
+    auto joinBad = nlohmann::json::parse(specMcp.callTool(
+        "octibot_table_action", nlohmann::json({{"action", "join"}, {"room_id", aliceOfkRoom}}).dump()));
+    CHECK_FALSE(joinBad.value("ok", true));
+
+    auto mmBad = nlohmann::json::parse(specMcp.callTool(
+        "octibot_table_action", R"({"action":"enqueue_matchmaking"})"));
+    CHECK_FALSE(mmBad.value("ok", true));
+
+    // 5. replacement_bot="auto" when cc1 leaves an OFK room with alice must select cc2 (13-variant), NOT 2P_3B-only specialist
+    int cc1Seat = 0;
+    CHECK_TRUE(cc1Runner.joinRoomById(aliceOfkRoom, 0, cc1Seat, err));
+    auto repLeaveRes = nlohmann::json::parse(cc1Mcp.callTool(
+        "octibot_table_action", R"({"action":"leave","replacement_bot":"auto"})"));
+    CHECK_TRUE_TEXT(repLeaveRes.value("ok", false), repLeaveRes.dump().c_str());
+    CHECK_EQUAL("", cc1Runner.currentRoomId());
+    CHECK_EQUAL_TEXT("", specRunner.currentRoomId(),
+                     "replacement_bot='auto' on OFK must NOT summon 2P_3B-only specialist");
+    for (int i = 0; i < 40 && cc2Runner.currentRoomId().empty(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_FALSE_TEXT(cc2Runner.currentRoomId().empty(),
+                     "replacement_bot='auto' on OFK must summon capable octibot-sdk-cc2");
+
+    cc2Runner.stop();
+    cc1Runner.stop();
+    specRunner.stop();
+    helperRunner.stop();
+}
+
+TEST(AgentVariantCompetency, StockAlphaBetaSupportsAll13VariantsAndSiblingCooldownPreventsBotLoops) {
+    OctiBotConfigStore defCfg;
+    StockAlphaBetaAgent stockAgent(defCfg);
+    CentaurMcpAgent centaurAgent(defCfg);
+
+    auto codes = allOctiVariantCodes();
+    CHECK_EQUAL(13u, codes.size());
+    for (const auto &code : codes) {
+        OctiVariantSpec spec = OctiVariantSpec::fromCode(code);
+        std::string reason = "non-empty";
+        CHECK_TRUE_TEXT(stockAgent.supportsVariant(spec, reason),
+                        ("StockAlphaBetaAgent must support " + code).c_str());
+        CHECK_EQUAL("", reason);
+        CHECK_TRUE_TEXT(centaurAgent.supportsVariant(spec, reason),
+                        ("CentaurMcpAgent must support " + code).c_str());
+    }
+
+    auto ownerLogin = loginTestHuman(*env, "sub-avc-loop-owner", "samurai");
+    OctiNetworkClient ownerClient;
+    ownerClient.setEndpoint("127.0.0.1", env->port);
+    ownerClient.setSessionToken(ownerLogin.sessionToken);
+
+    auto rSibA = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sib-a", "Sibling A");
+    auto rSibB = env->store.createRobot(ownerLogin.profile.playerId, "octibot-sib-b", "Sibling B");
+
+    auto makeSibCfg = [&](const std::string &name, const std::string &token) {
+        OctiBotConfigStore cfg;
+        cfg.set("server_host", "127.0.0.1");
+        cfg.set("server_port", std::to_string(env->port));
+        cfg.set("robot_name", name);
+        cfg.set("bot_token", token);
+        cfg.set("table_behavior", "idle");
+        cfg.set("ai_cli_backend", "none");
+        cfg.set("verbosity", "0");
+        return cfg;
+    };
+
+    OctiBotConfigStore cfgA = makeSibCfg("octibot-sib-a", rSibA.rawToken);
+    OctiBotConfigStore cfgB = makeSibCfg("octibot-sib-b", rSibB.rawToken);
+    auto agentA = std::make_unique<NonCartesian2P3BAnd4PAgent>(cfgA);
+    auto agentB = std::make_unique<NonCartesian2P3BAnd4PAgent>(cfgB);
+    agentA->allow4P.store(false);
+    agentB->allow4P.store(false);
+
+    OctiBotRunner runnerA(std::move(agentA), cfgA);
+    OctiBotRunner runnerB(std::move(agentB), cfgB);
+    std::string err;
+    CHECK_TRUE(runnerA.connectAndAuthenticate(err));
+    CHECK_TRUE(runnerB.connectAndAuthenticate(err));
+    runnerA.start();
+    runnerB.start();
+
+    std::int64_t seqStart = ownerClient.fetchLobbyState().data.latestSeq;
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        CHECK_TRUE(runnerA.networkClient().postLobbyChat(
+            "@octibot-sib-b [MATCH player=@octibot-sib-a mode=OFK bases=1] Let's play OFK in #g-loop999!").ok);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    auto lobbyAfter = ownerClient.fetchLobbyState();
+    CHECK_TRUE(lobbyAfter.ok);
+    int sibBDeclines = 0;
+    int sibARepliesAfterDecline = 0;
+    bool sawFirstDecline = false;
+    for (const auto &c : lobbyAfter.data.recentChat) {
+        if (c.seq <= seqStart) continue;
+        if (c.handle == "octibot-sib-b") {
+            ++sibBDeclines;
+            sawFirstDecline = true;
+            CHECK_EQUAL_TEXT(0u, c.text.find("Sorry, "),
+                             ("Robot-sender decline must omit @sender prefix and start with 'Sorry, ': " + c.text).c_str());
+            CHECK_TRUE(c.text.find("@octibot-sib-a") == std::string::npos);
+            CHECK_TRUE(c.text.find("g-") == std::string::npos);
+        } else if (c.handle == "octibot-sib-a" && sawFirstDecline &&
+                   c.text.find("[MATCH") == std::string::npos) {
+            ++sibARepliesAfterDecline;
+        }
+    }
+    CHECK_EQUAL_TEXT(1, sibBDeclines,
+                     "60s cooldown must suppress duplicate sibling decline emissions");
+    CHECK_EQUAL_TEXT(0, sibARepliesAfterDecline,
+                     "Sibling bot must NEVER reply to or re-parse a decline message");
+
+    runnerB.stop();
+    runnerA.stop();
+}
+
+// ============================================================================
 
 int main(int argc, char **argv) {
 #if !defined(_WIN32)
