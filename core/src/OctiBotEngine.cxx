@@ -1774,18 +1774,18 @@ struct OctiBotEngine::SearchThreadState {
     BotSearchDiagnostics diag{};
 };
 
-namespace {
-
-template <typename ThreadStatePtr = std::nullptr_t>
-std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
-                                       std::vector<OctiMove> &rawMoves,
-                                       OctiPlayer turn,
-                                       std::uint64_t ttBestMoveKey,
-                                       std::size_t maxBranch,
-                                       const BotTuningProfile &profile,
-                                       bool includeComposites = true,
-                                       ThreadStatePtr threadState = nullptr,
-                                       int ply = 0)
+template <typename ThreadStatePtr>
+std::vector<OctiMove> OctiBotEngine::orderAndCapMoves(
+    OctiBoard &board,
+    std::vector<OctiMove> &rawMoves,
+    OctiPlayer turn,
+    std::uint64_t ttBestMoveKey,
+    std::size_t maxBranch,
+    const BotTuningProfile &profile,
+    bool includeComposites,
+    ThreadStatePtr threadState,
+    int ply,
+    bool inQuiesce) const
 {
     if (includeComposites && (!board.getGame() || board.getGame()->getMode() != GAME_MODE_OFK)) {
         appendCompositeMoves(board, rawMoves, turn, profile, ply);
@@ -1795,22 +1795,36 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
     // Hard dominance pruning of single-op +x-y prong rearrangements when free prongs exist.
     // If freeProngs > 0, +x-y is strictly dominated by +x.
     if (board.getGame() && board.getGame()->getFreeProngs(turn) > 0) {
-        std::vector<OctiMove> prunedMoves;
-        prunedMoves.reserve(moves.size());
+        bool hasDominatedRearrange = false;
         for (const auto &m : moves) {
             const auto &ops = m.getOps();
-            bool isDominatedRearrange = (ops.size() == 1 &&
-                                         ops[0].hops.empty() &&
-                                         !ops[0].addPod &&
-                                         ops[0].addProngDir != DIR_UNDEF &&
-                                         ops[0].rmProngDir != DIR_UNDEF);
-            if (!isDominatedRearrange ||
-                (ttBestMoveKey != 0ULL && m.structuralKey() == ttBestMoveKey)) {
-                prunedMoves.push_back(m);
+            if (ops.size() == 1 &&
+                ops[0].hops.empty() &&
+                !ops[0].addPod &&
+                ops[0].addProngDir != DIR_UNDEF &&
+                ops[0].rmProngDir != DIR_UNDEF) {
+                hasDominatedRearrange = true;
+                break;
             }
         }
-        if (!prunedMoves.empty()) {
-            moves = std::move(prunedMoves);
+        if (hasDominatedRearrange) {
+            std::vector<OctiMove> prunedMoves;
+            prunedMoves.reserve(moves.size());
+            for (const auto &m : moves) {
+                const auto &ops = m.getOps();
+                bool isDominatedRearrange = (ops.size() == 1 &&
+                                             ops[0].hops.empty() &&
+                                             !ops[0].addPod &&
+                                             ops[0].addProngDir != DIR_UNDEF &&
+                                             ops[0].rmProngDir != DIR_UNDEF);
+                if (!isDominatedRearrange ||
+                    (ttBestMoveKey != 0ULL && m.structuralKey() == ttBestMoveKey)) {
+                    prunedMoves.push_back(m);
+                }
+            }
+            if (!prunedMoves.empty()) {
+                moves = std::move(prunedMoves);
+            }
         }
     }
 
@@ -1910,6 +1924,11 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
             }
         }
         scored.push_back({s, i});
+    }
+
+    if (this->hasCustomMoveOrdering() && board.getGame() != nullptr) {
+        this->adjustMoveOrderScores(
+            board, *board.getGame(), turn, ply, inQuiesce, moves, scored);
     }
 
     std::stable_sort(scored.begin(), scored.end(),
@@ -2020,8 +2039,6 @@ std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
     return result;
 }
 
-} // namespace
-
 // ---------------------------------------------------------------------------
 // Construction & Difficulty Levels
 // ---------------------------------------------------------------------------
@@ -2080,6 +2097,230 @@ OctiBotEngine &OctiBotEngine::operator=(const OctiBotEngine &other)
 }
 
 OctiBotEngine::~OctiBotEngine() = default;
+
+void OctiBotEngine::resetSearchState(std::uint64_t rngSeed)
+{
+    _rngState = rngSeed ? rngSeed : 0x5EED2026ULL;
+    _ttSizeLog2 = clampTtSizeLog2(_profile.ttSizeLog2);
+    _ttMask = (std::size_t{1} << _ttSizeLog2) - 1;
+    _tt.assign(std::size_t{1} << _ttSizeLog2, TranspositionEntry{});
+    _lastDiagnostics = BotSearchDiagnostics();
+    _stopSearch.store(false, std::memory_order_relaxed);
+    _liveDepthReached.store(0, std::memory_order_relaxed);
+    _liveNodesVisited.store(0, std::memory_order_relaxed);
+    _liveBestScore.store(0, std::memory_order_relaxed);
+}
+
+bool OctiBotEngine::isEnemyHomeSquareFor(OctiSquareType sqType,
+                                         OctiGameMode mode,
+                                         OctiPlayer p)
+{
+    return octi::isEnemyHomeSquareFor(sqType, mode, p);
+}
+
+bool OctiBotEngine::isAlliedHomeSquareFor(OctiSquareType sqType,
+                                          OctiGameMode mode,
+                                          OctiPlayer p)
+{
+    return octi::isAlliedHomeSquareFor(sqType, mode, p);
+}
+
+bool OctiBotEngine::squareHasAllyOf(const OctiSquare &sq,
+                                    OctiGameMode mode,
+                                    OctiPlayer player)
+{
+    return octi::squareHasAllyOf(sq, mode, player);
+}
+
+int OctiBotEngine::torusDist(int a, int b, int dim, bool edgeless)
+{
+    return octi::torusDist(a, b, dim, edgeless);
+}
+
+int OctiBotEngine::chebyshevDist(int x1, int y1, int x2, int y2,
+                                 int w, int h, bool edgeless)
+{
+    return octi::chebyshevDist(x1, y1, x2, y2, w, h, edgeless);
+}
+
+int OctiBotEngine::minChebyshevToTargets(
+    int x, int y,
+    const std::vector<std::pair<int, int>> &targets,
+    int w, int h, bool edgeless)
+{
+    return octi::minChebyshevToTargets(x, y, targets, w, h, edgeless);
+}
+
+std::vector<std::pair<int, int>> OctiBotEngine::targetEnemyBases(
+    const OctiBoard &board, OctiPlayer p)
+{
+    return octi::targetEnemyBases(board, p);
+}
+
+bool OctiBotEngine::isDistOneBaseThreatProngTarget(const OctiBoard &board,
+                                                   OctiGameMode mode,
+                                                   OctiPlayer turn,
+                                                   bool edgeless,
+                                                   int w,
+                                                   int h,
+                                                   int x0,
+                                                   int y0,
+                                                   OctiDir dir)
+{
+    return octi::isDistOneBaseThreatProngTarget(
+        board, mode, turn, edgeless, w, h, x0, y0, dir);
+}
+
+bool OctiBotEngine::isTacticalMoveForSearch(const OctiBoard &board,
+                                            OctiGameMode mode,
+                                            OctiPlayer turn,
+                                            const OctiMove &mv)
+{
+    return octi::isTacticalMoveForSearch(board, mode, turn, mv);
+}
+
+OctiBotEngine::CoalitionPhaseContext OctiBotEngine::analyzeCoalitionPhase(
+    const OctiBoard &board,
+    OctiPlayer side,
+    const BotTuningProfile &profile)
+{
+    auto raw = octi::analyzeCoalitionPhase(board, side, profile);
+    CoalitionPhaseContext ctx;
+    ctx.basesNeeded = raw.basesNeeded;
+    ctx.availPods = raw.availPods;
+    ctx.capturedPods = raw.capturedPods;
+    ctx.feasible = raw.feasible;
+    ctx.baseThreatScalePct = raw.baseThreatScalePct;
+    return ctx;
+}
+
+void OctiBotEngine::generateSearchMoves(const OctiGame &game,
+                                        OctiPlayer turn,
+                                        int ply,
+                                        std::vector<OctiMove> &outMoves) const
+{
+    (void)ply;
+    const bool includeSingleRepositions = (game.getFreeProngs(turn) <= 0);
+    game.generateLegalMovesForSearch(outMoves, includeSingleRepositions, true);
+}
+
+void OctiBotEngine::appendExtraQuiesceMoves(
+    const OctiBoard &board,
+    const OctiGame &game,
+    OctiGameMode mode,
+    OctiPlayer turn,
+    int qDepth,
+    std::vector<OctiMove> &tacticalMoves) const
+{
+    if (!_profile.qsearchIncludeBaseThreatProngs || qDepth != 0 ||
+        game.getFreeProngs(turn) <= 0) {
+        return;
+    }
+    int w = board.getBoardWidth();
+    int h = board.getBoardHeight();
+    bool edgeless = game.useEdgelessBoard();
+    OctiPodType turnPodType = playerToPodType(turn);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const OctiSquare &sq = board.squareAt(x, y);
+            if (sq.getNumPods() == 0) {
+                continue;
+            }
+            std::uint32_t seenConfigs[7];
+            int numSeen = 0;
+            for (int i = 0; i < sq.getNumPods(); ++i) {
+                const OctiPod &pod = sq.getPodAt(i);
+                if (pod.getType() != turnPodType) {
+                    continue;
+                }
+                std::uint32_t cfg = pod.rawConfig() & 0xFFFFu;
+                bool dup = false;
+                for (int s = 0; s < numSeen; ++s) {
+                    if (seenConfigs[s] == cfg) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (dup) {
+                    continue;
+                }
+                if (numSeen < 7) {
+                    seenConfigs[numSeen++] = cfg;
+                }
+                for (int d = 0; d < DIR_MAX; ++d) {
+                    OctiDir dir = static_cast<OctiDir>(d);
+                    if (pod.prongAt(dir) != NO_PRONG) {
+                        continue;
+                    }
+                    if (!isDistOneBaseThreatProngTarget(
+                            board, mode, turn, edgeless, w, h, x, y, dir)) {
+                        continue;
+                    }
+                    OctiMoveOp op;
+                    op.x0 = x;
+                    op.y0 = y;
+                    op.pod = pod;
+                    op.addProngDir = dir;
+                    op.superProng = false;
+                    tacticalMoves.push_back(
+                        OctiMove::fromValidatedSingleOp(std::move(op)));
+                }
+            }
+        }
+    }
+}
+
+void OctiBotEngine::adjustMoveOrderScores(
+    const OctiBoard &board,
+    const OctiGame &game,
+    OctiPlayer turn,
+    int ply,
+    bool inQuiesce,
+    const std::vector<OctiMove> &moves,
+    std::vector<std::pair<int, std::size_t>> &scored) const
+{
+    (void)board;
+    (void)game;
+    (void)turn;
+    (void)ply;
+    (void)inQuiesce;
+    (void)moves;
+    (void)scored;
+}
+
+void OctiBotEngine::adjustEvalBreakdown(const OctiBoard &board,
+                                        OctiPlayer perspective,
+                                        const EvalPhaseSummary &summary,
+                                        OctiEvalBreakdown &bd) const
+{
+    (void)board;
+    (void)perspective;
+    (void)summary;
+    (void)bd;
+}
+
+int OctiBotEngine::adjustLmrReduction(const OctiBoard &board,
+                                      OctiGameMode mode,
+                                      OctiPlayer turn,
+                                      int depth,
+                                      int ply,
+                                      std::size_t mvIdx,
+                                      const OctiMove &mv,
+                                      bool mvIsTactical,
+                                      bool mvIsKiller,
+                                      int defaultReduction) const
+{
+    (void)board;
+    (void)mode;
+    (void)turn;
+    (void)depth;
+    (void)ply;
+    (void)mvIdx;
+    (void)mv;
+    (void)mvIsTactical;
+    (void)mvIsKiller;
+    return defaultReduction;
+}
 
 void OctiBotEngine::ensureTranspositionTableSize()
 {
@@ -2800,10 +3041,91 @@ int OctiBotEngine::evaluatePosition(const OctiBoard &board,
     return evaluatePositionBreakdown(board, perspective, profile).totalScore;
 }
 
+OctiEvalBreakdown OctiBotEngine::evaluateBoardBreakdown(
+    const OctiBoard &board,
+    OctiPlayer perspective) const
+{
+    return evaluatePositionBreakdownImpl(board, perspective, _profile, this);
+}
+
+OctiEvalBreakdown OctiBotEngine::evaluateBoardBreakdown(
+    const OctiBoard &board,
+    OctiPlayer perspective,
+    const BotTuningProfile &profile) const
+{
+    return evaluatePositionBreakdownImpl(board, perspective, profile, this);
+}
+
+OctiEvalBreakdown OctiBotEngine::evaluateBoardBreakdown(
+    const OctiGame &game,
+    OctiPlayer perspective) const
+{
+    const OctiBoard *board = game.getBoard();
+    if (!board) {
+        return OctiEvalBreakdown();
+    }
+    return evaluatePositionBreakdownImpl(*board, perspective, _profile, this);
+}
+
+OctiEvalBreakdown OctiBotEngine::evaluateBoardBreakdown(
+    const OctiGame &game,
+    OctiPlayer perspective,
+    const BotTuningProfile &profile) const
+{
+    const OctiBoard *board = game.getBoard();
+    if (!board) {
+        return OctiEvalBreakdown();
+    }
+    return evaluatePositionBreakdownImpl(*board, perspective, profile, this);
+}
+
+int OctiBotEngine::evaluateBoard(const OctiBoard &board,
+                                 OctiPlayer perspective) const
+{
+    return evaluatePositionBreakdownImpl(board, perspective, _profile, this).totalScore;
+}
+
+int OctiBotEngine::evaluateBoard(const OctiBoard &board,
+                                 OctiPlayer perspective,
+                                 const BotTuningProfile &profile) const
+{
+    return evaluatePositionBreakdownImpl(board, perspective, profile, this).totalScore;
+}
+
+int OctiBotEngine::evaluateBoard(const OctiGame &game,
+                                 OctiPlayer perspective) const
+{
+    const OctiBoard *board = game.getBoard();
+    if (!board) {
+        return 0;
+    }
+    return evaluatePositionBreakdownImpl(*board, perspective, _profile, this).totalScore;
+}
+
+int OctiBotEngine::evaluateBoard(const OctiGame &game,
+                                 OctiPlayer perspective,
+                                 const BotTuningProfile &profile) const
+{
+    const OctiBoard *board = game.getBoard();
+    if (!board) {
+        return 0;
+    }
+    return evaluatePositionBreakdownImpl(*board, perspective, profile, this).totalScore;
+}
+
 OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
     const OctiBoard &board,
     OctiPlayer perspective,
     const BotTuningProfile &profile)
+{
+    return evaluatePositionBreakdownImpl(board, perspective, profile, nullptr);
+}
+
+OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdownImpl(
+    const OctiBoard &board,
+    OctiPlayer perspective,
+    const BotTuningProfile &profile,
+    const OctiBotEngine *engine)
 {
     OctiEvalBreakdown bd;
     const OctiGame *game = board.getGame();
@@ -2872,6 +3194,12 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
     int enemyOneJumpBaseThreatRaw = 0;
     int allyTwoPlyBaseThreatRaw = 0;
     int enemyTwoPlyBaseThreatRaw = 0;
+    int allyOneStepCount = 0;
+    int allyOneJumpCount = 0;
+    int enemyOneStepCount = 0;
+    int enemyOneJumpCount = 0;
+    int allyTwoPlyCount = 0;
+    int enemyTwoPlyCount = 0;
 
     int podZeroVal = profile.podZeroProngVal;
     int podOneVal = (mode == GAME_MODE_OFK)
@@ -3132,16 +3460,20 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
                     int stepBonus = (profile.oneStepBaseThreatBonus * scalePct) / 100;
                     if (isAlly) {
                         allyOneStepBaseThreatRaw += stepBonus;
+                        ++allyOneStepCount;
                     } else {
                         enemyOneStepBaseThreatRaw += stepBonus;
+                        ++enemyOneStepCount;
                     }
                 }
                 if (hasOneJumpBaseThreat) {
                     int jumpBonus = (profile.oneJumpBaseThreatBonus * scalePct) / 100;
                     if (isAlly) {
                         allyOneJumpBaseThreatRaw += jumpBonus;
+                        ++allyOneJumpCount;
                     } else {
                         enemyOneJumpBaseThreatRaw += jumpBonus;
+                        ++enemyOneJumpCount;
                     }
                 }
 
@@ -3150,8 +3482,10 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
                     int twoPlyBonus = (profile.twoPlyBaseThreatWeight * scalePct) / 100;
                     if (isAlly) {
                         allyTwoPlyBaseThreatRaw += twoPlyBonus;
+                        ++allyTwoPlyCount;
                     } else {
                         enemyTwoPlyBaseThreatRaw += twoPlyBonus;
+                        ++enemyTwoPlyCount;
                     }
                 }
 
@@ -3182,6 +3516,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
         }
     }
 
+    int emptyEnemyBaseOffense1BBonus = 0;
     if (profile.emptyAlliedBasePenalty1B > 0 && mode != GAME_MODE_OFK) {
         for (int y = 0; y < h; ++y) {
             for (int x = 0; x < w; ++x) {
@@ -3216,7 +3551,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
                     int urgencyPct = (dAlly <= 2)
                         ? profile.emptyAlliedBase1BCloseUrgencyPct
                         : ((dAlly == 3) ? profile.emptyAlliedBase1BMidUrgencyPct : 100);
-                    bd.lostAlliedBases += static_cast<int>(
+                    emptyEnemyBaseOffense1BBonus += static_cast<int>(
                         (static_cast<std::int64_t>(profile.emptyAlliedBasePenalty1B) * urgencyPct) / 100);
                 }
             }
@@ -3237,7 +3572,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
     }
     bd.oneStepBaseThreat = allyOneStepBaseThreatRaw - enemyOneStepBaseThreatRaw;
     bd.oneJumpBaseThreat = allyOneJumpBaseThreatRaw - enemyOneJumpBaseThreatRaw;
-    bd.twoPlyBaseThreat = allyTwoPlyBaseThreatRaw - enemyTwoPlyBaseThreatRaw;
+    bd.twoPlyBaseThreat = allyTwoPlyBaseThreatRaw - enemyTwoPlyBaseThreatRaw + emptyEnemyBaseOffense1BBonus;
 
     // Army Development Bonuses (Armed Pods)
     if (allyArmedPods >= 1) bd.armyDevelopment += profile.firstArmedPodBonus;
@@ -3479,6 +3814,49 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
         }
     }
 
+    if (engine != nullptr) {
+        EvalPhaseSummary summary;
+        summary.allyPhase = allyPhase;
+        summary.enemyPhase = enemyPhase;
+        summary.allyTargets = std::move(allyTargets);
+        summary.enemyTargets = std::move(enemyTargets);
+        summary.allyPodCoords = std::move(allyPodCoords);
+        summary.enemyPodCoords = std::move(enemyPodCoords);
+        if (mode != GAME_MODE_OFK) {
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    const OctiSquare &sq = board.squareAt(x, y);
+                    if (sq.isCaptured() || sq.getNumPods() > 0) {
+                        continue;
+                    }
+                    OctiSquareType sqType = sq.getType();
+                    if (isAlliedHomeSquareFor(sqType, mode, perspective)) {
+                        summary.emptyUncapturedAlliedBases.push_back({x, y});
+                    } else if (isEnemyHomeSquareFor(sqType, mode, perspective)) {
+                        summary.emptyUncapturedEnemyBases.push_back({x, y});
+                    }
+                }
+            }
+        }
+        summary.allyOneStepCount = allyOneStepCount;
+        summary.allyOneJumpCount = allyOneJumpCount;
+        summary.enemyOneStepCount = enemyOneStepCount;
+        summary.enemyOneJumpCount = enemyOneJumpCount;
+        summary.allyTwoPlyCount = allyTwoPlyCount;
+        summary.enemyTwoPlyCount = enemyTwoPlyCount;
+        summary.totalAllyPodsOnBoard = totalAllyPodsOnBoard;
+        summary.totalEnemyPodsOnBoard = totalEnemyPodsOnBoard;
+        summary.allyArmedPods = allyArmedPods;
+        summary.enemyArmedPods = enemyArmedPods;
+        summary.enemyEmptyBaseDanger = (bd.lostAlliedBases < 0);
+        summary.enemyContests = enemyContests;
+        summary.allyJumpThreatMask[0] = allyJumpThreatMask[0];
+        summary.allyJumpThreatMask[1] = allyJumpThreatMask[1];
+        summary.enemyJumpThreatMask[0] = enemyJumpThreatMask[0];
+        summary.enemyJumpThreatMask[1] = enemyJumpThreatMask[1];
+        engine->adjustEvalBreakdown(board, perspective, summary, bd);
+    }
+
     bd.totalScore = bd.sumTerms();
     return bd;
 }
@@ -3635,61 +4013,8 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
     OctiPlayer turn = game->getTurn();
     std::vector<OctiMove> tacticalMoves;
     game->generateTacticalMoves(tacticalMoves);
-    if (_profile.qsearchIncludeBaseThreatProngs && qDepth == 0 &&
-        game->getFreeProngs(turn) > 0) {
-        int w = scratchBoard.getBoardWidth();
-        int h = scratchBoard.getBoardHeight();
-        bool edgeless = game->useEdgelessBoard();
-        OctiPodType turnPodType = playerToPodType(turn);
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                const OctiSquare &sq = scratchBoard.squareAt(x, y);
-                if (sq.getNumPods() == 0) {
-                    continue;
-                }
-                std::uint32_t seenConfigs[7];
-                int numSeen = 0;
-                for (int i = 0; i < sq.getNumPods(); ++i) {
-                    const OctiPod &pod = sq.getPodAt(i);
-                    if (pod.getType() != turnPodType) {
-                        continue;
-                    }
-                    std::uint32_t cfg = pod.rawConfig() & 0xFFFFu;
-                    bool dup = false;
-                    for (int s = 0; s < numSeen; ++s) {
-                        if (seenConfigs[s] == cfg) {
-                            dup = true;
-                            break;
-                        }
-                    }
-                    if (dup) {
-                        continue;
-                    }
-                    if (numSeen < 7) {
-                        seenConfigs[numSeen++] = cfg;
-                    }
-                    for (int d = 0; d < DIR_MAX; ++d) {
-                        OctiDir dir = static_cast<OctiDir>(d);
-                        if (pod.prongAt(dir) != NO_PRONG) {
-                            continue;
-                        }
-                        if (!isDistOneBaseThreatProngTarget(
-                                scratchBoard, mode, turn, edgeless, w, h, x, y, dir)) {
-                            continue;
-                        }
-                        OctiMoveOp op;
-                        op.x0 = x;
-                        op.y0 = y;
-                        op.pod = pod;
-                        op.addProngDir = dir;
-                        op.superProng = false;
-                        tacticalMoves.push_back(
-                            OctiMove::fromValidatedSingleOp(std::move(op)));
-                    }
-                }
-            }
-        }
-    }
+    this->appendExtraQuiesceMoves(
+        scratchBoard, *game, mode, turn, qDepth, tacticalMoves);
     if (tacticalMoves.empty()) {
         if (useQsearchTt) {
             storeQuiesceTt(0, standPat, (standPat > origAlpha) ? 0 : 2, 0ULL);
@@ -3701,7 +4026,8 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
         ? static_cast<std::size_t>(_profile.quiesceBranchCap)
         : tacticalMoves.size();
     std::vector<OctiMove> ordered = orderAndCapMoves(
-        scratchBoard, tacticalMoves, turn, ttMoveKey, qCap, _profile, false);
+        scratchBoard, tacticalMoves, turn, ttMoveKey, qCap, _profile, false,
+        static_cast<SearchThreadState *>(nullptr), ply, true);
 
     int bestVal = standPat;
     std::uint64_t bestMoveKey = 0ULL;
@@ -3929,7 +4255,8 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         }
     }
 
-    std::vector<OctiMove> rawMoves = game->generateLegalMoves();
+    std::vector<OctiMove> rawMoves;
+    this->generateSearchMoves(*game, turn, ply, rawMoves);
     if (rawMoves.empty()) {
         return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
     }
@@ -3941,7 +4268,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         scratchBoard, rawMoves, turn, ttMoveKey, maxBranch, _profile,
         (ply <= _profile.compositeMoveMaxPly && depth >= 2),
         (_profile.useKillers || _profile.useHistory) ? &state : static_cast<SearchThreadState *>(nullptr),
-        ply);
+        ply, false);
 
     int origAlpha = alpha;
     int bestVal = -INF_SCORE;
@@ -4020,6 +4347,13 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
                         lmrRed = 2;
                     }
                     lmrRed = std::min(lmrRed, childDepth - 1);
+                }
+
+                if (lmrRed > 0) {
+                    lmrRed = this->adjustLmrReduction(
+                        scratchBoard, mode, turn, depth, ply, mvIdx, mv,
+                        mvIsTactical, mvIsKiller, lmrRed);
+                    lmrRed = std::clamp(lmrRed, 0, childDepth - 1);
                 }
 
                 if (lmrRed > 0) {
@@ -4232,12 +4566,19 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
         }
     }
 
+    std::vector<OctiMove> searchMoves;
+    this->generateSearchMoves(*game, rootTurn, 0, searchMoves);
+    if (searchMoves.empty()) {
+        searchMoves = legalMoves;
+    }
+
     std::size_t rootCap = (_profile.rootBranchCap > 0)
         ? static_cast<std::size_t>(_profile.rootBranchCap)
         : std::numeric_limits<std::size_t>::max();
     std::vector<OctiMove> rootCandidates = orderAndCapMoves(
-        scratchBoard, legalMoves, rootTurn, 0ULL, rootCap, _profile,
-        (_profile.compositeMoveMaxPly >= 0));
+        scratchBoard, searchMoves, rootTurn, 0ULL, rootCap, _profile,
+        (_profile.compositeMoveMaxPly >= 0),
+        static_cast<SearchThreadState *>(nullptr), 0, false);
 
     std::string bestMoveStr = rootCandidates[0].asString();
     int bestScore = -INF_SCORE;
@@ -4710,12 +5051,16 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     }
     game->setSearchMode(true);
 
-    std::vector<OctiMove> legalMoves = game->generateLegalMoves();
+    OctiPlayer rootTurn = game->getTurn();
+    std::vector<OctiMove> legalMoves;
+    this->generateSearchMoves(*game, rootTurn, 0, legalMoves);
+    if (legalMoves.empty()) {
+        legalMoves = game->generateLegalMoves();
+    }
     if (legalMoves.empty()) {
         return {};
     }
 
-    OctiPlayer rootTurn = game->getTurn();
     OctiGameMode mode = scratchBoard.getGameMode();
     std::uint64_t nodesVisited = 0;
 
@@ -4724,7 +5069,8 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
         : std::numeric_limits<std::size_t>::max();
     std::vector<OctiMove> rootCandidates = orderAndCapMoves(
         scratchBoard, legalMoves, rootTurn, 0ULL, rootCap, _profile,
-        (_profile.compositeMoveMaxPly >= 0));
+        (_profile.compositeMoveMaxPly >= 0),
+        static_cast<SearchThreadState *>(nullptr), 0, false);
     if (rootCandidates.empty()) {
         return {};
     }

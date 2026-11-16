@@ -9,6 +9,9 @@
 
 #include "Version.hxx"
 
+#include <string>
+#include <vector>
+
 #ifndef OCTI_APP_VERSION
 #define OCTI_APP_VERSION OCTI_VERSION_STRING
 #endif
@@ -186,6 +189,171 @@ inline bool areAlliedPodTypes(OctiGameMode mode, OctiPodType t1, OctiPodType t2)
 {
     return areAlliedPlayers(mode, podTypeToPlayer(t1), podTypeToPlayer(t2));
 }
+
+#ifndef OCTI_VARIANT_CODE_HELPERS_DEFINED
+#define OCTI_VARIANT_CODE_HELPERS_DEFINED
+
+inline std::vector<std::string> allOctiVariantCodes()
+{
+    return {
+        "2P_3B",    "2P_3B_SP", "2P_3B_ED", "2P_3B_SPED",
+        "2P_1B",    "2P_1B_SP", "2P_1B_ED", "2P_1B_SPED",
+        "4P",       "4P_SP",    "4P_ED",    "4P_SPED",
+        "OFK"
+    };
+}
+
+inline std::string octiVariantCode(OctiGameMode mode, int bases,
+                                   bool superProngs, bool edgeless)
+{
+    if (mode == GAME_MODE_OFK) {
+        return "OFK";
+    }
+    std::string code;
+    if (mode == GAME_MODE_4) {
+        code = "4P";
+    } else {
+        code = (bases == 1) ? "2P_1B" : "2P_3B";
+    }
+    if (superProngs && edgeless) {
+        code += "_SPED";
+    } else if (superProngs) {
+        code += "_SP";
+    } else if (edgeless) {
+        code += "_ED";
+    }
+    return code;
+}
+
+inline std::string octiVariantCode(OctiGameMode mode, OctiGameBases bases,
+                                   bool superProngs, bool edgeless)
+{
+    return octiVariantCode(mode, static_cast<int>(bases), superProngs, edgeless);
+}
+
+inline bool parseOctiVariantCode(const std::string &code,
+                                 OctiGameMode &modeOut,
+                                 int &basesOut,
+                                 bool &superProngsOut,
+                                 bool &edgelessOut)
+{
+    std::string u = code;
+    for (size_t i = 0; i < u.size(); ++i) {
+        if (u[i] >= 'a' && u[i] <= 'z') {
+            u[i] = static_cast<char>(u[i] - 'a' + 'A');
+        }
+    }
+    if (u == "OFK") {
+        modeOut = GAME_MODE_OFK;
+        basesOut = 1;
+        superProngsOut = false;
+        edgelessOut = false;
+        return true;
+    }
+    if (u == "4P" || u == "4P_SP" || u == "4P_ED" || u == "4P_SPED") {
+        modeOut = GAME_MODE_4;
+        basesOut = 3;
+        superProngsOut = (u == "4P_SP" || u == "4P_SPED");
+        edgelessOut = (u == "4P_ED" || u == "4P_SPED");
+        return true;
+    }
+    if (u == "2P_3B" || u == "2P_3B_SP" || u == "2P_3B_ED" || u == "2P_3B_SPED") {
+        modeOut = GAME_MODE_2;
+        basesOut = 3;
+        superProngsOut = (u == "2P_3B_SP" || u == "2P_3B_SPED");
+        edgelessOut = (u == "2P_3B_ED" || u == "2P_3B_SPED");
+        return true;
+    }
+    if (u == "2P_1B" || u == "2P_1B_SP" || u == "2P_1B_ED" || u == "2P_1B_SPED") {
+        modeOut = GAME_MODE_2;
+        basesOut = 1;
+        superProngsOut = (u == "2P_1B_SP" || u == "2P_1B_SPED");
+        edgelessOut = (u == "2P_1B_ED" || u == "2P_1B_SPED");
+        return true;
+    }
+    return false;
+}
+
+inline bool parseOctiVariantCode(const std::string &code,
+                                 OctiGameMode &modeOut,
+                                 OctiGameBases &basesOut,
+                                 bool &superProngsOut,
+                                 bool &edgelessOut)
+{
+    int b = 3;
+    if (!parseOctiVariantCode(code, modeOut, b, superProngsOut, edgelessOut)) {
+        return false;
+    }
+    basesOut = (b == 1) ? GAME_BASES_1 : GAME_BASES_3;
+    return true;
+}
+
+inline bool isValidOctiVariantCode(const std::string &code)
+{
+    OctiGameMode m = GAME_MODE_2;
+    int b = 3;
+    bool sp = false;
+    bool ed = false;
+    return parseOctiVariantCode(code, m, b, sp, ed);
+}
+
+inline std::string octiVariantCodeFromModeStr(const std::string &modeStr,
+                                              int bases,
+                                              bool superProngs,
+                                              bool edgeless)
+{
+    std::string u = modeStr;
+    for (size_t i = 0; i < u.size(); ++i) {
+        if (u[i] >= 'a' && u[i] <= 'z') {
+            u[i] = static_cast<char>(u[i] - 'a' + 'A');
+        }
+    }
+    if (u == "OFK") {
+        return "OFK";
+    }
+    if (u == "4P" || u == "4") {
+        return octiVariantCode(GAME_MODE_4, bases, superProngs, edgeless);
+    }
+    if (u == "2P" || u == "2" || u.empty()) {
+        return octiVariantCode(GAME_MODE_2, bases, superProngs, edgeless);
+    }
+    OctiGameMode pm = GAME_MODE_2;
+    int pb = 3;
+    bool psp = false;
+    bool ped = false;
+    if (parseOctiVariantCode(u, pm, pb, psp, ped)) {
+        return octiVariantCode(pm, pb, psp, ped);
+    }
+    return octiVariantCode(GAME_MODE_2, bases, superProngs, edgeless);
+}
+
+inline bool isOfficialRatedVariant(OctiGameMode mode, int bases,
+                                   bool superProngs, bool edgeless)
+{
+    std::string v = octiVariantCode(mode, bases, superProngs, edgeless);
+    return v == "2P_3B" || v == "2P_1B" || v == "OFK";
+}
+
+inline bool isOfficialRatedVariant(OctiGameMode mode, OctiGameBases bases,
+                                   bool superProngs, bool edgeless)
+{
+    return isOfficialRatedVariant(mode, static_cast<int>(bases),
+                                  superProngs, edgeless);
+}
+
+inline bool isOfficialRatedVariantCode(const std::string &code)
+{
+    OctiGameMode m = GAME_MODE_2;
+    int b = 3;
+    bool sp = false;
+    bool ed = false;
+    if (!parseOctiVariantCode(code, m, b, sp, ed)) {
+        return false;
+    }
+    return isOfficialRatedVariant(m, b, sp, ed);
+}
+
+#endif // OCTI_VARIANT_CODE_HELPERS_DEFINED
 
 } // namespace octi
 

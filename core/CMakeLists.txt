@@ -142,6 +142,61 @@ execute_process(
 )
 file(REMOVE "${_OCTI_SOUND_ASSETS_HXX_TMP}")
 
+option(OCTI_BOOTSTRAP_RULEBOOK_ASSETS "Allow configuring before assets/rulebook/*.png exist" OFF)
+option(OCTI_FORCE_RULEBOOK_STUB "Force zero-byte stub rulebook descriptors" OFF)
+
+find_program(_OCTI_PYTHON3_EXE NAMES python3 python NO_CMAKE_FIND_ROOT_PATH)
+if(NOT _OCTI_PYTHON3_EXE)
+    message(FATAL_ERROR "python3 interpreter required to generate OctiRulebookAssets.hxx")
+endif()
+
+set(_OCTI_RULEBOOK_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/rulebook")
+set(_OCTI_RULEBOOK_GEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_rulebook_assets.py")
+set(_OCTI_RULEBOOK_ASSETS_HXX_OUT "${CMAKE_CURRENT_BINARY_DIR}/OctiRulebookAssets.hxx")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_OCTI_RULEBOOK_GEN_SCRIPT}")
+
+set(_OCTI_RULEBOOK_IMAGE_IDS
+    rule_01_2p_3b_setup
+    rule_02_2p_1b_setup
+    rule_03_prongs_8dir
+    rule_04_step_vs_jump
+    rule_05_multihop_chain
+    rule_06_stack_split_loop
+    rule_07_reserve_liberate
+    rule_08_edgeless_wrap
+    rule_09_superprongs
+    rule_10_4p_partnership
+    rule_11_ofk_6x7
+    rule_12_victory_infiltration
+)
+
+foreach(_rb_id IN LISTS _OCTI_RULEBOOK_IMAGE_IDS)
+    set(_rb_png "${_OCTI_RULEBOOK_ASSET_DIR}/${_rb_id}.png")
+    if(EXISTS "${_rb_png}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_rb_png}")
+    endif()
+endforeach()
+
+set(_OCTI_RULEBOOK_GEN_ARGS
+    "--input-dir" "${_OCTI_RULEBOOK_ASSET_DIR}"
+    "--output" "${_OCTI_RULEBOOK_ASSETS_HXX_OUT}"
+)
+if(OCTI_FORCE_RULEBOOK_STUB)
+    list(APPEND _OCTI_RULEBOOK_GEN_ARGS "--stub")
+elseif(OCTI_BOOTSTRAP_RULEBOOK_ASSETS OR OCTI_BOOTSTRAP_SOUND_ASSETS OR NOT IS_DIRECTORY "${_OCTI_RULEBOOK_ASSET_DIR}")
+    list(APPEND _OCTI_RULEBOOK_GEN_ARGS "--allow-stub")
+endif()
+
+execute_process(
+    COMMAND "${_OCTI_PYTHON3_EXE}" "${_OCTI_RULEBOOK_GEN_SCRIPT}" ${_OCTI_RULEBOOK_GEN_ARGS}
+    RESULT_VARIABLE _OCTI_RULEBOOK_GEN_RC
+    ERROR_VARIABLE _OCTI_RULEBOOK_GEN_ERR
+)
+if(NOT _OCTI_RULEBOOK_GEN_RC EQUAL 0)
+    message(FATAL_ERROR
+        "gen_rulebook_assets.py failed (rc=${_OCTI_RULEBOOK_GEN_RC}): ${_OCTI_RULEBOOK_GEN_ERR}")
+endif()
+
 set(OCTI_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party")
 if(NOT EXISTS "${OCTI_THIRD_PARTY_DIR}/json/include/nlohmann/json.hpp" OR
    NOT EXISTS "${OCTI_THIRD_PARTY_DIR}/cpp-httplib/httplib.h")
@@ -156,6 +211,7 @@ add_library(octi_core STATIC
     src/OctiSquare.cxx
     src/OctiMove.cxx
     src/OctiSoundCue.cxx
+    src/OctiRulebook.cxx
     src/OctiBoard.cxx
     src/OctiGame.cxx
     src/OctiBotEngine.cxx

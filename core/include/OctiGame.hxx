@@ -177,6 +177,9 @@ public:
     bool hasAnyLegalMove() const;
     void generateLegalMoves(std::vector<OctiMove> &outMoves) const;
     std::vector<OctiMove> generateLegalMoves() const;
+    void generateLegalMovesForSearch(std::vector<OctiMove> &outMoves,
+                                     bool includeSingleRepositions,
+                                     bool includeSuperProngRepositions = true) const;
     void generateTacticalMoves(std::vector<OctiMove> &outMoves) const;
     std::vector<OctiMove> generateTacticalMoves() const;
 

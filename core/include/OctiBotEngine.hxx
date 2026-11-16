@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #include "OctiBoard.hxx"
 #include "OctiDefs.hxx"
@@ -245,7 +246,9 @@ public:
                            std::uint64_t rngSeed = 0x5EED2026ULL);
     OctiBotEngine(const OctiBotEngine &other);
     OctiBotEngine &operator=(const OctiBotEngine &other);
-    ~OctiBotEngine();
+    virtual ~OctiBotEngine();
+
+    virtual void resetSearchState(std::uint64_t rngSeed = 0x5EED2026ULL);
 
     void setDifficulty(BotDifficulty d);
     BotDifficulty difficulty() const;
@@ -319,6 +322,27 @@ public:
     static int evaluatePosition(const OctiGame &game,
                                 OctiPlayer perspective);
 
+    OctiEvalBreakdown evaluateBoardBreakdown(const OctiBoard &board,
+                                             OctiPlayer perspective) const;
+    OctiEvalBreakdown evaluateBoardBreakdown(const OctiBoard &board,
+                                             OctiPlayer perspective,
+                                             const BotTuningProfile &profile) const;
+    OctiEvalBreakdown evaluateBoardBreakdown(const OctiGame &game,
+                                             OctiPlayer perspective) const;
+    OctiEvalBreakdown evaluateBoardBreakdown(const OctiGame &game,
+                                             OctiPlayer perspective,
+                                             const BotTuningProfile &profile) const;
+    int evaluateBoard(const OctiBoard &board,
+                      OctiPlayer perspective) const;
+    int evaluateBoard(const OctiBoard &board,
+                      OctiPlayer perspective,
+                      const BotTuningProfile &profile) const;
+    int evaluateBoard(const OctiGame &game,
+                      OctiPlayer perspective) const;
+    int evaluateBoard(const OctiGame &game,
+                      OctiPlayer perspective,
+                      const BotTuningProfile &profile) const;
+
     static int defaultBudgetForDifficulty(BotDifficulty d);
     static int maxDepthForDifficulty(BotDifficulty d);
     static int rootCapForDifficulty(BotDifficulty d);
@@ -327,6 +351,115 @@ public:
     std::uint64_t lookupTranspositionBestMoveKey(const OctiBoard &board) const;
     std::size_t transpositionTableEntryCount() const noexcept { return _tt.size(); }
     BotSearchDiagnostics lastSearchDiagnostics() const noexcept { return _lastDiagnostics; }
+
+protected:
+    struct CoalitionPhaseContext {
+        int basesNeeded = 1;
+        int availPods = 0;
+        int capturedPods = 0;
+        bool feasible = true;
+        int baseThreatScalePct = 100;
+    };
+
+    struct EvalPhaseSummary {
+        CoalitionPhaseContext allyPhase{};
+        CoalitionPhaseContext enemyPhase{};
+        std::vector<std::pair<int, int>> allyTargets;
+        std::vector<std::pair<int, int>> enemyTargets;
+        std::vector<std::pair<int, int>> allyPodCoords;
+        std::vector<std::pair<int, int>> enemyPodCoords;
+        std::vector<std::pair<int, int>> emptyUncapturedAlliedBases;
+        std::vector<std::pair<int, int>> emptyUncapturedEnemyBases;
+        int allyOneStepCount = 0;
+        int allyOneJumpCount = 0;
+        int enemyOneStepCount = 0;
+        int enemyOneJumpCount = 0;
+        int allyTwoPlyCount = 0;
+        int enemyTwoPlyCount = 0;
+        int totalAllyPodsOnBoard = 0;
+        int totalEnemyPodsOnBoard = 0;
+        int allyArmedPods = 0;
+        int enemyArmedPods = 0;
+        bool enemyEmptyBaseDanger = false;
+        bool enemyContests = false;
+        std::uint64_t allyJumpThreatMask[2] = {0ULL, 0ULL};
+        std::uint64_t enemyJumpThreatMask[2] = {0ULL, 0ULL};
+    };
+
+    virtual void generateSearchMoves(const OctiGame &game,
+                                     OctiPlayer turn,
+                                     int ply,
+                                     std::vector<OctiMove> &outMoves) const;
+
+    virtual void appendExtraQuiesceMoves(const OctiBoard &board,
+                                         const OctiGame &game,
+                                         OctiGameMode mode,
+                                         OctiPlayer turn,
+                                         int qDepth,
+                                         std::vector<OctiMove> &tacticalMoves) const;
+
+    virtual bool hasCustomMoveOrdering() const noexcept { return false; }
+
+    virtual void adjustMoveOrderScores(
+        const OctiBoard &board,
+        const OctiGame &game,
+        OctiPlayer turn,
+        int ply,
+        bool inQuiesce,
+        const std::vector<OctiMove> &moves,
+        std::vector<std::pair<int, std::size_t>> &scored) const;
+
+    virtual void adjustEvalBreakdown(const OctiBoard &board,
+                                     OctiPlayer perspective,
+                                     const EvalPhaseSummary &summary,
+                                     OctiEvalBreakdown &bd) const;
+
+    virtual int adjustLmrReduction(const OctiBoard &board,
+                                   OctiGameMode mode,
+                                   OctiPlayer turn,
+                                   int depth,
+                                   int ply,
+                                   std::size_t mvIdx,
+                                   const OctiMove &mv,
+                                   bool mvIsTactical,
+                                   bool mvIsKiller,
+                                   int defaultReduction) const;
+
+    static bool isEnemyHomeSquareFor(OctiSquareType sqType,
+                                     OctiGameMode mode,
+                                     OctiPlayer p);
+    static bool isAlliedHomeSquareFor(OctiSquareType sqType,
+                                      OctiGameMode mode,
+                                      OctiPlayer p);
+    static bool squareHasAllyOf(const OctiSquare &sq,
+                                OctiGameMode mode,
+                                OctiPlayer player);
+    static int torusDist(int a, int b, int dim, bool edgeless);
+    static int chebyshevDist(int x1, int y1, int x2, int y2,
+                             int w, int h, bool edgeless);
+    static int minChebyshevToTargets(
+        int x, int y,
+        const std::vector<std::pair<int, int>> &targets,
+        int w, int h, bool edgeless);
+    static std::vector<std::pair<int, int>> targetEnemyBases(
+        const OctiBoard &board, OctiPlayer p);
+    static bool isDistOneBaseThreatProngTarget(const OctiBoard &board,
+                                               OctiGameMode mode,
+                                               OctiPlayer turn,
+                                               bool edgeless,
+                                               int w,
+                                               int h,
+                                               int x0,
+                                               int y0,
+                                               OctiDir dir);
+    static bool isTacticalMoveForSearch(const OctiBoard &board,
+                                        OctiGameMode mode,
+                                        OctiPlayer turn,
+                                        const OctiMove &mv);
+    static CoalitionPhaseContext analyzeCoalitionPhase(
+        const OctiBoard &board,
+        OctiPlayer side,
+        const BotTuningProfile &profile);
 
 private:
     struct SearchThreadState;
@@ -349,6 +482,23 @@ public:
     }
 
 private:
+    static OctiEvalBreakdown evaluatePositionBreakdownImpl(
+        const OctiBoard &board,
+        OctiPlayer perspective,
+        const BotTuningProfile &profile,
+        const OctiBotEngine *engine);
+
+    template <typename ThreadStatePtr = std::nullptr_t>
+    std::vector<OctiMove> orderAndCapMoves(OctiBoard &board,
+                                           std::vector<OctiMove> &rawMoves,
+                                           OctiPlayer turn,
+                                           std::uint64_t ttBestMoveKey,
+                                           std::size_t maxBranch,
+                                           const BotTuningProfile &profile,
+                                           bool includeComposites = true,
+                                           ThreadStatePtr threadState = nullptr,
+                                           int ply = 0,
+                                           bool inQuiesce = false) const;
 
     void ensureTranspositionTableSize();
     std::uint64_t nextRandom();
@@ -357,7 +507,7 @@ private:
     int evaluateLeafOrHeuristic(const OctiBoard &board,
                                 OctiPlayer perspective) const
     {
-        int h = evaluatePosition(board, perspective, _profile);
+        int h = evaluateBoard(board, perspective, _profile);
         return _leafEvaluator
             ? _leafEvaluator->evaluateLeaf(board, perspective, h)
             : h;

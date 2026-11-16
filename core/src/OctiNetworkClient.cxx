@@ -124,6 +124,14 @@ ArchivedGameSummary parseArchivedGameSummary(const Json &j)
     g.bases = j.value("bases", 3);
     g.superProngs = j.value("super_prongs", false);
     g.edgeless = j.value("edgeless", false);
+    g.variant = j.value("variant", "");
+    if (g.variant.empty() || !isValidOctiVariantCode(g.variant)) {
+        g.variant = octiVariantCodeFromModeStr(
+            g.mode, g.bases, g.superProngs, g.edgeless);
+    } else {
+        g.variant = octiVariantCodeFromModeStr(
+            g.variant, g.bases, g.superProngs, g.edgeless);
+    }
     if (j.contains("time_control") && j["time_control"].is_string()) {
         g.timeControl = j["time_control"].get<std::string>();
     }
@@ -156,6 +164,8 @@ ArchivedGameSummary parseArchivedGameSummary(const Json &j)
     g.plyCount = j.value("ply_count", 0);
     g.startedAt = j.value("started_at", static_cast<std::int64_t>(0));
     g.endedAt = j.value("ended_at", static_cast<std::int64_t>(0));
+    g.rated = j.value("rated", false);
+    g.eloPool = j.value("elo_pool", 0);
     g.finalFen = j.value("final_fen", j.value("fen", ""));
     g.octiTranscript = j.value("octi_transcript", "");
     return g;
@@ -173,7 +183,9 @@ PlayerProfileInfo parsePlayerProfile(const Json &j)
     p.avatarUrl = j.value("avatar_url", "");
     p.bio = j.value("bio", "");
     p.location = j.value("location", "");
-    p.elo2p = j.value("elo_2p", 1200);
+    p.elo2p = j.value("elo_2p", j.value("elo_2p_3b", 1200));
+    p.elo2p3b = j.value("elo_2p_3b", p.elo2p);
+    p.elo2p1b = j.value("elo_2p_1b", 1200);
     p.elo4p = j.value("elo_4p", 1200);
     p.eloOfk = j.value("elo_ofk", 1200);
     p.gamesPlayed = j.value("games_played", 0);
@@ -184,6 +196,13 @@ PlayerProfileInfo parsePlayerProfile(const Json &j)
     p.lastSeenAt = j.value("last_seen_at", static_cast<std::int64_t>(0));
     p.isAdmin = j.value("is_admin", false);
     p.isRobot = j.value("is_robot", false);
+    p.arenaElo2p3b = j.value("arena_elo_2p_3b", p.isRobot ? p.elo2p3b : 1200);
+    p.arenaElo2p1b = j.value("arena_elo_2p_1b", p.isRobot ? p.elo2p1b : 1200);
+    p.arenaEloOfk = j.value("arena_elo_ofk", p.isRobot ? p.eloOfk : 1200);
+    p.arenaGamesPlayed = j.value("arena_games_played", p.isRobot ? p.gamesPlayed : 0);
+    p.arenaWins = j.value("arena_wins", p.isRobot ? p.wins : 0);
+    p.arenaLosses = j.value("arena_losses", p.isRobot ? p.losses : 0);
+    p.arenaDraws = j.value("arena_draws", p.isRobot ? p.draws : 0);
     p.robotUuid = j.value("robot_uuid", "");
     p.description = j.value("description", j.value("robot_description", ""));
     p.ownerUuid = j.value("owner_uuid", "");
@@ -215,6 +234,14 @@ TableSummaryInfo parseTableSummary(const Json &j)
     t.bases = j.value("bases", 3);
     t.superProngs = j.value("super_prongs", false);
     t.edgeless = j.value("edgeless", false);
+    t.variant = j.value("variant", "");
+    if (t.variant.empty() || !isValidOctiVariantCode(t.variant)) {
+        t.variant = octiVariantCodeFromModeStr(
+            t.mode, t.bases, t.superProngs, t.edgeless);
+    } else {
+        t.variant = octiVariantCodeFromModeStr(
+            t.variant, t.bases, t.superProngs, t.edgeless);
+    }
     if (j.contains("time_control") && j["time_control"].is_object()) {
         const Json &tc = j["time_control"];
         t.timeControlEnabled = tc.value("enabled", false);
@@ -302,6 +329,14 @@ GameViewData parseGameView(const Json &j)
     v.bases = j.value("bases", 3);
     v.superProngs = j.value("super_prongs", false);
     v.edgeless = j.value("edgeless", false);
+    v.variant = j.value("variant", "");
+    if (v.variant.empty() || !isValidOctiVariantCode(v.variant)) {
+        v.variant = octiVariantCodeFromModeStr(
+            v.mode, v.bases, v.superProngs, v.edgeless);
+    } else {
+        v.variant = octiVariantCodeFromModeStr(
+            v.variant, v.bases, v.superProngs, v.edgeless);
+    }
     if (j.contains("time_control") && j["time_control"].is_object()) {
         const Json &tc = j["time_control"];
         v.timeControlEnabled = tc.value("enabled", false);
@@ -2554,10 +2589,31 @@ ApiResult<CreateTableResponse> OctiNetworkClient::createTable(
 {
     ApiResult<CreateTableResponse> res;
     Json body;
-    body["mode"] = req.mode;
-    body["bases"] = req.bases;
-    body["super_prongs"] = req.superProngs;
-    body["edgeless"] = req.edgeless;
+    std::string mode = req.mode;
+    int bases = req.bases;
+    bool sp = req.superProngs;
+    bool ed = req.edgeless;
+    if (!req.variant.empty()) {
+        OctiGameMode vm = GAME_MODE_2;
+        int vb = 3;
+        bool vsp = false;
+        bool ved = false;
+        if (parseOctiVariantCode(req.variant, vm, vb, vsp, ved)) {
+            mode = (vm == GAME_MODE_OFK) ? "OFK"
+                 : (vm == GAME_MODE_4)   ? "4P"
+                                         : "2P";
+            bases = vb;
+            sp = vsp;
+            ed = ved;
+            body["variant"] = octiVariantCode(vm, vb, vsp, ved);
+        } else {
+            body["variant"] = req.variant;
+        }
+    }
+    body["mode"] = mode;
+    body["bases"] = bases;
+    body["super_prongs"] = sp;
+    body["edgeless"] = ed;
     body["allow_robots"] = req.allowRobots;
     body["rated"] = req.rated;
     body["allow_takeback"] = req.allowTakeback;
@@ -2726,10 +2782,31 @@ ApiResult<bool> OctiNetworkClient::enqueueMatchmaking(
 {
     ApiResult<bool> res;
     Json body;
-    body["mode"] = req.mode;
-    body["bases"] = req.bases;
-    body["super_prongs"] = req.superProngs;
-    body["edgeless"] = req.edgeless;
+    std::string mode = req.mode;
+    int bases = req.bases;
+    bool sp = req.superProngs;
+    bool ed = req.edgeless;
+    if (!req.variant.empty()) {
+        OctiGameMode vm = GAME_MODE_2;
+        int vb = 3;
+        bool vsp = false;
+        bool ved = false;
+        if (parseOctiVariantCode(req.variant, vm, vb, vsp, ved)) {
+            mode = (vm == GAME_MODE_OFK) ? "OFK"
+                 : (vm == GAME_MODE_4)   ? "4P"
+                                         : "2P";
+            bases = vb;
+            sp = vsp;
+            ed = ved;
+            body["variant"] = octiVariantCode(vm, vb, vsp, ved);
+        } else {
+            body["variant"] = req.variant;
+        }
+    }
+    body["mode"] = mode;
+    body["bases"] = bases;
+    body["super_prongs"] = sp;
+    body["edgeless"] = ed;
     body["allow_robots"] = req.allowRobots;
     if (req.timeControlEnabled && req.initialMs > 0) {
         Json tc;
@@ -2992,7 +3069,25 @@ ApiResult<ArchivedGamesPage> OctiNetworkClient::listArchivedGames(
                        std::to_string(limit) +
                        "&offset=" + std::to_string(offset);
     if (!mode.empty()) {
-        path += "&mode=" + urlEncode(mode);
+        std::string u = mode;
+        for (std::size_t i = 0; i < u.size(); ++i) {
+            if (u[i] >= 'a' && u[i] <= 'z') {
+                u[i] = static_cast<char>(u[i] - 'a' + 'A');
+            }
+        }
+        OctiGameMode pm = GAME_MODE_2;
+        int pb = 3;
+        bool psp = false;
+        bool ped = false;
+        if (u == "2P" || u == "2P_ALL") {
+            path += "&mode=2P";
+        } else if (u == "4P_ALL") {
+            path += "&mode=4P";
+        } else if (parseOctiVariantCode(u, pm, pb, psp, ped)) {
+            path += "&variant=" + urlEncode(octiVariantCode(pm, pb, psp, ped));
+        } else {
+            path += "&mode=" + urlEncode(mode);
+        }
     }
     if (!playerUuid.empty()) {
         path += "&player=" + urlEncode(playerUuid);
@@ -3256,13 +3351,26 @@ ApiResult<std::string> OctiNetworkClient::exportRobotTokensConf()
 }
 
 ApiResult<std::vector<RobotDirectoryEntry>> OctiNetworkClient::fetchRobotsDirectory(
-    const std::string &query)
+    const std::string &query,
+    const std::string &participantType,
+    const std::string &sortField,
+    bool sortAsc,
+    int limit,
+    int offset)
 {
     ApiResult<std::vector<RobotDirectoryEntry>> res;
     res.data = std::vector<RobotDirectoryEntry>();
-    std::string path = "/api/v1/robots/directory";
+    std::string pType = participantType.empty() ? "all" : participantType;
+    std::string sField = sortField.empty() ? "elo_2p_3b" : sortField;
+    int clampedLimit = limit < 1 ? 1 : (limit > 100 ? 100 : limit);
+    int clampedOffset = offset < 0 ? 0 : offset;
+    std::string path = "/api/v1/robots/directory?participant_type=" + urlEncode(pType) +
+                       "&sort=" + urlEncode(sField) +
+                       "&order=" + std::string(sortAsc ? "asc" : "desc") +
+                       "&limit=" + std::to_string(clampedLimit) +
+                       "&offset=" + std::to_string(clampedOffset);
     if (!query.empty()) {
-        path += "?q=" + urlEncode(query);
+        path += "&q=" + urlEncode(query);
     }
     Impl::RawResponse raw = _impl->doGet(path);
     if (!raw.transportOk || raw.status != 200 || !raw.json.is_object()) {
@@ -3271,12 +3379,29 @@ ApiResult<std::vector<RobotDirectoryEntry>> OctiNetworkClient::fetchRobotsDirect
     }
     res.ok = true;
     res.httpStatus = raw.status;
-    if (raw.json.contains("robots") && raw.json["robots"].is_array()) {
-        for (const auto &item : raw.json["robots"]) {
+    const Json *arrPtr = nullptr;
+    if (raw.json.contains("entries") && raw.json["entries"].is_array()) {
+        arrPtr = &raw.json["entries"];
+    } else if (raw.json.contains("robots") && raw.json["robots"].is_array()) {
+        arrPtr = &raw.json["robots"];
+    }
+    if (arrPtr != nullptr) {
+        for (const auto &item : *arrPtr) {
+            if (!item.is_object()) {
+                continue;
+            }
             RobotDirectoryEntry ent;
+            bool isRob = item.value("is_robot", true);
+            ent.entryType = item.value("entry_type", isRob ? "robot" : "human");
             ent.robotUuid = item.value("robot_uuid", "");
-            ent.handle = item.value("handle", "");
-            ent.description = item.value("description", "");
+            ent.uuid = item.value("uuid", ent.robotUuid);
+            ent.handle = item.value(
+                "handle", item.value("robot_name", item.value("name", "")));
+            ent.displayName = item.value("display_name", ent.handle);
+            ent.avatarUrl = item.value(
+                "avatar_url", item.value("owner_avatar_url", ""));
+            ent.description = item.value("description", item.value("bio", ""));
+            ent.robotUrl = item.value("robot_url", "");
             ent.ownerUuid = item.value("owner_uuid", "");
             ent.ownerHandle = item.value("owner_handle", "");
             ent.status = item.value("status", "Active");
@@ -3285,7 +3410,12 @@ ApiResult<std::vector<RobotDirectoryEntry>> OctiNetworkClient::fetchRobotsDirect
             ent.losses = item.value("losses", 0);
             ent.draws = item.value("draws", 0);
             ent.winRate = item.value("win_rate", 0.0);
-            ent.elo2p = item.value("elo_2p", 1500);
+            ent.elo2p3b = item.value(
+                "elo_2p_3b", item.value("elo_2p", item.value("elo", 1200)));
+            ent.elo2p1b = item.value("elo_2p_1b", 1200);
+            ent.eloOfk = item.value("elo_ofk", 1200);
+            ent.elo2p = ent.elo2p3b;
+            ent.createdAt = item.value("created_at", static_cast<std::int64_t>(0));
             res.data.push_back(std::move(ent));
         }
     }

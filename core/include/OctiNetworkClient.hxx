@@ -69,6 +69,7 @@ struct ArchivedGameSummary {
     int bases = 3;
     bool superProngs = false;
     bool edgeless = false;
+    std::string variant;
     std::string timeControl;
     std::vector<ArchivedGamePlayer> players;
     std::string result;
@@ -77,8 +78,18 @@ struct ArchivedGameSummary {
     int plyCount = 0;
     std::int64_t startedAt = 0;
     std::int64_t endedAt = 0;
+    bool rated = false;
+    int eloPool = 0;
     std::string finalFen;
     std::string octiTranscript;
+
+    std::string variantCode() const
+    {
+        if (!variant.empty() && isValidOctiVariantCode(variant)) {
+            return octiVariantCodeFromModeStr(variant, bases, superProngs, edgeless);
+        }
+        return octiVariantCodeFromModeStr(mode, bases, superProngs, edgeless);
+    }
 };
 
 struct ArchivedGamesPage {
@@ -128,12 +139,21 @@ struct PlayerProfileInfo {
     std::string bio;
     std::string location;
     int elo2p = 1200;
+    int elo2p3b = 1200;
+    int elo2p1b = 1200;
     int elo4p = 1200;
     int eloOfk = 1200;
     int gamesPlayed = 0;
     int wins = 0;
     int losses = 0;
     int draws = 0;
+    int arenaElo2p3b = 1200;
+    int arenaElo2p1b = 1200;
+    int arenaEloOfk = 1200;
+    int arenaGamesPlayed = 0;
+    int arenaWins = 0;
+    int arenaLosses = 0;
+    int arenaDraws = 0;
     std::int64_t createdAt = 0;
     std::int64_t lastSeenAt = 0;
     bool isAdmin = false;
@@ -240,6 +260,7 @@ struct TableSummaryInfo {
     int bases = 3;
     bool superProngs = false;
     bool edgeless = false;
+    std::string variant;
     bool timeControlEnabled = false;
     std::int64_t initialMs = 0;
     std::int64_t incrementMs = 0;
@@ -261,6 +282,14 @@ struct TableSummaryInfo {
     std::vector<std::string> players;
     int observerCount = 0;
     bool allowRobots = true;
+
+    std::string variantCode() const
+    {
+        if (!variant.empty() && isValidOctiVariantCode(variant)) {
+            return octiVariantCodeFromModeStr(variant, bases, superProngs, edgeless);
+        }
+        return octiVariantCodeFromModeStr(mode, bases, superProngs, edgeless);
+    }
 };
 
 struct LobbyStateData {
@@ -275,6 +304,7 @@ struct CreateTableRequest {
     int bases = 3;
     bool superProngs = false;
     bool edgeless = false;
+    std::string variant;
     bool timeControlEnabled = false;
     std::int64_t initialMs = 600000;
     std::int64_t incrementMs = 5000;
@@ -285,6 +315,14 @@ struct CreateTableRequest {
     std::string passcode;
     bool allowRobots = true;
     int seat = 1;
+
+    std::string variantCode() const
+    {
+        if (!variant.empty() && isValidOctiVariantCode(variant)) {
+            return octiVariantCodeFromModeStr(variant, bases, superProngs, edgeless);
+        }
+        return octiVariantCodeFromModeStr(mode, bases, superProngs, edgeless);
+    }
 };
 
 struct CreateTableResponse {
@@ -303,10 +341,19 @@ struct MatchmakingRequest {
     int bases = 3;
     bool superProngs = false;
     bool edgeless = false;
+    std::string variant;
     bool timeControlEnabled = false;
     std::int64_t initialMs = 0;
     std::int64_t incrementMs = 0;
     bool allowRobots = true;
+
+    std::string variantCode() const
+    {
+        if (!variant.empty() && isValidOctiVariantCode(variant)) {
+            return octiVariantCodeFromModeStr(variant, bases, superProngs, edgeless);
+        }
+        return octiVariantCodeFromModeStr(mode, bases, superProngs, edgeless);
+    }
 };
 
 struct MatchmakingStatusData {
@@ -354,6 +401,7 @@ struct GameViewData {
     int bases = 3;
     bool superProngs = false;
     bool edgeless = false;
+    std::string variant;
     bool timeControlEnabled = false;
     std::int64_t initialMs = 0;
     std::int64_t incrementMs = 0;
@@ -385,6 +433,14 @@ struct GameViewData {
     std::int64_t idleMs = 0;
     std::int64_t ttlRemainingMs = -1;
     bool allowRobots = true;
+
+    std::string variantCode() const
+    {
+        if (!variant.empty() && isValidOctiVariantCode(variant)) {
+            return octiVariantCodeFromModeStr(variant, bases, superProngs, edgeless);
+        }
+        return octiVariantCodeFromModeStr(mode, bases, superProngs, edgeless);
+    }
 };
 
 struct RobotConnectData {
@@ -403,9 +459,14 @@ struct RobotConnectData {
 };
 
 struct RobotDirectoryEntry {
+    std::string entryType = "robot";
+    std::string uuid;
     std::string robotUuid;
     std::string handle;
+    std::string displayName;
+    std::string avatarUrl;
     std::string description;
+    std::string robotUrl;
     std::string ownerUuid;
     std::string ownerHandle;
     std::string status = "Active";
@@ -414,7 +475,11 @@ struct RobotDirectoryEntry {
     int losses = 0;
     int draws = 0;
     double winRate = 0.0;
-    int elo2p = 1500;
+    int elo2p = 1200;
+    int elo2p3b = 1200;
+    int elo2p1b = 1200;
+    int eloOfk = 1200;
+    std::int64_t createdAt = 0;
 };
 
 struct MoveTelemetryData {
@@ -678,7 +743,23 @@ public:
     ApiResult<bool> disconnectRobot();
     ApiResult<std::string> exportRobotTokensConf();
     ApiResult<std::vector<RobotDirectoryEntry>> fetchRobotsDirectory(
-        const std::string &query = "");
+        const std::string &query = "",
+        const std::string &participantType = "all",
+        const std::string &sortField = "elo_2p_3b",
+        bool sortAsc = false,
+        int limit = 50,
+        int offset = 0);
+    ApiResult<std::vector<RobotDirectoryEntry>> listRobotsDirectory(
+        const std::string &query = "",
+        const std::string &participantType = "all",
+        const std::string &sortField = "elo_2p_3b",
+        bool sortAsc = false,
+        int limit = 50,
+        int offset = 0)
+    {
+        return fetchRobotsDirectory(query, participantType, sortField,
+                                    sortAsc, limit, offset);
+    }
 
     /* ---- Poll & Server-Sent Events (SSE) Live Streams ---- */
     ApiResult<std::vector<SseEvent>> pollLobbyEvents(

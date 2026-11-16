@@ -1720,7 +1720,8 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                                      OctiPlayer _turn,
                                      bool _useSuperProngs,
                                      bool _useEdgelessBoard,
-                                     std::vector<OctiMove> &outMoves)
+                                     std::vector<OctiMove> &outMoves,
+                                     bool includeSingleRepositions = true)
 {
     outMoves.clear();
     outMoves.reserve(64);
@@ -1904,7 +1905,7 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                 }
 
                 // 3. Prong Repositions
-                if (_mode != GAME_MODE_OFK && cfg != 0u) {
+                if (includeSingleRepositions && _mode != GAME_MODE_OFK && cfg != 0u) {
                     for (int rm = 0; rm < DIR_MAX; rm++) {
                         OctiDir rmDir = static_cast<OctiDir>(rm);
                         if (pod.prongAt(rmDir) == NORMAL_PRONG) {
@@ -2735,7 +2736,8 @@ static void generateZeroPreludeMoveOpsForSp(const OctiBoard *board,
                                             bool useSuperProngs,
                                             bool useEdgelessBoard,
                                             std::vector<OctiHop> &currentHopsScratch,
-                                            std::vector<OctiMoveOp> &outOps)
+                                            std::vector<OctiMoveOp> &outOps,
+                                            bool includeRepositions = true)
 {
     outOps.clear();
     int w = board->getBoardWidth();
@@ -2913,7 +2915,7 @@ static void generateZeroPreludeMoveOpsForSp(const OctiBoard *board,
                 }
 
                 // 3. Prong Repositions
-                if (mode != GAME_MODE_OFK && cfg != 0u) {
+                if (includeRepositions && mode != GAME_MODE_OFK && cfg != 0u) {
                     for (int rm = 0; rm < DIR_MAX; rm++) {
                         if (((cfg >> (static_cast<unsigned int>(rm) * 2u)) & 0x3u) ==
                             static_cast<std::uint32_t>(NORMAL_PRONG)) {
@@ -3199,16 +3201,22 @@ static void appendDeduplicatedRegularMoves(const OctiBoard *board,
                                            SeenStateTable &seenCanonicalStates,
                                            std::vector<OctiHop> &hopsScratch,
                                            std::vector<OctiMoveOp> &regOpScratch,
-                                           std::vector<OctiMove> &outMoves)
+                                           std::vector<OctiMove> &outMoves,
+                                           bool includeSingleRepositions = true,
+                                           bool includeSuperProngRepositions = true)
 {
     if (tacticalOnly && restrictToCaptureOrBaseRegOps) {
         generateZeroPreludeCaptureOrBaseMoves(
             board, uncapturedEnemyHomeMask, mode, turn,
             useEdgelessBoard, hopsScratch, regOpScratch);
     } else {
+        const bool genRepositions = (numPreludes == 0)
+            ? (includeSingleRepositions || includeSuperProngRepositions)
+            : includeSuperProngRepositions;
         generateZeroPreludeMoveOpsForSp(
             board, players, mode, turn,
-            useSuperProngs, useEdgelessBoard, hopsScratch, regOpScratch);
+            useSuperProngs, useEdgelessBoard, hopsScratch, regOpScratch,
+            genRepositions);
     }
     if (regOpScratch.empty()) {
         return;
@@ -3230,6 +3238,11 @@ static void appendDeduplicatedRegularMoves(const OctiBoard *board,
             continue;
         }
         if (numPreludes == 0) {
+            if (!includeSingleRepositions &&
+                regOp.rmProngDir != DIR_UNDEF &&
+                regOp.addProngDir != DIR_UNDEF) {
+                continue;
+            }
             outMoves.push_back(OctiMove::fromValidatedSingleOp(std::move(regOp)));
         } else {
             std::vector<OctiMoveOp> ops;
@@ -3730,7 +3743,9 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
                                         bool useSuperProngs,
                                         bool useEdgelessBoard,
                                         bool tacticalOnly,
-                                        std::vector<OctiMove> &outMoves)
+                                        std::vector<OctiMove> &outMoves,
+                                        bool includeSingleRepositions = true,
+                                        bool includeSuperProngRepositions = true)
 {
     struct SpMoveGenScratch {
         SeenStateTable seenStates;
@@ -3817,7 +3832,9 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
                                    canRestrictWhenPreludeClean,
                                    enemySqMask, uncapturedEnemyHomeMask,
                                    scratch.seenStates, scratch.jumpHops,
-                                   scratch.regScratch, outMoves);
+                                   scratch.regScratch, outMoves,
+                                   includeSingleRepositions,
+                                   includeSuperProngRepositions);
 
     // Enumerate 1st superprong bonus prelude candidates
     enumerateSuperProngPreludes(origBoard, useEdgelessBoard, turn,
@@ -3861,7 +3878,9 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
                                        &p1.op, 1, tacticalOnly, restrict1,
                                        enemySqMask, uncapturedEnemyHomeMask,
                                        scratch.seenStates, scratch.jumpHops,
-                                       scratch.regScratch, outMoves);
+                                       scratch.regScratch, outMoves,
+                                       includeSingleRepositions,
+                                       includeSuperProngRepositions);
         undoLog.rollbackToMark(scratch.workBoard, mark1);
     }
 
@@ -3941,7 +3960,9 @@ static void generateSuperProngMovesImpl(const OctiBoard *origBoard,
                                            preludePair, 2, tacticalOnly, restrict2,
                                            enemySqMask, uncapturedEnemyHomeMask,
                                            scratch.seenStates, scratch.jumpHops,
-                                           scratch.regScratch, outMoves);
+                                           scratch.regScratch, outMoves,
+                                           includeSingleRepositions,
+                                           includeSuperProngRepositions);
             undoLog.rollbackToMark(scratch.workBoard, markP2);
         }
         undoLog.rollbackToMark(scratch.workBoard, markP1);
@@ -3971,6 +3992,29 @@ std::vector<OctiMove> OctiGame::generateLegalMoves() const
     std::vector<OctiMove> moves;
     generateLegalMoves(moves);
     return moves;
+}
+
+void OctiGame::generateLegalMovesForSearch(std::vector<OctiMove> &outMoves,
+                                           bool includeSingleRepositions,
+                                           bool includeSuperProngRepositions) const
+{
+    outMoves.clear();
+    if (!_gameStarted || _gameOver || _turn == PLAYER_UNDEF || !_board) {
+        return;
+    }
+
+    if (!_useSuperProngs) {
+        generateZeroPreludeMoves(_board, _players, _mode, _turn,
+                                 _useSuperProngs, _useEdgelessBoard,
+                                 outMoves, includeSingleRepositions);
+        return;
+    }
+
+    generateSuperProngMovesImpl(_board, _players, _mode, _bases, _turn,
+                                _useSuperProngs, _useEdgelessBoard,
+                                false, outMoves,
+                                includeSingleRepositions,
+                                includeSuperProngRepositions);
 }
 
 static inline bool isEnemyHomeSquareForTactical(OctiSquareType sqType,

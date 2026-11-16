@@ -16,6 +16,7 @@
 #include "OctiOpeningBookData.hxx"
 #include "OctiCrypto.hxx"
 #include "OctiNetworkClient.hxx"
+#include "OctiRulebook.hxx"
 #include "OctiSoundCue.hxx"
 #include "Version.hxx"
 #include <algorithm>
@@ -9565,12 +9566,15 @@ TEST(OctiPostMortemEngineBugFixes, EmptyAlliedBasePenalty1BPrefersRegarrisoningO
     penProf.emptyAlliedBasePenalty1B = 3800;
 
     // dEnemy == 3 -> urgencyPct = 130 -> -(3800 * 130) / 100 = -4940
+    octi::OctiEvalBreakdown bdBBase =
+        octi::OctiBotEngine::evaluatePositionBreakdown(b37, octi::PLAYER_B, baseProf);
     octi::OctiEvalBreakdown bdA =
         octi::OctiBotEngine::evaluatePositionBreakdown(b37, octi::PLAYER_A, penProf);
     octi::OctiEvalBreakdown bdB =
         octi::OctiBotEngine::evaluatePositionBreakdown(b37, octi::PLAYER_B, penProf);
     CHECK_EQUAL(-4940, bdA.lostAlliedBases);
-    CHECK_EQUAL(4940, bdB.lostAlliedBases);
+    CHECK_EQUAL(0, bdB.lostAlliedBases);
+    CHECK_EQUAL(bdBBase.twoPlyBaseThreat + 4940, bdB.twoPlyBaseThreat);
     CHECK_EQUAL(-bdA.totalScore, bdB.totalScore);
 
     // Check urgency tiers: dEnemy <= 2 (175%) and dEnemy >= 4 (100%)
@@ -10183,6 +10187,353 @@ TEST(OctiVariantTuningParams, MultiBaseAndSingleBaseParametersIsolateByBaseCount
         CHECK_EQUAL(penOfk,
                     octi::OctiBotEngine::evaluatePosition(ofkBoard, octi::PLAYER_A, pMid));
     }
+}
+
+TEST_GROUP(OctiRulebookTest)
+{
+};
+
+TEST(OctiRulebookTest, EmbeddedPngAssetsSectionsAndDesktopHtml)
+{
+    const std::vector<std::string> files = octi::rulebookImageFileNames();
+    LONGS_EQUAL(static_cast<long>(octi::OCTI_RULEBOOK_IMAGE_COUNT),
+                static_cast<long>(files.size()));
+
+    static const std::uint8_t kPngMagic[8] = {
+        0x89u, 0x50u, 0x4Eu, 0x47u, 0x0Du, 0x0Au, 0x1Au, 0x0Au
+    };
+
+    std::size_t totalBytes = 0u;
+    for (const std::string &fn : files) {
+        std::size_t sz = 0u;
+        const std::uint8_t *bytes = octi::rulebookImageBytes(fn, sz);
+        CHECK_TRUE(bytes != nullptr);
+        CHECK_TRUE(sz >= 1024u);
+        CHECK_TRUE(sz <= 80u * 1024u);
+        CHECK_EQUAL(0, std::memcmp(bytes, kPngMagic, sizeof(kPngMagic)));
+        totalBytes += sz;
+    }
+    CHECK_TRUE(totalBytes < 1024u * 1024u);
+
+    std::size_t badSz = 42u;
+    CHECK_TRUE(octi::rulebookImageBytes("../etc/passwd", badSz) == nullptr);
+    LONGS_EQUAL(0, static_cast<long>(badSz));
+    CHECK_TRUE(octi::rulebookImageBytes("unknown.png", badSz) == nullptr);
+
+    const std::vector<octi::RulebookSection> &sections = octi::rulebookSections();
+    LONGS_EQUAL(static_cast<long>(octi::OCTI_RULEBOOK_CHAPTER_COUNT),
+                static_cast<long>(sections.size()));
+
+    const std::string darkHtml = octi::buildDesktopRulebookHtml(false);
+    const std::string lightHtml = octi::buildDesktopRulebookHtml(true);
+    CHECK_TRUE(darkHtml != lightHtml);
+    CHECK_TRUE(darkHtml.find("<table") != std::string::npos);
+    CHECK_TRUE(darkHtml.find("display:grid") == std::string::npos);
+    CHECK_TRUE(darkHtml.find("display:flex") == std::string::npos);
+    for (const std::string &fn : files) {
+        CHECK_TRUE(darkHtml.find("octi://rulebook/" + fn) != std::string::npos);
+        CHECK_TRUE(lightHtml.find("octi://rulebook/" + fn) != std::string::npos);
+    }
+    for (const std::string &vCode : octi::allOctiVariantCodes()) {
+        CHECK_TRUE(darkHtml.find(vCode) != std::string::npos);
+    }
+}
+
+namespace {
+
+bool isSingleOpRepositionMove(const octi::OctiMove &m)
+{
+    const auto &ops = m.getOps();
+    return ops.size() == 1 &&
+           ops[0].hops.empty() &&
+           !ops[0].addPod &&
+           ops[0].addProngDir != octi::DIR_UNDEF &&
+           ops[0].rmProngDir != octi::DIR_UNDEF;
+}
+
+bool moveHasAnyRepositionOp(const octi::OctiMove &m)
+{
+    for (const auto &op : m.getOps()) {
+        if (op.addProngDir != octi::DIR_UNDEF && op.rmProngDir != octi::DIR_UNDEF) {
+            return true;
+        }
+    }
+    return false;
+}
+
+class TestSubclassHookEngine : public octi::OctiBotEngine
+{
+public:
+    using octi::OctiBotEngine::OctiBotEngine;
+
+    mutable std::atomic<int> searchMovesCalls{0};
+    mutable std::atomic<int> extraQuiesceCalls{0};
+    mutable std::atomic<int> moveOrderCalls{0};
+    mutable std::atomic<int> moveOrderInQuiesceCalls{0};
+    mutable std::atomic<int> evalBreakdownCalls{0};
+    mutable std::atomic<int> lmrCalls{0};
+    int customMarker = 777;
+
+protected:
+    void generateSearchMoves(const octi::OctiGame &game,
+                             octi::OctiPlayer turn,
+                             int ply,
+                             std::vector<octi::OctiMove> &outMoves) const override
+    {
+        searchMovesCalls.fetch_add(1, std::memory_order_relaxed);
+        octi::OctiBotEngine::generateSearchMoves(game, turn, ply, outMoves);
+    }
+
+    void appendExtraQuiesceMoves(const octi::OctiBoard &board,
+                                 const octi::OctiGame &game,
+                                 octi::OctiGameMode mode,
+                                 octi::OctiPlayer turn,
+                                 int qDepth,
+                                 std::vector<octi::OctiMove> &tacticalMoves) const override
+    {
+        extraQuiesceCalls.fetch_add(1, std::memory_order_relaxed);
+        octi::OctiBotEngine::appendExtraQuiesceMoves(
+            board, game, mode, turn, qDepth, tacticalMoves);
+    }
+
+    bool hasCustomMoveOrdering() const noexcept override
+    {
+        return true;
+    }
+
+    void adjustMoveOrderScores(
+        const octi::OctiBoard &board,
+        const octi::OctiGame &game,
+        octi::OctiPlayer turn,
+        int ply,
+        bool inQuiesce,
+        const std::vector<octi::OctiMove> &moves,
+        std::vector<std::pair<int, std::size_t>> &scored) const override
+    {
+        (void)board;
+        (void)game;
+        (void)turn;
+        (void)ply;
+        (void)moves;
+        moveOrderCalls.fetch_add(1, std::memory_order_relaxed);
+        if (inQuiesce) {
+            moveOrderInQuiesceCalls.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!scored.empty()) {
+            scored[0].first += 1;
+        }
+    }
+
+    void adjustEvalBreakdown(const octi::OctiBoard &board,
+                             octi::OctiPlayer perspective,
+                             const EvalPhaseSummary &summary,
+                             octi::OctiEvalBreakdown &bd) const override
+    {
+        (void)board;
+        (void)perspective;
+        evalBreakdownCalls.fetch_add(1, std::memory_order_relaxed);
+        if (summary.allyPhase.basesNeeded >= 1) {
+            bd.structuralPositional += customMarker - 777;
+        }
+    }
+
+    int adjustLmrReduction(const octi::OctiBoard &board,
+                           octi::OctiGameMode mode,
+                           octi::OctiPlayer turn,
+                           int depth,
+                           int ply,
+                           std::size_t mvIdx,
+                           const octi::OctiMove &mv,
+                           bool mvIsTactical,
+                           bool mvIsKiller,
+                           int defaultReduction) const override
+    {
+        (void)board;
+        (void)mode;
+        (void)turn;
+        (void)depth;
+        (void)ply;
+        (void)mvIdx;
+        (void)mv;
+        (void)mvIsTactical;
+        (void)mvIsKiller;
+        lmrCalls.fetch_add(1, std::memory_order_relaxed);
+        return defaultReduction;
+    }
+};
+
+} // namespace
+
+TEST_GROUP(OctiSearchMoveGenAndSubclassHooksTest)
+{
+};
+
+TEST(OctiSearchMoveGenAndSubclassHooksTest, SearchMoveGenSkipsDominatedRepositionsWhenFreeProngsAvail)
+{
+    octi::OctiBoard board;
+    board.fromPositionString(
+        "2:3:0:1:P:A:-:0:1,0,16,0:1,0,15,0:"
+        "A33abc,A53de,A73fg,B37efg,B57cd,B77ab");
+    const octi::OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+
+    std::vector<octi::OctiMove> fullMoves = game->generateLegalMoves();
+    std::vector<octi::OctiMove> searchNoSingleRepo;
+    game->generateLegalMovesForSearch(searchNoSingleRepo, false, true);
+    std::vector<octi::OctiMove> searchWithSingleRepo;
+    game->generateLegalMovesForSearch(searchWithSingleRepo, true, true);
+
+    CHECK_EQUAL(fullMoves.size(), searchWithSingleRepo.size());
+
+    std::vector<std::string> expectedFiltered;
+    std::size_t singleRepoCount = 0;
+    for (const auto &m : fullMoves) {
+        if (isSingleOpRepositionMove(m)) {
+            ++singleRepoCount;
+        } else {
+            expectedFiltered.push_back(m.asString());
+        }
+    }
+    CHECK_TRUE(singleRepoCount > 0u);
+    CHECK_EQUAL(expectedFiltered.size(), searchNoSingleRepo.size());
+    for (std::size_t i = 0; i < expectedFiltered.size(); ++i) {
+        CHECK_FALSE(isSingleOpRepositionMove(searchNoSingleRepo[i]));
+        CHECK_EQUAL(expectedFiltered[i], searchNoSingleRepo[i].asString());
+    }
+
+    // Superprong closed-loop deduplication parity:
+    // A pod with a superprong jumping 2 preludes in a closed loop and doing -x+y
+    // must still be deduplicated by SeenStateTable when includeSingleRepositions=false
+    // and includeSuperProngRepositions=true, and completely omitted when
+    // includeSuperProngRepositions=false.
+    octi::OctiBoard spBoard;
+    spBoard.fromPositionString(
+        "2:3:1:0:P:A:-:0:2,0,12,1:2,0,12,1:"
+        "A33Aab,A43a,A53,B37e,B57f,B77g");
+    const octi::OctiGame *spGame = spBoard.getGame();
+    CHECK_TRUE(spGame != nullptr);
+
+    std::vector<octi::OctiMove> spFull = spGame->generateLegalMoves();
+    std::vector<octi::OctiMove> spNoSingle;
+    spGame->generateLegalMovesForSearch(spNoSingle, false, true);
+    std::vector<octi::OctiMove> spNoRepoAtAll;
+    spGame->generateLegalMovesForSearch(spNoRepoAtAll, false, false);
+
+    std::vector<std::string> spExpectedNoSingle;
+    for (const auto &m : spFull) {
+        if (!isSingleOpRepositionMove(m)) {
+            spExpectedNoSingle.push_back(m.asString());
+        }
+    }
+    CHECK_EQUAL(spExpectedNoSingle.size(), spNoSingle.size());
+    for (std::size_t i = 0; i < spExpectedNoSingle.size(); ++i) {
+        CHECK_EQUAL(spExpectedNoSingle[i], spNoSingle[i].asString());
+    }
+    for (const auto &m : spNoRepoAtAll) {
+        CHECK_FALSE(moveHasAnyRepositionOp(m));
+    }
+}
+
+TEST(OctiSearchMoveGenAndSubclassHooksTest, LostAlliedBasesDoesNotReceivePositive1BOffenseCredit)
+{
+    // 1593 ply 58 geometry in 2P_3B_ED:
+    // B has captured 2 of A's bases (53, 73), leaving A's 33 empty with B45a at dist 2 (allyPhase.basesNeeded == 1).
+    // A has captured B's 37, while B's 57 and 77 are empty (enemyPhase.basesNeeded == 2).
+    // With emptyAlliedBasePenalty1B = 4500 and lostAlliedBasePenalty = 24000 (80% floor -> -19200),
+    // bdB.lostAlliedBases must be -19200 (<= 0), NEVER -19200 + 7875 = -11325!
+    const char *kPly58MirageFen =
+        "2:3:0:1:P:B:-:0:0,1,4,0:0,0,5,0:"
+        "A37ab,A56cde,B53acde,B73a,B45a,B67abcdfg";
+    octi::OctiBoard board;
+    board.fromPositionString(kPly58MirageFen);
+
+    octi::BotTuningProfile baseProf;
+    baseProf.lostAlliedBasePenalty = 24000;
+    baseProf.multiBaseTwoNeededScaleFloorPct = 80;
+    baseProf.emptyAlliedBasePenalty1B = 0;
+
+    octi::BotTuningProfile penProf = baseProf;
+    penProf.emptyAlliedBasePenalty1B = 4500;
+    penProf.emptyAlliedBase1BCloseUrgencyPct = 175;
+
+    octi::OctiEvalBreakdown bdBaseA =
+        octi::OctiBotEngine::evaluatePositionBreakdown(board, octi::PLAYER_A, baseProf);
+    octi::OctiEvalBreakdown bdBaseB =
+        octi::OctiBotEngine::evaluatePositionBreakdown(board, octi::PLAYER_B, baseProf);
+    octi::OctiEvalBreakdown bdPenB =
+        octi::OctiBotEngine::evaluatePositionBreakdown(board, octi::PLAYER_B, penProf);
+    octi::OctiEvalBreakdown bdPenA =
+        octi::OctiBotEngine::evaluatePositionBreakdown(board, octi::PLAYER_A, penProf);
+
+    CHECK_EQUAL(-19200, bdBaseB.lostAlliedBases);
+    CHECK_EQUAL(-19200, bdPenB.lostAlliedBases);
+    CHECK_TRUE(bdPenB.lostAlliedBases <= 0);
+    CHECK_EQUAL(bdBaseB.twoPlyBaseThreat + 7875, bdPenB.twoPlyBaseThreat);
+    CHECK_EQUAL(bdBaseA.lostAlliedBases - 7875, bdPenA.lostAlliedBases);
+    CHECK_EQUAL(bdBaseB.totalScore + 7875, bdPenB.totalScore);
+    CHECK_EQUAL(bdBaseA.totalScore - 7875, bdPenA.totalScore);
+}
+
+TEST(OctiSearchMoveGenAndSubclassHooksTest, OctiBotEngineSubclassHooksAreNonSlicingAndPreservedAcrossSearch)
+{
+    TestSubclassHookEngine subEngine(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL);
+    subEngine.customMarker = 900;
+
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::TACTICAL);
+    prof.useOpeningBook = false;
+    prof.lazySmpThreads = 1;
+    prof.timeBudgetMs = 5000;
+    prof.maxSearchDepth = 4;
+    prof.rootBranchCap = 6;
+    prof.treeBranchCap = 8;
+    prof.maxQuiesceDepth = 2;
+    prof.lmrMinDepth = 3;
+    prof.lmrMinMoveIndex = 1;
+    prof.qsearchIncludeBaseThreatProngs = true;
+    prof.rootScoreJitter = 0;
+    subEngine.setTuningProfile(prof);
+
+    // Call resetSearchState through a base OctiBotEngine& reference
+    // and verify dynamic type, customMarker, and tuning profile are preserved without slicing.
+    octi::OctiBotEngine &baseRef = subEngine;
+    baseRef.resetSearchState(0x12345678ULL);
+    CHECK_TRUE(dynamic_cast<TestSubclassHookEngine *>(&baseRef) != nullptr);
+    CHECK_EQUAL(900, subEngine.customMarker);
+    CHECK_EQUAL(4, baseRef.tuningProfile().maxSearchDepth);
+
+    octi::OctiBoard board;
+    board.fromPositionString(
+        "2:1:0:0:P:A:-:0:2,0,14,0:2,0,14,0:"
+        "A33abc,A54bc,B45efg,B57ef,B77g");
+
+    octi::OctiEvalBreakdown bdInst = baseRef.evaluateBoardBreakdown(board, octi::PLAYER_A);
+    octi::OctiEvalBreakdown bdStat =
+        octi::OctiBotEngine::evaluatePositionBreakdown(board, octi::PLAYER_A, prof);
+    CHECK_EQUAL(bdStat.structuralPositional + 123, bdInst.structuralPositional);
+    CHECK_EQUAL(bdInst.sumTerms(), bdInst.totalScore);
+    CHECK_EQUAL(bdInst.totalScore, baseRef.evaluateBoard(board, octi::PLAYER_A));
+
+    subEngine.evalBreakdownCalls.store(0, std::memory_order_relaxed);
+    octi::BotSearchStats stats;
+    std::string bestMove = baseRef.chooseMove(board, &stats);
+    CHECK_FALSE(bestMove.empty());
+    CHECK_TRUE(subEngine.searchMovesCalls.load(std::memory_order_relaxed) > 0);
+    CHECK_TRUE(subEngine.extraQuiesceCalls.load(std::memory_order_relaxed) > 0);
+    CHECK_TRUE(subEngine.moveOrderCalls.load(std::memory_order_relaxed) > 0);
+    CHECK_TRUE(subEngine.moveOrderInQuiesceCalls.load(std::memory_order_relaxed) > 0);
+    CHECK_TRUE(subEngine.evalBreakdownCalls.load(std::memory_order_relaxed) > 0);
+    CHECK_TRUE(subEngine.lmrCalls.load(std::memory_order_relaxed) > 0);
+
+    // Verify resetSearchState clears TT entries and live search state
+    octi::OctiBoard childBoard;
+    childBoard.fromPositionString(board.toPositionString());
+    childBoard.getGame()->move(octi::OctiMove(bestMove));
+    CHECK_TRUE(baseRef.lookupTranspositionBestMoveKey(childBoard) != 0ULL);
+    CHECK_TRUE(baseRef.liveDepthReached() > 0);
+    baseRef.resetSearchState(0x5EED2026ULL);
+    CHECK_EQUAL(0ULL, baseRef.lookupTranspositionBestMoveKey(childBoard));
+    CHECK_EQUAL(0, baseRef.liveDepthReached());
 }
 
 int main(int argc, char **argv)
