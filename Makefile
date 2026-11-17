@@ -20,7 +20,7 @@ BUILD_DIR := build/asan
 CMAKE_FLAGS := -DCMAKE_BUILD_TYPE=Debug -DOCTIBOT_SANITIZE=ON
 endif
 
-.PHONY: all clean distclean test play-agy
+.PHONY: all clean distclean test test_octibot_sdk play-agy
 
 all:
 	@mkdir -p $(BUILD_DIR)
@@ -29,6 +29,14 @@ ifeq ($(SANITIZE),1)
 	@cd $(BUILD_DIR) && $(CMAKE) $(CURDIR) $(CMAKE_FLAGS) > /dev/null
 endif
 	@$(MAKE) -C $(BUILD_DIR) -j$(NUM_PROCS)
+
+test_octibot_sdk:
+	@mkdir -p $(BUILD_DIR)
+	@cd $(BUILD_DIR) && (test -f Makefile || $(CMAKE) $(CURDIR) $(CMAKE_FLAGS))
+ifeq ($(SANITIZE),1)
+	@cd $(BUILD_DIR) && $(CMAKE) $(CURDIR) $(CMAKE_FLAGS) > /dev/null
+endif
+	@$(MAKE) -C $(BUILD_DIR) test_octibot_sdk -j$(NUM_PROCS)
 
 test: all
 	@$(MAKE) -C $(BUILD_DIR) test_octibot_sdk -j$(NUM_PROCS)

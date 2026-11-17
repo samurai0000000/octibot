@@ -1,4 +1,6 @@
 /*
+ * Main.cxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -12,6 +14,7 @@
 #include "OctiBotConfig.hxx"
 #include "OctiBotMcpServer.hxx"
 #include "OctiBotRunner.hxx"
+#include "OctiDefs.hxx"
 
 int main(int argc, char **argv) {
 #if defined(_WIN32)
@@ -22,47 +25,58 @@ int main(int argc, char **argv) {
     bool mcpStdioExplicit = false;
     int mcpPort = 0;
     bool mcpPortExplicit = false;
+    int cliAllowSupersede = -1;
     std::string profile = "";
     std::string configPath = octi::OctiBotConfigStore::defaultConfigFilePath();
     std::string tokensPath = octi::OctiBotConfigStore::defaultTokensFilePath();
 
     for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: octibot [options]\n\n"
-                      << "Options:\n"
-                      << "  --profile <name>         Run single bot profile\n"
-                      << "  --profiles <p1,p2,...>   Run multiple bot profiles\n"
-                      << "  --all-profiles           Run all configured profiles\n"
-                      << "  --instances <n>          Number of instances per profile\n"
-                      << "  --mcp-stdio              Run as MCP server over stdin/stdout\n"
-                      << "  --mcp-port <port>        Run as MCP server over HTTP on port\n"
-                      << "  --config <path>          Path to octibot.conf\n"
-                      << "  --tokens-file <path>     Path to tokens.conf\n"
-                      << "  --verbosity <level>      Verbosity (0=quiet, 1=minimal, 2=normal, 3=verbose, 4=trace)\n"
-                      << "  -v, --verbose            Shortcut for --verbosity verbose\n"
-                      << "  -q, --quiet              Shortcut for --verbosity quiet\n"
-                      << "  -h, --help               Show this help message\n";
-            return 0;
+        std::string arg = argv[i] ? argv[i] : "";
+        if (arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V") {
+            return octi::runFleetCli(argc, argv);
         } else if (arg == "--mcp-stdio") {
             mcpStdio = true;
             mcpStdioExplicit = true;
-        } else if (arg == "--mcp-port" && i + 1 < argc) {
+        } else if (arg == "--mcp-port") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '--mcp-port'. Try '--help' for usage."
+                          << std::endl;
+                return 1;
+            }
             mcpPort = std::atoi(argv[++i]);
             mcpPortExplicit = true;
+        } else if (arg == "--supersede") {
+            cliAllowSupersede = 1;
+        } else if (arg == "--no-supersede") {
+            cliAllowSupersede = 0;
         } else if (arg == "--profile" && i + 1 < argc) {
             profile = argv[++i];
         } else if (arg == "--config" && i + 1 < argc) {
             configPath = argv[++i];
         } else if (arg == "--tokens-file" && i + 1 < argc) {
             tokensPath = argv[++i];
+        } else if (arg == "--profiles" && i + 1 < argc && argv[i + 1][0] != '-') {
+            while (i + 1 < argc && argv[i + 1][0] != '-') {
+                ++i;
+            }
+        } else if (arg == "--all-profiles" || arg == "--verbose" || arg == "-v" ||
+                   arg == "--quiet" || arg == "-q" || arg == "--ai-interactive") {
+            // Handled by runFleetCli
+        } else if ((arg == "--instances" || arg == "--verbosity" || arg == "--ai-cli" ||
+                    arg == "--ai-model" || arg == "--ai-prompt") && i + 1 < argc) {
+            ++i;
+        } else {
+            return octi::runFleetCli(argc, argv);
         }
     }
 
     octi::OctiBotConfigStore config;
     std::string err;
     if (std::ifstream(configPath).good()) {
-        config.loadFile(configPath, err);
+        if (!config.loadFile(configPath, err)) {
+            std::cerr << "[OCTIBOT] Config load error (" << configPath << "): " << err << std::endl;
+            return 1;
+        }
     }
     if (std::ifstream(tokensPath).good()) {
         config.loadTokensFile(tokensPath, err);
@@ -91,6 +105,9 @@ int main(int argc, char **argv) {
         octi::OctiBotConfigStore profConfig = config.resolveProfile(profile);
         if (mcpStdio) {
             profConfig.set("verbosity", "quiet");
+        }
+        if (cliAllowSupersede >= 0) {
+            profConfig.set("allow_supersede", (cliAllowSupersede > 0) ? "true" : "false");
         }
         std::string algo = profConfig.getString("algorithm", "alpha_beta");
         auto agent = octi::OctiBotAgentRegistry::instance().createAgent(algo, profConfig);
@@ -126,8 +143,10 @@ int main(int argc, char **argv) {
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */

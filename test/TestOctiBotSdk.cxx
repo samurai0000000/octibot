@@ -1343,6 +1343,14 @@ TEST(OctiBotIntegrationLoopbackTest, SupersedingTokenTakeoverAndActiveResume) {
     std::string roomId = runner1->currentRoomId();
     CHECK_FALSE(roomId.empty());
 
+    // By default (allow_supersede = false), a second runner is blocked from kicking runner1
+    auto blockedAgent = std::make_unique<StockAlphaBetaAgent>(conf);
+    auto blockedRunner = std::make_unique<OctiBotRunner>(std::move(blockedAgent), conf);
+    CHECK_FALSE(blockedRunner->connectAndAuthenticate(err));
+    CHECK_FALSE(runner1->isSuperseded());
+
+    // Explicit allow_supersede = true permits superseding takeover and active room resume
+    conf.set("allow_supersede", "true");
     auto agent2 = std::make_unique<StockAlphaBetaAgent>(conf);
     auto runner2 = std::make_unique<OctiBotRunner>(std::move(agent2), conf);
     CHECK_TRUE(runner2->connectAndAuthenticate(err));
@@ -5581,6 +5589,220 @@ TEST(OctiBotSupersededReclaimTest, FleetSupervisorStaysStandbyWhileTokenActiveTh
     auto stopMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - stopStart).count();
     CHECK_TRUE(stopMs < 1000);
+}
+
+TEST(OctiBotSupersededReclaimTest, DefaultAllowSupersedeFalseProtectsActiveRunnerUntilExplicitTakeover) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-no-supersede-owner";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rBot = env->store.createRobot(ownerId, "protected-bot-1", "Protected Test Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    OctiBotConfigStore cfg1;
+    cfg1.set("server_host", "127.0.0.1");
+    cfg1.set("server_port", std::to_string(env->port));
+    cfg1.set("robot_name", "protected-bot-1");
+    cfg1.set("bot_token_protected-bot-1", rBot.rawToken);
+    cfg1.set("table_behavior", "idle");
+    cfg1.set("verbosity", "0");
+
+    auto runner1 = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(cfg1), cfg1);
+    const auto eff1 = runner1->buildEffectiveConfigMap();
+    CHECK_TRUE(eff1.count("allow_supersede") > 0);
+    CHECK_EQUAL("false", eff1.at("allow_supersede"));
+
+    std::string err1;
+    CHECK_TRUE_TEXT(runner1->connectAndAuthenticate(err1), err1.c_str());
+    runner1->start();
+
+    for (int i = 0; i < 80; ++i) {
+        if (runner1->isRunning() &&
+            !runner1->isSuperseded() &&
+            runner1->networkClient().isLobbyEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_TRUE(runner1->isRunning());
+    CHECK_FALSE(runner1->isSuperseded());
+    CHECK_TRUE(runner1->networkClient().isLobbyEventStreamActive());
+
+    // (a) Second runner with default config (allow_supersede omitted -> false) is blocked with 409 ROBOT_TOKEN_IN_USE
+    OctiBotConfigStore cfg2Default = cfg1;
+    auto runner2Default = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(cfg2Default), cfg2Default);
+    std::string err2;
+    CHECK_FALSE_TEXT(runner2Default->connectAndAuthenticate(err2),
+                     "Expected second runner with default allow_supersede=false to fail connect when token is in use");
+    CHECK_TRUE_TEXT(err2.find("ROBOT_TOKEN_IN_USE") != std::string::npos ||
+                    err2.find("in use") != std::string::npos,
+                    ("Expected ROBOT_TOKEN_IN_USE error, got: " + err2).c_str());
+
+    // Explicit allow_supersede = false also blocks
+    OctiBotConfigStore cfg2ExplicitFalse = cfg1;
+    cfg2ExplicitFalse.set("allow_supersede", "false");
+    auto runner2False = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(cfg2ExplicitFalse), cfg2ExplicitFalse);
+    std::string err2False;
+    CHECK_FALSE(runner2False->connectAndAuthenticate(err2False));
+
+    // Verify runner1 was NOT kicked and remains active
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    CHECK_TRUE(runner1->isRunning());
+    CHECK_FALSE(runner1->isSuperseded());
+    CHECK_TRUE(runner1->networkClient().isLobbyEventStreamActive());
+
+    // (b) Explicit allow_supersede = true permits takeover and supersedes runner1
+    OctiBotConfigStore cfg3Takeover = cfg1;
+    cfg3Takeover.set("allow_supersede", "true");
+    auto runner3 = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(cfg3Takeover), cfg3Takeover);
+    const auto eff3 = runner3->buildEffectiveConfigMap();
+    CHECK_TRUE(eff3.count("allow_supersede") > 0);
+    CHECK_EQUAL("true", eff3.at("allow_supersede"));
+    std::string err3;
+    CHECK_TRUE_TEXT(runner3->connectAndAuthenticate(err3), err3.c_str());
+
+    auto waitStart = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - waitStart).count() < 5000) {
+        if (runner1->isSuperseded() && !runner1->isRunning()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_TRUE(runner1->isSuperseded());
+    CHECK_FALSE(runner1->isRunning());
+
+    runner3->stop();
+    runner1->stop();
+}
+
+TEST(OctiBotSupersededReclaimTest, RunFleetCliVersionHelpAndUnknownFlagsExitBeforeConfigOrConnect) {
+    VerifiedClaims claims;
+    claims.provider = "google";
+    claims.sub = "sub-cli-guard-owner";
+    claims.name = "samurai";
+    claims.email = "samurai@selfso.com";
+    auto loginRes = env->store.loginWithSso(claims, "test-agent");
+    int64_t ownerId = loginRes.profile.playerId;
+    CHECK_TRUE(ownerId > 0);
+
+    auto rBot = env->store.createRobot(ownerId, "cli-guard-bot", "CLI Guard Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    OctiBotConfigStore activeCfg;
+    activeCfg.set("server_host", "127.0.0.1");
+    activeCfg.set("server_port", std::to_string(env->port));
+    activeCfg.set("robot_name", "cli-guard-bot");
+    activeCfg.set("bot_token", rBot.rawToken);
+    activeCfg.set("table_behavior", "idle");
+    activeCfg.set("verbosity", "0");
+
+    auto activeRunner = std::make_unique<OctiBotRunner>(
+        std::make_unique<StockAlphaBetaAgent>(activeCfg), activeCfg);
+    std::string connErr;
+    CHECK_TRUE_TEXT(activeRunner->connectAndAuthenticate(connErr), connErr.c_str());
+    activeRunner->start();
+
+    for (int i = 0; i < 80; ++i) {
+        if (activeRunner->isRunning() && activeRunner->networkClient().isLobbyEventStreamActive()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK_TRUE(activeRunner->isRunning());
+    CHECK_FALSE(activeRunner->isSuperseded());
+
+    char tmpTmpl[] = "/tmp/octibot_cli_guard_XXXXXX";
+    char *td = ::mkdtemp(tmpTmpl);
+    CHECK_TRUE(td != nullptr);
+    const std::string dirPath = td;
+    const std::string activeConfPath = dirPath + "/active_bot.conf";
+    const std::string brokenConfPath = dirPath + "/broken.conf";
+    {
+        std::ofstream f(activeConfPath);
+        f << "server_host = 127.0.0.1\n"
+          << "server_port = " << env->port << "\n"
+          << "aimon_enabled = false\n"
+          << "expose_mcp_tools = false\n"
+          << "web_port = 0\n"
+          << "mcp_port = 0\n"
+          << "verbosity = 0\n"
+          << "default_profile = cli-guard-bot\n"
+          << "[cli-guard-bot]\n"
+          << "robot_name = cli-guard-bot\n"
+          << "bot_token = " << rBot.rawToken << "\n"
+          << "table_behavior = idle\n";
+    }
+    {
+        std::ofstream f(brokenConfPath);
+        f << "[unterminated_section\nthis_is_invalid_syntax\n";
+    }
+
+    auto invokeCli = [](std::vector<std::string> args, std::string &outStdout, std::string &outStderr) -> int {
+        std::vector<char *> argv;
+        for (auto &s : args) {
+            argv.push_back(&s[0]);
+        }
+        std::ostringstream capOut, capErr;
+        std::streambuf *oldOut = std::cout.rdbuf(capOut.rdbuf());
+        std::streambuf *oldErr = std::cerr.rdbuf(capErr.rdbuf());
+        int rc = runFleetCli(static_cast<int>(argv.size()), argv.data());
+        std::cout.rdbuf(oldOut);
+        std::cerr.rdbuf(oldErr);
+        outStdout = capOut.str();
+        outStderr = capErr.str();
+        return rc;
+    };
+
+    // 1. --version and -V exit 0 immediately before loading broken config or connecting
+    std::string outStr, errStr;
+    CHECK_EQUAL(0, invokeCli({"octibot", "--config", brokenConfPath, "--version"}, outStr, errStr));
+    CHECK_TRUE(outStr.find("OCTIBOT v") != std::string::npos);
+    CHECK_EQUAL("", errStr);
+
+    CHECK_EQUAL(0, invokeCli({"octibot", "-V"}, outStr, errStr));
+    CHECK_TRUE(outStr.find("OCTIBOT v") != std::string::npos);
+
+    // 2. --help and -h exit 0 immediately before loading broken config or connecting
+    CHECK_EQUAL(0, invokeCli({"octibot", "--config", brokenConfPath, "--help"}, outStr, errStr));
+    CHECK_TRUE(outStr.find("Usage:") != std::string::npos);
+    CHECK_TRUE(outStr.find("--supersede") != std::string::npos);
+    CHECK_TRUE(outStr.find("--no-supersede") != std::string::npos);
+    CHECK_TRUE(outStr.find("--version") != std::string::npos);
+    CHECK_EQUAL("", errStr);
+
+    CHECK_EQUAL(0, invokeCli({"octibot", "-h"}, outStr, errStr));
+    CHECK_TRUE(outStr.find("Usage:") != std::string::npos);
+
+    // 3. Unknown flags (--bogus-flag, -x) and missing option values exit != 0 before loading config or connecting
+    CHECK_TRUE(invokeCli({"octibot", "--config", activeConfPath, "--bogus-flag"}, outStr, errStr) != 0);
+    CHECK_TRUE(errStr.find("--bogus-flag") != std::string::npos);
+
+    CHECK_TRUE(invokeCli({"octibot", "--config", brokenConfPath, "-x"}, outStr, errStr) != 0);
+    CHECK_TRUE(errStr.find("-x") != std::string::npos);
+
+    CHECK_TRUE(invokeCli({"octibot", "--profile"}, outStr, errStr) != 0);
+    CHECK_TRUE(errStr.find("--profile") != std::string::npos);
+
+    // 4. Running runFleetCli against activeConfPath with default (or --no-supersede) fails closed without kicking activeRunner
+    CHECK_EQUAL(0, invokeCli({"octibot", "--config", activeConfPath, "--no-supersede"}, outStr, errStr));
+    CHECK_TRUE(errStr.find("Failed to connect") != std::string::npos);
+    CHECK_TRUE(activeRunner->isRunning());
+    CHECK_FALSE(activeRunner->isSuperseded());
+    CHECK_TRUE(activeRunner->networkClient().isLobbyEventStreamActive());
+
+    activeRunner->stop();
+    std::error_code ec;
+    std::filesystem::remove_all(dirPath, ec);
 }
 
 // ============================================================================

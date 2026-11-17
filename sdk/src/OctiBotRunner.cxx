@@ -290,6 +290,7 @@ static bool isBooleanConfigKey(const std::string &key) {
         "aimon_enabled",
         "expose_mcp_tools",
         "server_use_ssl",
+        "allow_supersede",
         "lobby_only"
     };
     return kBoolKeys.count(key) > 0;
@@ -436,6 +437,7 @@ static std::map<std::string, std::string> buildEffectiveConfigMapImpl(
     effectiveDefaults["server_host"] = cfg.getString("server_host", "octi.selfso.com");
     effectiveDefaults["server_port"] = std::to_string(cfg.getInt("server_port", 443));
     effectiveDefaults["server_use_ssl"] = cfg.getBool("server_use_ssl", true) ? "true" : "false";
+    effectiveDefaults["allow_supersede"] = cfg.getBool("allow_supersede", false) ? "true" : "false";
     effectiveDefaults["default_profile"] = cfg.getString("default_profile", "stock");
     effectiveDefaults["robot_name"] = cfg.getString("robot_name", "stock");
 
@@ -1022,9 +1024,22 @@ bool OctiBotRunner::connectAndAuthenticate(std::string &errorOut) {
     // Direct token connect
     if (!tokenToUse.empty()) {
         _client.setBotToken(tokenToUse);
-        auto res = _client.connectRobot(false);
+        bool allowSupersede = _config.getBool("allow_supersede", false);
+        auto res = _client.connectRobot(!allowSupersede);
         if (!res.ok) {
-            errorOut = res.errorMessage.empty() ? "Failed to connect robot" : res.errorMessage;
+            if (res.httpStatus == 409 && res.errorCode == "ROBOT_TOKEN_IN_USE") {
+                errorOut = "ROBOT_TOKEN_IN_USE: " +
+                    (res.errorMessage.empty()
+                        ? std::string("Robot token is already in use on another connection")
+                        : res.errorMessage) +
+                    " (pass --supersede or set allow_supersede = true to take over)";
+            } else if (!res.errorMessage.empty()) {
+                errorOut = res.errorMessage;
+            } else if (!res.errorCode.empty()) {
+                errorOut = res.errorCode;
+            } else {
+                errorOut = "Failed to connect robot";
+            }
             logMsg(1, "Authentication failed: " + errorOut);
             return false;
         }
@@ -1327,6 +1342,10 @@ void OctiBotRunner::stop() {
     if (_workerThread && _workerThread->joinable()) {
         _workerThread->join();
         _workerThread.reset();
+    }
+
+    if (_client.isAuthenticated() && !_client.robotLeaseId().empty() && !_superseded) {
+        _client.disconnectRobot();
     }
 
     auto waitStart = std::chrono::steady_clock::now();
@@ -6663,14 +6682,61 @@ int runFleetCli(int argc, char **argv) {
     bool allProfiles = false;
     int instances = 1;
     int cliVerbosity = -1;
+    int cliAllowSupersede = -1;
+    std::string cliAiBackend;
+    std::string cliAiModel;
+    std::string cliAiPrompt;
+    int cliAiInteractive = -1;
 
     for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
+        std::string arg = argv[i] ? argv[i] : "";
+        if (arg == "--help" || arg == "-h") {
+            std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << "\n"
+                      << "Usage: octibot [options]\n\n"
+                      << "Options:\n"
+                      << "  --profile <name>         Run single bot profile\n"
+                      << "  --profiles <p1,p2,...>   Run multiple bot profiles\n"
+                      << "  --all-profiles           Run all configured profiles\n"
+                      << "  --instances <n>          Number of instances per profile\n"
+                      << "  --supersede              Allow superseding an active session using the same token\n"
+                      << "  --no-supersede           Fail if token is already in use (default)\n"
+                      << "  --mcp-stdio              Run as MCP server over stdin/stdout\n"
+                      << "  --mcp-port <port>        Run as MCP server over HTTP on port\n"
+                      << "  --config <path>          Path to octibot.conf\n"
+                      << "  --tokens-file <path>     Path to tokens.conf\n"
+                      << "  --verbosity <level>      Verbosity (0=quiet, 1=error, 2=info, 3=verbose, 4=trace)\n"
+                      << "  -v, --verbose            Shortcut for --verbosity verbose\n"
+                      << "  -q, --quiet              Shortcut for --verbosity quiet\n"
+                      << "  -V, --version            Show version and exit\n"
+                      << "  -h, --help               Show this help message and exit\n";
+            return 0;
+        } else if (arg == "--version" || arg == "-V") {
+            std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << std::endl;
+            return 0;
+        } else if (arg == "--supersede") {
+            cliAllowSupersede = 1;
+        } else if (arg == "--no-supersede") {
+            cliAllowSupersede = 0;
+        } else if (arg == "--config") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             configPath = argv[++i];
-        } else if (arg == "--tokens-file" && i + 1 < argc) {
+        } else if (arg == "--tokens-file") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             tokensPath = argv[++i];
-        } else if (arg == "--profile" && i + 1 < argc) {
+        } else if (arg == "--profile") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             std::string p = argv[++i];
             if (singleProfile.empty() && multiProfiles.empty()) {
                 singleProfile = p;
@@ -6681,7 +6747,12 @@ int runFleetCli(int argc, char **argv) {
                 }
                 multiProfiles.push_back(p);
             }
-        } else if (arg == "--profiles" && i + 1 < argc) {
+        } else if (arg == "--profiles") {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             while (i + 1 < argc && argv[i + 1][0] != '-') {
                 std::string plist = argv[++i];
                 std::stringstream ss(plist);
@@ -6696,14 +6767,51 @@ int runFleetCli(int argc, char **argv) {
             }
         } else if (arg == "--all-profiles") {
             allProfiles = true;
-        } else if (arg == "--instances" && i + 1 < argc) {
+        } else if (arg == "--instances") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             instances = std::atoi(argv[++i]);
-        } else if (arg == "--verbosity" && i + 1 < argc) {
+        } else if (arg == "--verbosity") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
             cliVerbosity = OctiBotConfigStore::parseVerbosityLevel(argv[++i]);
         } else if (arg == "--verbose" || arg == "-v") {
             cliVerbosity = 3;
         } else if (arg == "--quiet" || arg == "-q") {
             cliVerbosity = 0;
+        } else if (arg == "--ai-cli") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
+            cliAiBackend = argv[++i];
+        } else if (arg == "--ai-model") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
+            cliAiModel = argv[++i];
+        } else if (arg == "--ai-prompt") {
+            if (i + 1 >= argc) {
+                std::cerr << "[OCTIBOT] Missing argument for option '" << arg
+                          << "'. Try '--help' for usage." << std::endl;
+                return 1;
+            }
+            cliAiPrompt = argv[++i];
+        } else if (arg == "--ai-interactive") {
+            cliAiInteractive = 1;
+        } else {
+            std::cerr << "[OCTIBOT] Unknown option '" << arg
+                      << "'. Try '--help' for usage." << std::endl;
+            return 1;
         }
     }
 
@@ -6720,7 +6828,43 @@ int runFleetCli(int argc, char **argv) {
     }
     config.set("config_path", configPath);
     if (cliVerbosity >= 0) {
-        config.set("verbosity", std::to_string(cliVerbosity));
+        const std::string verbStr = std::to_string(cliVerbosity);
+        config.set("verbosity", verbStr);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "verbosity", verbStr);
+        }
+    }
+    if (cliAllowSupersede >= 0) {
+        const std::string supStr = (cliAllowSupersede > 0) ? "true" : "false";
+        config.set("allow_supersede", supStr);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "allow_supersede", supStr);
+        }
+    }
+    if (!cliAiBackend.empty()) {
+        config.set("ai_cli_backend", cliAiBackend);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "ai_cli_backend", cliAiBackend);
+        }
+    }
+    if (!cliAiModel.empty()) {
+        config.set("ai_cli_model", cliAiModel);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "ai_cli_model", cliAiModel);
+        }
+    }
+    if (!cliAiPrompt.empty()) {
+        config.set("ai_cli_prompt", cliAiPrompt);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "ai_cli_prompt", cliAiPrompt);
+        }
+    }
+    if (cliAiInteractive >= 0) {
+        const std::string interStr = (cliAiInteractive > 0) ? "true" : "false";
+        config.set("ai_cli_interactive", interStr);
+        for (const auto &pName : config.profileNames()) {
+            config.setProfileEntry(pName, "ai_cli_interactive", interStr);
+        }
     }
 
     if (config.getVerbosityLevel(3) >= 2) {

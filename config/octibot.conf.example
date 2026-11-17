@@ -7,6 +7,7 @@
 server_host = 127.0.0.1
 server_port = 8080
 server_use_ssl = false
+allow_supersede = false          # Set to true (or pass --supersede) to kick an active bot session using the same token
 
 # Table & Match Policy
 table_behavior = auto            # Options: auto, join_only, host_only, matchmaking, idle
