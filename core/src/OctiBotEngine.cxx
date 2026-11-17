@@ -1715,11 +1715,6 @@ int scoreMoveHeuristic(const OctiBoard &board,
                     score += 150;
                 }
             }
-        } else if (op.rmProngDir != DIR_UNDEF) {
-            score -= 4500 + 800 * op.pod.getNumProngs();
-            if (op.addProngDir != DIR_UNDEF && game && game->getFreeProngs(turn) > 0) {
-                score -= 12000;
-            }
         }
     }
     return score;
@@ -1791,42 +1786,6 @@ std::vector<OctiMove> OctiBotEngine::orderAndCapMoves(
         appendCompositeMoves(board, rawMoves, turn, profile, ply);
     }
     std::vector<OctiMove> moves = filterDominatedMoves(board, turn, rawMoves);
-
-    // Hard dominance pruning of single-op +x-y prong rearrangements when free prongs exist.
-    // If freeProngs > 0, +x-y is strictly dominated by +x.
-    if (board.getGame() && board.getGame()->getFreeProngs(turn) > 0) {
-        bool hasDominatedRearrange = false;
-        for (const auto &m : moves) {
-            const auto &ops = m.getOps();
-            if (ops.size() == 1 &&
-                ops[0].hops.empty() &&
-                !ops[0].addPod &&
-                ops[0].addProngDir != DIR_UNDEF &&
-                ops[0].rmProngDir != DIR_UNDEF) {
-                hasDominatedRearrange = true;
-                break;
-            }
-        }
-        if (hasDominatedRearrange) {
-            std::vector<OctiMove> prunedMoves;
-            prunedMoves.reserve(moves.size());
-            for (const auto &m : moves) {
-                const auto &ops = m.getOps();
-                bool isDominatedRearrange = (ops.size() == 1 &&
-                                             ops[0].hops.empty() &&
-                                             !ops[0].addPod &&
-                                             ops[0].addProngDir != DIR_UNDEF &&
-                                             ops[0].rmProngDir != DIR_UNDEF);
-                if (!isDominatedRearrange ||
-                    (ttBestMoveKey != 0ULL && m.structuralKey() == ttBestMoveKey)) {
-                    prunedMoves.push_back(m);
-                }
-            }
-            if (!prunedMoves.empty()) {
-                moves = std::move(prunedMoves);
-            }
-        }
-    }
 
     std::vector<std::pair<int, int>> targets = targetEnemyBases(board, turn);
 
@@ -1947,25 +1906,29 @@ std::vector<OctiMove> OctiBotEngine::orderAndCapMoves(
     }
 
     // Two-tier prelude diversity selection: prevent a single superprong prelude
-    // from exhausting maxBranch with dozens of redundant +prong or quiet 2-prelude
+    // from exhausting maxBranch with dozens of redundant +prong or quiet 2..4-prelude
     // continuations before other distinct captures, steps, or root moves are tried.
     using FirstPreludeKey = std::tuple<int, int, int, int, bool>;
     std::map<FirstPreludeKey, int> quietProngCountByPrelude;
     std::map<FirstPreludeKey, int> quietStepCountByPrelude;
-    std::map<FirstPreludeKey, int> twoPreludeQuietCount;
+    std::map<FirstPreludeKey, int> multiPreludeQuietCount;
     std::vector<std::size_t> deferredIndices;
 
     for (std::size_t i = 0; i < scored.size() && result.size() < limit; ++i) {
         std::size_t mIdx = scored[i].second;
         const OctiMove &m = moves[mIdx];
         const auto &mOps = m.getOps();
+        std::size_t bonusCount = 0;
+        while (bonusCount < mOps.size() && mOps[bonusCount].isSuperProngBonusMove) {
+            ++bonusCount;
+        }
         const std::uint64_t mKey = (ttBestMoveKey != 0ULL || applyKillers)
             ? m.structuralKey()
             : 0ULL;
         const bool isPriorityKey =
             (ttBestMoveKey != 0ULL && mKey == ttBestMoveKey) ||
             (applyKillers && mKey != 0ULL && (mKey == killer0 || mKey == killer1));
-        if (mOps.size() <= 1 || !mOps[0].isSuperProngBonusMove || isPriorityKey) {
+        if (bonusCount == 0 || mOps.size() <= bonusCount || isPriorityKey) {
             result.push_back(m);
             continue;
         }
@@ -2006,9 +1969,9 @@ std::vector<OctiMove> OctiBotEngine::orderAndCapMoves(
         }
 
         const OctiMoveOp &regOp = mOps.back();
-        if (mOps.size() >= 3) {
-            if (twoPreludeQuietCount[pKey] < 2) {
-                twoPreludeQuietCount[pKey]++;
+        if (bonusCount >= 2) {
+            if (multiPreludeQuietCount[pKey] < 2) {
+                multiPreludeQuietCount[pKey]++;
                 result.push_back(m);
             } else {
                 deferredIndices.push_back(mIdx);
@@ -2199,9 +2162,9 @@ void OctiBotEngine::generateSearchMoves(const OctiGame &game,
                                         int ply,
                                         std::vector<OctiMove> &outMoves) const
 {
+    (void)turn;
     (void)ply;
-    const bool includeSingleRepositions = (game.getFreeProngs(turn) <= 0);
-    game.generateLegalMovesForSearch(outMoves, includeSingleRepositions, true);
+    game.generateLegalMoves(outMoves);
 }
 
 void OctiBotEngine::appendExtraQuiesceMoves(
@@ -2794,9 +2757,6 @@ std::string OctiBotEngine::mirrorMoveNotation(const std::string &moveNotation,
 
             if (op.addProngDir != DIR_UNDEF) {
                 op.addProngDir = mirrorDirHorizontal(op.addProngDir);
-            }
-            if (op.rmProngDir != DIR_UNDEF) {
-                op.rmProngDir = mirrorDirHorizontal(op.rmProngDir);
             }
             for (auto &h : op.hops) {
                 int mhx = (boardWidth - 1) - h.x;

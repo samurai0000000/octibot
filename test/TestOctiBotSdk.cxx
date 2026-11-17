@@ -830,6 +830,93 @@ TEST(OctiBotMcpServerTest, JsonRpcProtocolAndToolsList) {
     CHECK_FALSE(runner.matchOverride().active);
 }
 
+TEST(OctiBotMcpServerTest, RulebookRevisionsR1ThroughR6AndSkillGuideNoReposition) {
+    OctiBotConfigStore config;
+    auto agent = std::make_unique<StockAlphaBetaAgent>(config);
+    OctiBotRunner runner(std::move(agent), config);
+    OctiBotMcpServer server(runner);
+
+    // 1. Skill guide resource & MCP tool must NOT advertise prong repositioning
+    std::string rReadResp = server.handleJsonRpc(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/read\",\"params\":{\"uri\":\"octi://skill/octibot\"}}");
+    auto jRRead = nlohmann::json::parse(rReadResp);
+    std::string resSkillText = jRRead["result"]["contents"][0]["text"].get<std::string>();
+    CHECK_TRUE_TEXT(resSkillText.find("Reposition Prong") == std::string::npos &&
+                    resSkillText.find("e2+c-a") == std::string::npos,
+                    "Skill resource must not advertise deleted Prong Repositioning");
+
+    std::string sgNotation = server.callTool("octibot_get_skill_guide", "{\"topic\":\"notation\"}");
+    CHECK_TRUE_TEXT(sgNotation.find("Reposition Prong") == std::string::npos &&
+                    sgNotation.find("e2+c-a") == std::string::npos,
+                    "octibot_get_skill_guide(notation) must not advertise deleted Prong Repositioning");
+
+    // Also verify fallback CANONICAL_SKILL_GUIDE when running from an isolated working dir
+    std::string origCwd = std::filesystem::current_path().string();
+    std::filesystem::path isoTmp = std::filesystem::temp_directory_path() /
+        ("octibot_e6_skill_fallback_" + std::to_string(::getpid()));
+    std::error_code ec;
+    std::filesystem::create_directories(isoTmp, ec);
+    std::string sgFallback;
+    try {
+        std::filesystem::current_path(isoTmp);
+        sgFallback = server.callTool("octibot_get_skill_guide", "{\"topic\":\"all\"}");
+        std::filesystem::current_path(origCwd);
+    } catch (...) {
+        std::filesystem::current_path(origCwd, ec);
+        std::filesystem::remove_all(isoTmp, ec);
+        throw;
+    }
+    std::filesystem::remove_all(isoTmp, ec);
+    // Note: /proc/self/exe still resolves repo skills/octibot/SKILL.md when in build/rulebook_e6;
+    // materializeSandboxWorkspace exercises loadSkillGuide() end-to-end as well.
+    CHECK_TRUE(sgFallback.find("Reposition Prong") == std::string::npos);
+
+    // 2. R1: Prong reposition syntax throws IllegalMoveSyntaxException across synced core/
+    CHECK_THROWS(IllegalMoveSyntaxException, OctiMove("55a+b-a"));
+    CHECK_THROWS(IllegalMoveSyntaxException, OctiMove("33a-a+b"));
+
+    // R1 stalemate: boxed-in armed pod with 0 reserve pods/prongs has zero legal moves
+    OctiBoard staleBoard(GAME_MODE_2, false, false, GAME_BASES_3);
+    staleBoard.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,0,0,0:4,0,25,0:A11a,B12e,B13e");
+    CHECK_FALSE(staleBoard.getGame()->hasAnyLegalMove());
+    CHECK_TRUE(staleBoard.getGame()->generateLegalMoves().empty());
+
+    // 3. R4: Stationary stack-mate on S blocks both loop-back landing and _ED hop-over
+    OctiBoard r4Board(GAME_MODE_2, false, false, GAME_BASES_3);
+    r4Board.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,0,20,0:2,0,20,0:A44a,A44beg,B55a,B65a,B54a");
+    CHECK_THROWS(IllegalMoveException, r4Board.getGame()->move("44beg-66x-64x-44"));
+    r4Board.getGame()->move("44a-45,44beg-66x-64x-44");
+    CHECK_EQUAL(PLAYER_B, r4Board.getGame()->getTurn());
+
+    OctiBoard r4EdBoard(GAME_MODE_2, false, true, GAME_BASES_3);
+    r4EdBoard.fromPositionString(
+        "2:3:0:1:P:A:-:0:2,0,20,0:2,0,20,0:A44a,A44bcd,B55a,B76a,B96a,B25a");
+    CHECK_THROWS(IllegalMoveException, r4EdBoard.getGame()->move("44bcd-66-86-16-34-54"));
+
+    // 4. R5: >4 SP preludes throw IllegalMoveSyntaxException; 4 preludes in 4P_SP + immediate capture work
+    CHECK_THROWS(IllegalMoveSyntaxException,
+                 OctiMove("33a!-34;34a!-35;35a!-36;36a!-37;37a!-38;38a!+b"));
+    OctiBoard r5Board(GAME_MODE_4, true, false, GAME_BASES_1);
+    r5Board.fromPositionString(
+        "4:1:1:0:P:A:-:0:0,0,5,0:0,0,5,0:0,0,5,0:0,0,5,0:"
+        "A44a!c!,B45e,A35c!,A24a!,B37a,C77a,D73a");
+    // SP1 (44a!c!-46x) removes B45e immediately so SP2 (35c!-45) can step onto vacated 45;
+    // SP3 (46a!c!-56) fires the 2nd SP socket on the first pod; SP4 (24a!-25) fires the 4th SP;
+    // regular turn (56a!c!+b) inserts a normal prong.
+    r5Board.getGame()->move("44a!c!-46x;35c!-45;46a!c!-56;24a!-25;56a!c!+b");
+    CHECK_EQUAL(1u, r5Board.squareAt(3, 4).getNumPods());
+    CHECK_TRUE(r5Board.squareAt(3, 4).isOccupiedBy(PLAYER_A));
+
+    // 5. R6: 4P eliminated partner's empty home base cannot be revived via 77*
+    OctiBoard r6Board(GAME_MODE_4, false, false, GAME_BASES_1);
+    r6Board.fromPositionString(
+        "4:1:0:0:P:A:-:4:1,1,10,0:1,0,10,0:0,2,0,0:1,0,10,0:"
+        "A53a,B37a,D73a");
+    CHECK_THROWS(IllegalMoveException, r6Board.getGame()->move("77*"));
+}
+
 TEST(OctiBotMcpServerTest, HttpTransportAndLoopbackPort) {
     OctiBotConfigStore config;
     auto agent = std::make_unique<StockAlphaBetaAgent>(config);
@@ -4445,7 +4532,9 @@ TEST(OctiBotMcpAnalyzePositionSearch, MultiPlyRefutation4PSeatCWinAndSelfCapture
     //    A35bc can greedily step 35bc-46 to threaten empty B home 57 in 1 move (+10,900 1-ply bonus),
     //    but 46 enters B37de's jump-capture lane: B replies 37de-55x-53 (jumping over A46bc and B54
     //    directly onto A's home 53) to win immediately on ply 2.
-    const std::string trapFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77";
+    //    (B77a has a North prong so B has a quiet non-losing step 77a-78 on ply 2 under R1
+    //    without prong repositioning, while keeping 0 reserve prongs so B54 cannot arm +e.)
+    const std::string trapFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77a";
     {
         OctiBoard checkBoard;
         checkBoard.fromPositionString(trapFen);
@@ -4596,7 +4685,7 @@ TEST(OctiBotMcpAnalyzePositionSearch, MultiPlyRefutation4PSeatCWinAndSelfCapture
 
 TEST(OctiBotMcpAnalyzePositionSearch, Depth3VisitsStrictlyMoreNodesThanDepth1AndFaultHandling) {
     // 1. Negative control: depth = 3 visits strictly more nodes than depth = 1
-    const std::string midgameFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77";
+    const std::string midgameFen = "2:1:0:0:P:A:-:0:0,0,2,0:0,0,0,0:A11a,B54,A35bc,B37de,B77a";
     auto resD1 = nlohmann::json::parse(server->callTool(
         "octibot_analyze_position",
         nlohmann::json({{"fen", midgameFen}, {"depth", 1}, {"top_k", 3}}).dump()));

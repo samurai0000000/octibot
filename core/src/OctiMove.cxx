@@ -112,44 +112,7 @@ static OctiMoveOp parseSingleRegularOp(const std::string &s)
         }
 
         if (s[idx] == '-') {
-            // Reposition format: +addDir-rmDir
-            idx++;
-            if (idx >= s.size()) {
-                throw IllegalMoveSyntaxException("expected direction after '-' in reposition");
-            }
-            OctiDir rmDir = charToDir(s[idx]);
-            if (rmDir == DIR_UNDEF) {
-                throw IllegalMoveSyntaxException("invalid remove direction in reposition");
-            }
-            idx++;
-
-            if (idx < s.size() && s[idx] == '!') {
-                throw IllegalMoveSyntaxException("superprong cannot be removed in reposition");
-            }
-            if (addSuper) {
-                throw IllegalMoveSyntaxException("superprong cannot be added in reposition");
-            }
-            if (idx != s.size()) {
-                throw IllegalMoveSyntaxException("extra trailing characters after reposition");
-            }
-
-            if (addDir == rmDir) {
-                throw IllegalMoveSyntaxException("reposition with identical add and remove directions");
-            }
-            if (op.pod.prongAt(rmDir) == NO_PRONG) {
-                throw IllegalMoveSyntaxException("cannot remove prong that does not exist");
-            }
-            if (op.pod.prongAt(rmDir) == SUPER_PRONG) {
-                throw IllegalMoveSyntaxException("cannot reposition a superprong");
-            }
-            if (op.pod.prongAt(addDir) != NO_PRONG) {
-                throw IllegalMoveSyntaxException("cannot add prong that already exists");
-            }
-
-            op.addProngDir = addDir;
-            op.rmProngDir = rmDir;
-            op.superProng = false;
-            return op;
+            throw IllegalMoveSyntaxException("prong repositioning is not allowed");
         }
 
         throw IllegalMoveSyntaxException("unexpected character after prong add direction");
@@ -163,54 +126,7 @@ static OctiMoveOp parseSingleRegularOp(const std::string &s)
 
         char nextC = s[idx];
         if ((nextC >= 'A' && nextC <= 'H') || (nextC >= 'a' && nextC <= 'h')) {
-            // Reposition format: -rmDir+addDir
-            OctiDir rmDir = charToDir(nextC);
-            if (rmDir == DIR_UNDEF) {
-                throw IllegalMoveSyntaxException("invalid remove direction in reposition");
-            }
-            idx++;
-
-            if (idx < s.size() && s[idx] == '!') {
-                throw IllegalMoveSyntaxException("superprong cannot be removed in reposition");
-            }
-            if (idx >= s.size() || s[idx] != '+') {
-                throw IllegalMoveSyntaxException("expected '+' after remove direction in reposition");
-            }
-            idx++;
-
-            if (idx >= s.size()) {
-                throw IllegalMoveSyntaxException("expected add direction after '+' in reposition");
-            }
-            OctiDir addDir = charToDir(s[idx]);
-            if (addDir == DIR_UNDEF) {
-                throw IllegalMoveSyntaxException("invalid add direction in reposition");
-            }
-            idx++;
-
-            if (idx < s.size() && s[idx] == '!') {
-                throw IllegalMoveSyntaxException("superprong cannot be added in reposition");
-            }
-            if (idx != s.size()) {
-                throw IllegalMoveSyntaxException("extra trailing characters after reposition");
-            }
-
-            if (addDir == rmDir) {
-                throw IllegalMoveSyntaxException("reposition with identical add and remove directions");
-            }
-            if (op.pod.prongAt(rmDir) == NO_PRONG) {
-                throw IllegalMoveSyntaxException("cannot remove prong that does not exist");
-            }
-            if (op.pod.prongAt(rmDir) == SUPER_PRONG) {
-                throw IllegalMoveSyntaxException("cannot reposition a superprong");
-            }
-            if (op.pod.prongAt(addDir) != NO_PRONG) {
-                throw IllegalMoveSyntaxException("cannot add prong that already exists");
-            }
-
-            op.addProngDir = addDir;
-            op.rmProngDir = rmDir;
-            op.superProng = false;
-            return op;
+            throw IllegalMoveSyntaxException("prong repositioning is not allowed");
         }
 
         if (nextC >= '1' && nextC <= '9') {
@@ -295,8 +211,8 @@ void OctiMove::parseMoveString(const std::string &str, std::vector<OctiMoveOp> &
         start = pos + 1;
     }
 
-    if (semiParts.size() > 3) {
-        throw IllegalMoveSyntaxException("more than 2 superprong prelude operations");
+    if (semiParts.size() > 5) {
+        throw IllegalMoveSyntaxException("more than 4 superprong prelude operations");
     }
 
     for (std::size_t i = 0; i < semiParts.size(); ++i) {
@@ -376,12 +292,6 @@ std::string OctiMove::formatOps(const std::vector<OctiMoveOp> &ops)
             if (op.liberate) {
                 result.push_back('*');
             }
-        } else if (op.addProngDir != DIR_UNDEF && op.rmProngDir != DIR_UNDEF) {
-            result += op.pod.getConfigString();
-            result.push_back('+');
-            result.push_back(dirToChar(op.addProngDir));
-            result.push_back('-');
-            result.push_back(dirToChar(op.rmProngDir));
         } else if (op.addProngDir != DIR_UNDEF) {
             result += op.pod.getConfigString();
             result.push_back('+');
@@ -600,17 +510,20 @@ void OctiMove::validateOpsOrThrow() const
             throw IllegalMoveSyntaxException("op coordinate out of bounds");
         }
 
+        if (op.rmProngDir != DIR_UNDEF) {
+            throw IllegalMoveSyntaxException("prong repositioning is not allowed");
+        }
+
         if (op.isSuperProngBonusMove) {
             if (seenRegular) {
                 throw IllegalMoveSyntaxException(
                     "superprong bonus move cannot appear after regular move");
             }
             bonusCount++;
-            if (bonusCount > 2) {
+            if (bonusCount > 4) {
                 throw IllegalMoveSyntaxException("too many superprong bonus moves");
             }
-            if (op.hops.empty() || op.addPod || op.addProngDir != DIR_UNDEF ||
-                op.rmProngDir != DIR_UNDEF) {
+            if (op.hops.empty() || op.addPod || op.addProngDir != DIR_UNDEF) {
                 throw IllegalMoveSyntaxException(
                     "superprong bonus move must be a hop chain");
             }
@@ -625,8 +538,7 @@ void OctiMove::validateOpsOrThrow() const
                     throw IllegalMoveSyntaxException(
                         "composite regular moves must share the same starting coordinate");
                 }
-                if (op.hops.empty() || op.addPod || op.addProngDir != DIR_UNDEF ||
-                    op.rmProngDir != DIR_UNDEF) {
+                if (op.hops.empty() || op.addPod || op.addProngDir != DIR_UNDEF) {
                     throw IllegalMoveSyntaxException(
                         "composite moves must consist solely of hop chains");
                 }
@@ -634,22 +546,8 @@ void OctiMove::validateOpsOrThrow() const
         }
 
         if (op.addPod) {
-            if (!op.hops.empty() || op.addProngDir != DIR_UNDEF ||
-                op.rmProngDir != DIR_UNDEF) {
+            if (!op.hops.empty() || op.addProngDir != DIR_UNDEF) {
                 throw IllegalMoveSyntaxException("invalid pod placement op structure");
-            }
-        } else if (op.addProngDir != DIR_UNDEF && op.rmProngDir != DIR_UNDEF) {
-            if (op.addProngDir == op.rmProngDir || op.superProng ||
-                !op.hops.empty()) {
-                throw IllegalMoveSyntaxException("invalid reposition op structure");
-            }
-            if (op.pod.prongAt(op.rmProngDir) != NORMAL_PRONG) {
-                throw IllegalMoveSyntaxException(
-                    "cannot reposition non-existent or superprong");
-            }
-            if (op.pod.prongAt(op.addProngDir) != NO_PRONG) {
-                throw IllegalMoveSyntaxException(
-                    "cannot reposition to already occupied prong slot");
             }
         } else if (op.addProngDir != DIR_UNDEF) {
             if (!op.hops.empty()) {

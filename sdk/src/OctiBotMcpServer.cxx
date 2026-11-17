@@ -99,7 +99,6 @@ This skill equips an AI agent with comprehensive knowledge of OCTI board game va
 ### 2. Move Syntaxes
 - Add Pod: +<sq> (e.g. +e2)
 - Insert Prong: <sq>+<dir> (e.g. e2+a)
-- Reposition Prong: <sq>+<new_dir>-<old_dir> (e.g. e2+c-a)
 - Step Move: <from>-<to> (e.g. e2-e3)
 - Jump: <from>-<to> (e.g. e2-e4)
 - Jump Capture: <from>-<to>x (e.g. e2-e4x)

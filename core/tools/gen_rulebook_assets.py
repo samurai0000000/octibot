@@ -5,7 +5,7 @@
 # Copyright (C) 2026, Charles Chiou
 #
 # Generates OctiRulebookAssets.hxx from canonical PNGs in assets/rulebook/.
-# Supports --stub / --allow-stub so downstream core/ mirrors (e.g. octibot)
+# Supports --stub / --allow-stub so downstream core/ mirrors (such as octibot)
 # that set OCTI_BOOTSTRAP_SOUND_ASSETS=ON without carrying
 # assets/rulebook/ configure and compile cleanly with zero-byte descriptors.
 

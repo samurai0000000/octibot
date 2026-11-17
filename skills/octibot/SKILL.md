@@ -55,8 +55,6 @@ This skill equips an AI agent with comprehensive knowledge of OCTI board game va
   - Places a fresh unpronged pod from reserve onto an empty base square owned by the player (e.g. `+e2`).
 - **Insert Prong**: `<sq>+<dir>`
   - Inserts a prong from reserve into the specified face of an existing pod (e.g. `e2+a`).
-- **Reposition Prong**: `<sq>+<new_dir>-<old_dir>`
-  - Extracts a prong from `<old_dir>` and moves it to `<new_dir>` on the same pod (e.g. `e2+c-a`).
 - **Step Move**: `<from_sq>-<to_sq>`
   - A pod moves 1 square in a direction in which it has a prong (e.g. `e2-e3`).
 - **Single Jump**: `<from_sq>-<to_sq>`

@@ -164,8 +164,8 @@ public:
     // Preparatory Move Workflow (GUI staging)
     void prepareAddPod(int x, int y, bool liberate = false);
     void prepareAddProng(int x, int y, OctiPod pod, OctiDir dir, bool superProng = false);
-    void prepareReposition(int x, int y, OctiPod pod, OctiDir srcDir, OctiDir tgtDir);
-    void prepareHops(int x, int y, OctiPod pod, const std::vector<OctiHop> &hops);
+    void prepareHops(int x, int y, OctiPod pod, const std::vector<OctiHop> &hops,
+                     bool isSuperProngBonusMove = false);
     void prepareCapture(int x, int y);
     void commitPreparedMove();
     void rollbackPreparedMove();
@@ -178,8 +178,8 @@ public:
     void generateLegalMoves(std::vector<OctiMove> &outMoves) const;
     std::vector<OctiMove> generateLegalMoves() const;
     void generateLegalMovesForSearch(std::vector<OctiMove> &outMoves,
-                                     bool includeSingleRepositions,
-                                     bool includeSuperProngRepositions = true) const;
+                                     bool includeSingleRepositions = false,
+                                     bool includeSuperProngRepositions = false) const;
     void generateTacticalMoves(std::vector<OctiMove> &outMoves) const;
     std::vector<OctiMove> generateTacticalMoves() const;
 
