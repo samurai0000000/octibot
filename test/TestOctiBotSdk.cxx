@@ -7334,6 +7334,106 @@ TEST(AgentVariantCompetency, StockAlphaBetaSupportsAll13VariantsAndSiblingCooldo
     runnerA.stop();
 }
 
+TEST(OctiBotMcpAnalyzePositionSearch, R7NoProgressPliesLiveRoomSyncAndAnalyze) {
+    TestServerEnv env;
+    VerifiedClaims claimsA;
+    claimsA.provider = "google";
+    claimsA.sub = "sub-r7-alice";
+    claimsA.name = "alice";
+    claimsA.email = "alice@selfso.com";
+    VerifiedClaims claimsB;
+    claimsB.provider = "google";
+    claimsB.sub = "sub-r7-bob";
+    claimsB.name = "bob";
+    claimsB.email = "bob@selfso.com";
+    auto loginA = env.store.loginWithSso(claimsA, "test-agent");
+    auto loginB = env.store.loginWithSso(claimsB, "test-agent");
+    CHECK_TRUE(loginA.profile.playerId > 0);
+    CHECK_TRUE(loginB.profile.playerId > 0);
+
+    OctiNetworkClient clientA;
+    clientA.setEndpoint("127.0.0.1", env.port);
+    clientA.setSessionToken(loginA.sessionToken);
+
+    OctiNetworkClient clientB;
+    clientB.setEndpoint("127.0.0.1", env.port);
+    clientB.setSessionToken(loginB.sessionToken);
+
+    auto rHelper = env.store.createRobot(loginA.profile.playerId, "octibot-helper-r7", "Helper R7");
+    OctiBotConfigStore hCfg;
+    hCfg.set("server_host", "127.0.0.1");
+    hCfg.set("server_port", std::to_string(env.port));
+    hCfg.set("robot_name", "octibot-helper-r7");
+    hCfg.set("bot_token", rHelper.rawToken);
+    hCfg.set("verbosity", "0");
+    hCfg.set("lobby_only", "true");
+    hCfg.set("algorithm", "helper");
+    hCfg.set("table_behavior", "lobby_only");
+
+    OctiBotRunner hRun(std::make_unique<LobbyHelperAgent>(hCfg), hCfg);
+    OctiBotMcpServer liveMcp(hRun);
+    std::string err;
+    CHECK_TRUE(hRun.connectAndAuthenticate(err));
+
+    CreateTableRequest req;
+    req.mode = "2P";
+    req.bases = 3;
+    req.rated = false;
+    req.seat = 1;
+    auto cRes = clientA.createTable(req);
+    CHECK_TRUE(cRes.ok);
+    std::string roomId = cRes.data.roomId;
+    CHECK_TRUE(clientB.joinTable(roomId, 2).ok);
+
+    // Progress plies: arm A33+a and B37+e -> noProgressPlies stays 0
+    CHECK_TRUE(clientA.submitMove(roomId, "33+a").ok);
+    CHECK_TRUE(clientB.submitMove(roomId, "37+e").ok);
+    auto gv0 = clientA.fetchGameView(roomId);
+    CHECK_TRUE(gv0.ok);
+    CHECK_EQUAL(0, gv0.data.noProgressPlies);
+
+    // Two movement-only plies -> noProgressPlies == 2
+    CHECK_TRUE(clientA.submitMove(roomId, "33a-34").ok);
+    CHECK_TRUE(clientB.submitMove(roomId, "37e-36").ok);
+    auto gv2 = clientA.fetchGameView(roomId);
+    CHECK_TRUE(gv2.ok);
+    CHECK_EQUAL(2, gv2.data.noProgressPlies);
+
+    // octibot_get_game_state and octibot_analyze_position propagate no_progress_plies
+    auto gsJson = nlohmann::json::parse(
+        liveMcp.callTool("octibot_get_game_state", nlohmann::json({{"room_id", "#" + roomId}}).dump()));
+    CHECK_TRUE(gsJson.value("ok", false));
+    CHECK_EQUAL(2, gsJson.value("no_progress_plies", -1));
+
+    auto apLive = nlohmann::json::parse(
+        liveMcp.callTool("octibot_analyze_position",
+                         nlohmann::json({{"room_id", "#" + roomId}, {"depth", 1}, {"top_k", 2}}).dump()));
+    CHECK_TRUE(apLive.value("ok", false));
+    CHECK_EQUAL(2, apLive.value("no_progress_plies", -1));
+
+    // Custom 12-token FEN with :29 noProgressPlies where A is losing and can step to force R7 draw (score == 0)
+    const std::string r7DrawFen = "2:1:0:0:P:A:-:0:0,0,0,0:0,0,0,0:A11ae,B56e,B67e,B77e:29";
+    auto apFen29 = nlohmann::json::parse(
+        liveMcp.callTool("octibot_analyze_position",
+                         nlohmann::json({{"fen", r7DrawFen}, {"depth", 2}, {"top_k", 3}}).dump()));
+    CHECK_TRUE(apFen29.value("ok", false));
+    CHECK_EQUAL(29, apFen29.value("no_progress_plies", -1));
+    CHECK_FALSE(apFen29["top_candidates"].empty());
+    CHECK_EQUAL(0, apFen29["top_candidates"][0].value("score", -999999));
+    CHECK_FALSE(apFen29["top_candidates"][0].value("is_base_win", true));
+
+    // Verify MinimalStarterAgent does not treat an R7 draw (PLAYER_UNDEF) as a win
+    OctiBoard drawBoard(GAME_MODE_2, false, false, GAME_BASES_1);
+    drawBoard.fromPositionString(r7DrawFen);
+    CHECK_EQUAL(29, drawBoard.getGame()->getNoProgressPlies());
+    OctiBotConfigStore minCfg;
+    MinimalStarterAgent minAgent(minCfg);
+    BotMoveTelemetry minTelem;
+    std::string minMv = minAgent.computeMove(drawBoard, gv2.data, 1, 5000, &minTelem);
+    CHECK_FALSE(minMv.empty());
+    CHECK_TRUE(minTelem.evalScore < 100000);
+}
+
 // ============================================================================
 
 int main(int argc, char **argv) {

@@ -96,6 +96,7 @@ struct OctiGameSnapshot {
     OctiPlayer lastPlayer = PLAYER_UNDEF;
     int searchPlyOffset = 0;
     int nullMoveDepth = 0;
+    int noProgressPlies = 0;
     std::vector<OctiPlyMetadata> plyMetadata;
     OctiPlyMetadata lastPlyMeta;
 };
@@ -130,6 +131,20 @@ public:
     OctiPlayer getTurn() const;
     OctiPlayer getStartPlayer() const;
     OctiPlayer getWinner() const;
+
+    int getNoProgressPlies() const { return _noProgressPlies; }
+    void setNoProgressPlies(int plies) { _noProgressPlies = (plies > 0) ? plies : 0; }
+    int getNoProgressDrawLimit() const
+    {
+        return (_mode == GAME_MODE_4)
+            ? OCTI_NO_PROGRESS_DRAW_PLIES_4P
+            : OCTI_NO_PROGRESS_DRAW_PLIES_2P;
+    }
+    bool isNoProgressDraw() const
+    {
+        return _gameOver && !_gameResigned && _winner == PLAYER_UNDEF &&
+               _noProgressPlies >= getNoProgressDrawLimit();
+    }
 
     bool isPlayerEliminated(OctiPlayer p) const;
     int getFreePods(OctiPlayer p) const;
@@ -218,7 +233,7 @@ private:
 
     void executeMoveInternal(const OctiMove &m, bool isRedo = false);
     void applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPreludeOnly = false);
-    void check4PlayerElimination();
+    bool check4PlayerElimination(OctiPlayer moverTurn);
     void advanceTurn();
     void updateGameOverAndWinner();
 
@@ -252,6 +267,7 @@ private:
     bool _searchMode = false;
     int _searchPlyOffset = 0;
     int _nullMoveDepth = 0;
+    int _noProgressPlies = 0;
 };
 
 } // namespace octi

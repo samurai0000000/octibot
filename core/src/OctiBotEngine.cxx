@@ -2302,6 +2302,11 @@ std::uint64_t OctiBotEngine::lookupTranspositionBestMoveKey(const OctiBoard &boa
         return 0ULL;
     }
     std::uint64_t hashKey = computePositionHash(board);
+    const OctiGame *g = board.getGame();
+    if (g && g->getNoProgressPlies() >= 16) {
+        hashKey ^= static_cast<std::uint64_t>(g->getNoProgressPlies()) *
+                   0x9E3779B97F4A7C15ULL;
+    }
     std::size_t ttIdx = hashKey & _ttMask;
     std::unique_lock<std::mutex> lock(
         g_ttMutexes[ttIdx & (TT_MUTEX_COUNT - 1)].mtx, std::defer_lock);
@@ -2789,7 +2794,8 @@ bool OctiBotEngine::probeOpeningBookTable(const OctiBoard &board,
 
     const OctiGame *srcGame = board.getGame();
     if (!srcGame || !srcGame->isGameStarted() || srcGame->isGameOver() ||
-        srcGame->getTurn() == PLAYER_UNDEF) {
+        srcGame->getTurn() == PLAYER_UNDEF ||
+        srcGame->getNoProgressPlies() >= 16) {
         return false;
     }
 
@@ -2859,6 +2865,8 @@ bool OctiBotEngine::probeOpeningBookTable(const OctiBoard &board,
                     testBoard.suppressBoardUpdateNotification(true);
                     testBoard.fromPositionString(board.toPositionString());
                     if (testBoard.getGame()) {
+                        testBoard.getGame()->setNoProgressPlies(
+                            srcGame->getNoProgressPlies());
                         testBoard.getGame()->setSearchMode(true);
                         testBoard.getGame()->move(parsed);
                         isLegal = true;
@@ -3923,6 +3931,11 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
     if (useQsearchTt) {
         ++state.diag.qsearchTtProbes;
         hashKey = computePositionHash(scratchBoard);
+        const int qNpp = game->getNoProgressPlies();
+        const int qDrawLimit = game->getNoProgressDrawLimit();
+        if (qNpp + _profile.maxQuiesceDepth >= qDrawLimit || qNpp >= qDrawLimit / 2) {
+            hashKey ^= static_cast<std::uint64_t>(qNpp) * 0x9E3779B97F4A7C15ULL;
+        }
         ttIdx = hashKey & _ttMask;
         std::unique_lock<std::mutex> lock(
             g_ttMutexes[ttIdx & (TT_MUTEX_COUNT - 1)].mtx, std::defer_lock);
@@ -4004,9 +4017,10 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
         int val = 0;
         if (game->isGameOver()) {
             OctiPlayer w = game->getWinner();
-            val = areAlliedPlayers(mode, w, turn)
-                ? (WIN_SCORE - (ply + 1))
-                : (-WIN_SCORE + (ply + 1));
+            val = (w == PLAYER_UNDEF) ? 0
+                : (areAlliedPlayers(mode, w, turn)
+                    ? (WIN_SCORE - (ply + 1))
+                    : (-WIN_SCORE + (ply + 1)));
         } else {
             OctiPlayer nextTurn = game->getTurn();
             bool sameTeamNext = areAlliedPlayers(mode, turn, nextTurn);
@@ -4104,7 +4118,13 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
                                    _profile.useHistory ||
                                    _profile.lmrMinDepth > 0);
     std::uint64_t hashKey = computePositionHash(scratchBoard);
-    std::size_t ttIdx = hashKey & _ttMask;
+    const int npp = game->getNoProgressPlies();
+    const int drawLimit = game->getNoProgressDrawLimit();
+    const int horizonSaltThreshold = drawLimit / 2;
+    const std::uint64_t ttKey = (npp + depth >= drawLimit || npp >= horizonSaltThreshold)
+        ? (hashKey ^ (static_cast<std::uint64_t>(npp) * 0x9E3779B97F4A7C15ULL))
+        : hashKey;
+    std::size_t ttIdx = ttKey & _ttMask;
     std::uint64_t ttMoveKey = 0ULL;
     {
         std::unique_lock<std::mutex> lock(
@@ -4113,7 +4133,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             lock.lock();
         }
         const TranspositionEntry &ttEntry = _tt[ttIdx];
-        if (ttEntry.key == hashKey && ttEntry.depth > -128) {
+        if (ttEntry.key == ttKey && ttEntry.depth > -128) {
             if (useShallowTtMove) {
                 ttMoveKey = ttEntry.bestMoveKey;
             }
@@ -4145,12 +4165,15 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     const bool isOpenPvWindow = (_profile.usePvs && beta > alpha + 1) ||
                                 (alpha > -INF_SCORE + 1 && beta > alpha + 1);
 
-    // Null-Move Pruning (search-mode only, disabled in GAME_MODE_4 and low-pod endgames)
+    // Null-Move Pruning (search-mode only, disabled in GAME_MODE_4, low-pod endgames, and near R7 draw horizon)
+    const int nmpR = std::max(1, _profile.nullMoveReduction);
     if (allowNullMove &&
         _profile.nullMoveMinDepth > 0 &&
         mode != GAME_MODE_4 &&
         ply > 0 &&
         depth >= _profile.nullMoveMinDepth &&
+        npp < horizonSaltThreshold &&
+        npp + depth + nmpR + 1 < drawLimit &&
         !isOpenPvWindow &&
         beta < WIN_SCORE - 2000 &&
         beta > -WIN_SCORE + 2000) {
@@ -4268,9 +4291,10 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         int val = 0;
         if (game->isGameOver()) {
             OctiPlayer w = game->getWinner();
-            val = areAlliedPlayers(mode, w, turn)
-                ? (WIN_SCORE - (ply + 1))
-                : (-WIN_SCORE + (ply + 1));
+            val = (w == PLAYER_UNDEF) ? 0
+                : (areAlliedPlayers(mode, w, turn)
+                    ? (WIN_SCORE - (ply + 1))
+                    : (-WIN_SCORE + (ply + 1)));
         } else {
             OctiPlayer nextTurn = game->getTurn();
             bool sameTeamNext = areAlliedPlayers(mode, turn, nextTurn);
@@ -4406,9 +4430,9 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             const bool preserveExistingMove =
                 useShallowTtMove &&
                 bestVal <= origAlpha &&
-                ttEntry.key == hashKey &&
+                ttEntry.key == ttKey &&
                 ttEntry.bestMoveKey != 0ULL;
-            ttEntry.key = hashKey;
+            ttEntry.key = ttKey;
             ttEntry.depth = static_cast<std::int16_t>(depth);
             int storeScore = bestVal;
             if (storeScore >= WIN_SCORE - 1000) {
@@ -4460,6 +4484,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
     long deadlineMs = startMs + _timeBudgetMs;
 
     const std::string rootFen = board.toPositionString();
+    const int rootNoProgressPlies = srcGame->getNoProgressPlies();
     OctiBoard scratchBoard;
     scratchBoard.suppressBoardUpdateNotification(true);
     scratchBoard.fromPositionString(rootFen);
@@ -4467,6 +4492,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
     if (!game) {
         return "";
     }
+    game->setNoProgressPlies(rootNoProgressPlies);
     game->setSearchMode(true);
 
     std::vector<OctiMove> legalMoves = game->generateLegalMoves();
@@ -4567,13 +4593,14 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                 SearchThreadState *hState = helperStates[static_cast<std::size_t>(t - 1)].get();
                 if (!diversifyHelpers) {
                     int depthOffset = (t % 2 == 1) ? 1 : 2;
-                    helpers.emplace_back([this, rootFen, deadlineMs, depthOffset,
+                    helpers.emplace_back([this, rootFen, rootNoProgressPlies, deadlineMs, depthOffset,
                                           maxTargetDepth, rootTurn, hState]() {
                         OctiBoard threadBoard;
                         threadBoard.suppressBoardUpdateNotification(true);
                         threadBoard.fromPositionString(rootFen);
                         OctiGame *tGame = threadBoard.getGame();
                         if (!tGame) return;
+                        tGame->setNoProgressPlies(rootNoProgressPlies);
                         tGame->setSearchMode(true);
                         std::uint64_t tNodes = 0;
 
@@ -4593,13 +4620,14 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                                                     std::memory_order_relaxed);
                     });
                 } else {
-                    helpers.emplace_back([this, rootFen, initialCandidates, deadlineMs,
+                    helpers.emplace_back([this, rootFen, rootNoProgressPlies, initialCandidates, deadlineMs,
                                           t, maxTargetDepth, rootTurn, mode, hState]() {
                         OctiBoard threadBoard;
                         threadBoard.suppressBoardUpdateNotification(true);
                         threadBoard.fromPositionString(rootFen);
                         OctiGame *tGame = threadBoard.getGame();
                         if (!tGame || initialCandidates.empty()) return;
+                        tGame->setNoProgressPlies(rootNoProgressPlies);
                         tGame->setSearchMode(true);
                         OctiGameSnapshot tRootSnap = tGame->captureSnapshot();
                         std::uint64_t tNodes = 0;
@@ -4636,9 +4664,10 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                                 int score = 0;
                                 if (tGame->isGameOver()) {
                                     OctiPlayer w = tGame->getWinner();
-                                    score = areAlliedPlayers(mode, w, rootTurn)
-                                        ? (WIN_SCORE - 1)
-                                        : (-WIN_SCORE + 1);
+                                    score = (w == PLAYER_UNDEF) ? 0
+                                        : (areAlliedPlayers(mode, w, rootTurn)
+                                            ? (WIN_SCORE - 1)
+                                            : (-WIN_SCORE + 1));
                                 } else {
                                     OctiPlayer nextTurn = tGame->getTurn();
                                     bool sameTeamNext = areAlliedPlayers(mode, rootTurn, nextTurn);
@@ -4714,9 +4743,10 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
         int score = 0;
         if (game->isGameOver()) {
             OctiPlayer w = game->getWinner();
-            score = areAlliedPlayers(mode, w, rootTurn)
-                ? (WIN_SCORE - 1)
-                : (-WIN_SCORE + 1);
+            score = (w == PLAYER_UNDEF) ? 0
+                : (areAlliedPlayers(mode, w, rootTurn)
+                    ? (WIN_SCORE - 1)
+                    : (-WIN_SCORE + 1));
         } else {
             OctiPlayer nextTurn = game->getTurn();
             bool sameTeamNext = areAlliedPlayers(mode, rootTurn, nextTurn);
@@ -5002,6 +5032,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
         : std::numeric_limits<long>::max();
 
     const std::string rootFen = board.toPositionString();
+    const int rootNoProgressPlies = srcGame->getNoProgressPlies();
     OctiBoard scratchBoard;
     scratchBoard.suppressBoardUpdateNotification(true);
     scratchBoard.fromPositionString(rootFen);
@@ -5009,6 +5040,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     if (!game) {
         return {};
     }
+    game->setNoProgressPlies(rootNoProgressPlies);
     game->setSearchMode(true);
 
     OctiPlayer rootTurn = game->getTurn();
@@ -5066,7 +5098,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             const bool diversifyHelpers = _profile.lazySmpDiversifyHelpers;
             for (int t = 1; t < numThreads; ++t) {
                 SearchThreadState *hState = helperStates[static_cast<std::size_t>(t - 1)].get();
-                helpers.emplace_back([this, rootFen, initialCandidates, deadlineMs,
+                helpers.emplace_back([this, rootFen, rootNoProgressPlies, initialCandidates, deadlineMs,
                                       t, maxTargetDepth, rootTurn, mode,
                                       diversifyHelpers, hState]() {
                     OctiBoard threadBoard;
@@ -5074,6 +5106,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                     threadBoard.fromPositionString(rootFen);
                     OctiGame *tGame = threadBoard.getGame();
                     if (!tGame) return;
+                    tGame->setNoProgressPlies(rootNoProgressPlies);
                     tGame->setSearchMode(true);
                     OctiGameSnapshot tRootSnap = tGame->captureSnapshot();
                     std::uint64_t tNodes = 0;
@@ -5156,9 +5189,10 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             int score = 0;
             if (game->isGameOver()) {
                 OctiPlayer w = game->getWinner();
-                score = areAlliedPlayers(mode, w, rootTurn)
-                    ? (WIN_SCORE - 1)
-                    : (-WIN_SCORE + 1);
+                score = (w == PLAYER_UNDEF) ? 0
+                    : (areAlliedPlayers(mode, w, rootTurn)
+                        ? (WIN_SCORE - 1)
+                        : (-WIN_SCORE + 1));
             } else {
                 OctiPlayer nextTurn = game->getTurn();
                 bool sameTeamNext = areAlliedPlayers(mode, rootTurn, nextTurn);

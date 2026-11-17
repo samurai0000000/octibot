@@ -26,6 +26,9 @@ constexpr int OCTI_SERVER_DAEMON_PORT = 6874;
 constexpr int OCTI_PROTOCOL_VERSION = 1;
 constexpr int OCTI_MIN_PROTOCOL_VERSION = 1;
 
+constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_2P = 30;
+constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_4P = 60;
+
 enum OctiGameMode {
     GAME_MODE_UNDEF = 0,
     GAME_MODE_2     = 1,

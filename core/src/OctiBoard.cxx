@@ -329,6 +329,24 @@ std::string OctiBoard::toPositionString() const
     return ss.str();
 }
 
+static int parseStrictNonNegativeInt(const std::string &s, int maxVal)
+{
+    if (s.empty()) {
+        throw IllegalMoveSyntaxException("empty integer token in position string");
+    }
+    long val = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') {
+            throw IllegalMoveSyntaxException("invalid integer token in position string");
+        }
+        val = val * 10 + (c - '0');
+        if (val > maxVal) {
+            throw IllegalMoveSyntaxException("integer token out of range in position string");
+        }
+    }
+    return static_cast<int>(val);
+}
+
 void OctiBoard::fromPositionString(const std::string &pos)
 {
     std::vector<std::string> tokens;
@@ -336,6 +354,9 @@ void OctiBoard::fromPositionString(const std::string &pos)
     std::istringstream tokenStream(pos);
     while (std::getline(tokenStream, token, ':')) {
         tokens.push_back(token);
+    }
+    if (!pos.empty() && pos.back() == ':') {
+        tokens.push_back("");
     }
 
     if (tokens.size() < 11) {
@@ -355,7 +376,8 @@ void OctiBoard::fromPositionString(const std::string &pos)
     }
 
     int expectedTokens = (mode == GAME_MODE_4) ? 13 : 11;
-    if (static_cast<int>(tokens.size()) != expectedTokens) {
+    int numTokens = static_cast<int>(tokens.size());
+    if (numTokens != expectedTokens && numTokens != expectedTokens + 1) {
         throw IllegalMoveSyntaxException("token count mismatch in position string");
     }
 
@@ -421,6 +443,16 @@ void OctiBoard::fromPositionString(const std::string &pos)
     snap.gameOver = (statusChar == 'O' || statusChar == 'R');
     snap.turn = turn;
     snap.winner = winner;
+    if (numTokens == expectedTokens + 1) {
+        snap.noProgressPlies = parseStrictNonNegativeInt(
+            tokens[static_cast<std::size_t>(expectedTokens)], 1000);
+    } else if (statusChar == 'O' && winner == PLAYER_UNDEF) {
+        snap.noProgressPlies = (mode == GAME_MODE_4)
+            ? OCTI_NO_PROGRESS_DRAW_PLIES_4P
+            : OCTI_NO_PROGRESS_DRAW_PLIES_2P;
+    } else {
+        snap.noProgressPlies = 0;
+    }
 
     if (mode == GAME_MODE_4) {
         snap.players[PLAYER_A].eliminated = ((elimMask & 1) != 0);
@@ -458,7 +490,7 @@ void OctiBoard::fromPositionString(const std::string &pos)
     }
 
     // 10. Squares
-    std::string squaresStr = tokens[tokens.size() - 1];
+    std::string squaresStr = tokens[static_cast<std::size_t>(expectedTokens - 1)];
     if (!squaresStr.empty() && squaresStr != "-") {
         std::istringstream sqStream(squaresStr);
         std::string podToken;

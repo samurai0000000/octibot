@@ -27,7 +27,7 @@ option(OCTI_CORE_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
 option(OCTI_CORE_BUILD_TESTS "Build octi_core CppUTest suite" ON)
 
 if(OCTI_CORE_SANITIZE AND NOT MSVC AND NOT WIN32)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer
+    add_compile_options(-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
                         -fno-sanitize-recover=undefined)
     add_link_options(-fsanitize=address,undefined)
 endif()

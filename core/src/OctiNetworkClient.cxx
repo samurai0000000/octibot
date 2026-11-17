@@ -406,6 +406,7 @@ GameViewData parseGameView(const Json &j)
     v.fen = j.value("fen", "");
     v.turnSeat = j.value("turn_seat", 0);
     v.plyCount = j.value("ply_count", 0);
+    v.noProgressPlies = j.value("no_progress_plies", 0);
     if (j.contains("moves") && j["moves"].is_array()) {
         for (std::size_t i = 0; i < j["moves"].size(); ++i) {
             if (j["moves"][i].is_string()) {

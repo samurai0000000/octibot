@@ -11380,6 +11380,548 @@ TEST(OctiDonGreenRuleRevisionsTest, RapidCheckFourSuperProngAndEliminationStateI
     CHECK_TRUE(passed);
 }
 
+// ---------------------------------------------------------------------------
+// Rule R7 — Universal No-Progress Draw Tests
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(R7NoProgressDrawTests)
+{
+};
+
+TEST(R7NoProgressDrawTests, ThirtyPlyDrawTriggerIn2P3B_2P1B_And_OFK)
+{
+    // 1. 2P_3B: 30 consecutive non-progress plies from a full game start trigger NO_PROGRESS_DRAW
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        octi::OctiGame *game = board.getGame();
+        game->start(octi::PLAYER_A);
+        CHECK_EQUAL(30, game->getNoProgressDrawLimit());
+        CHECK_EQUAL(0, game->getNoProgressPlies());
+        CHECK_FALSE(game->isNoProgressDraw());
+
+        // Arm A33ae and B37ae via normal prong progress moves (counter stays 0)
+        game->move("33+a");
+        game->move("37+a");
+        game->move("33a+e");
+        game->move("37a+e");
+        CHECK_EQUAL(0, game->getNoProgressPlies());
+
+        for (int round = 0; round < 15; ++round) {
+            const bool even = (round % 2 == 0);
+            game->move(even ? "33ae-34" : "34ae-33");
+            CHECK_EQUAL(round * 2 + 1, game->getNoProgressPlies());
+            CHECK_FALSE(game->isGameOver());
+            CHECK_FALSE(game->isNoProgressDraw());
+
+            game->move(even ? "37ae-36" : "36ae-37");
+            CHECK_EQUAL(round * 2 + 2, game->getNoProgressPlies());
+            if (round < 14) {
+                CHECK_FALSE(game->isGameOver());
+                CHECK_FALSE(game->isNoProgressDraw());
+            }
+        }
+
+        CHECK_EQUAL(30, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_FALSE(game->isGameResigned());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getTurn());
+        CHECK_TRUE(game->isNoProgressDraw());
+
+        auto root = nlohmann::json::parse(board.serializeJson());
+        STRCMP_EQUAL("GAME_OVER", root["status"].get<std::string>().c_str());
+        STRCMP_EQUAL("NONE", root["winner"].get<std::string>().c_str());
+        STRCMP_EQUAL("NO_PROGRESS_DRAW", root["termination"].get<std::string>().c_str());
+        CHECK_EQUAL(30, root["noProgressPlies"].get<int>());
+
+        octi::OctiBoard replay;
+        replay.deserializeGame(board.serializeGame());
+        CHECK_TRUE(replay.getGame()->isGameOver());
+        CHECK_TRUE(replay.getGame()->isNoProgressDraw());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, replay.getGame()->getWinner());
+        CHECK_EQUAL(30, replay.getGame()->getNoProgressPlies());
+    }
+
+    // 2. 2P_1B: 30 consecutive non-progress plies trigger NO_PROGRESS_DRAW
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        board.fromPositionString("2:1:0:0:P:A:-:0:4,0,23,0:4,0,23,0:A33ae,B37ae");
+        octi::OctiGame *game = board.getGame();
+        CHECK_EQUAL(30, game->getNoProgressDrawLimit());
+
+        for (int round = 0; round < 15; ++round) {
+            const bool even = (round % 2 == 0);
+            game->move(even ? "33ae-34" : "34ae-33");
+            game->move(even ? "37ae-36" : "36ae-37");
+        }
+        CHECK_TRUE(game->isGameOver());
+        CHECK_TRUE(game->isNoProgressDraw());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+    }
+
+    // 3. OFK: 30 consecutive non-progress plies trigger NO_PROGRESS_DRAW
+    {
+        octi::OctiBoard board(octi::GAME_MODE_OFK);
+        board.fromPositionString(
+            "OFK:1:0:0:P:A:-:0:0,0,10,0:0,0,10,0:A22ae,A32,A42,A52,B26ae,B36,B46,B56");
+        octi::OctiGame *game = board.getGame();
+        CHECK_EQUAL(30, game->getNoProgressDrawLimit());
+
+        for (int round = 0; round < 15; ++round) {
+            const bool even = (round % 2 == 0);
+            game->move(even ? "22ae-23" : "23ae-22");
+            CHECK_FALSE(game->isGameOver());
+            game->move(even ? "26ae-25" : "25ae-26");
+            if (round < 14) {
+                CHECK_FALSE(game->isGameOver());
+            }
+        }
+        CHECK_EQUAL(30, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_TRUE(game->isNoProgressDraw());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+    }
+}
+
+TEST(R7NoProgressDrawTests, SixtyPlyDrawTriggerIn4PIncludingEliminatedSeats)
+{
+    // Full 4-seat 4P game: does NOT draw at ply 30; draws at ply 60
+    {
+        octi::OctiBoard board(octi::GAME_MODE_4);
+        board.fromPositionString(
+            "4:3:0:0:P:A:-:0:3,0,10,0:3,0,10,0:3,0,10,0:3,0,10,0:A33ae,B37ae,C77ae,D73ae");
+        octi::OctiGame *game = board.getGame();
+        CHECK_EQUAL(60, game->getNoProgressDrawLimit());
+
+        for (int round = 0; round < 15; ++round) {
+            const bool even = (round % 2 == 0);
+            game->move(even ? "33ae-34" : "34ae-33");
+            game->move(even ? "37ae-36" : "36ae-37");
+            if (round == 7) {
+                // Ply 30 reached: must NOT draw in 4P
+                CHECK_EQUAL(30, game->getNoProgressPlies());
+                CHECK_FALSE(game->isGameOver());
+                CHECK_FALSE(game->isNoProgressDraw());
+            }
+            game->move(even ? "77ae-76" : "76ae-77");
+            if (round == 14) {
+                CHECK_EQUAL(59, game->getNoProgressPlies());
+                CHECK_FALSE(game->isGameOver());
+            }
+            game->move(even ? "73ae-74" : "74ae-73");
+        }
+
+        CHECK_EQUAL(60, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_TRUE(game->isNoProgressDraw());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, game->getTurn());
+    }
+
+    // 4P with seat B already eliminated (3 active seats): threshold remains 60 plies
+    {
+        octi::OctiBoard board(octi::GAME_MODE_4);
+        board.fromPositionString(
+            "4:3:0:0:P:A:-:2:3,0,10,0:0,1,0,0:3,0,10,0:3,0,10,0:A33ae,C77ae,D73ae");
+        octi::OctiGame *game = board.getGame();
+        CHECK_EQUAL(60, game->getNoProgressDrawLimit());
+
+        for (int round = 0; round < 20; ++round) {
+            const bool even = (round % 2 == 0);
+            game->move(even ? "33ae-34" : "34ae-33");
+            game->move(even ? "77ae-76" : "76ae-77");
+            game->move(even ? "73ae-74" : "74ae-73");
+            if (round < 19) {
+                CHECK_FALSE(game->isGameOver());
+            }
+        }
+        CHECK_EQUAL(60, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_TRUE(game->isNoProgressDraw());
+    }
+}
+
+TEST(R7NoProgressDrawTests, NonCapturingCircularJumpsRemainLegalAndCountAsNoProgress)
+{
+    // Disjoint 4-hop diamond loop-back chains for A and B:
+    // A: 44 -> 66 (over 55) -> 48 (over 57) -> 26 (over 37) -> 44 (over 35)
+    // B: 54 -> 76 (over 65) -> 58 (over 67) -> 36 (over 47) -> 54 (over 45)
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:"
+        "A44bdfh,A45,A47,A65,A67,B35,B37,B54bdfh,B55,B57");
+    octi::OctiGame *game = board.getGame();
+
+    bool foundCircular = false;
+    for (const auto &m : game->generateLegalMoves()) {
+        if (m.asString() == "44bdfh-66-48-26-44") {
+            foundCircular = true;
+            break;
+        }
+    }
+    CHECK_TRUE(foundCircular);
+
+    for (int ply = 1; ply <= 30; ++ply) {
+        if (ply % 2 == 1) {
+            game->move("44bdfh-66-48-26-44");
+        } else {
+            game->move("54bdfh-76-58-36-54");
+        }
+        CHECK_EQUAL(ply, game->getNoProgressPlies());
+        if (ply < 30) {
+            CHECK_FALSE(game->isGameOver());
+        }
+    }
+    CHECK_TRUE(game->isGameOver());
+    CHECK_TRUE(game->isNoProgressDraw());
+    CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+
+    // Composite clear-out + circular jump S -> ... -> S is also legal and advances counter
+    octi::OctiBoard compBoard(octi::GAME_MODE_2);
+    compBoard.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:"
+        "A44a,A44bdfh,B35,B37,B55,B57:10");
+    compBoard.getGame()->move("44a-45,44bdfh-66-48-26-44");
+    CHECK_EQUAL(11, compBoard.getGame()->getNoProgressPlies());
+    CHECK_EQUAL(1, compBoard.squareAt(3, 3).getNumPods());
+}
+
+TEST(R7NoProgressDrawTests, AllFourProgressEventsResetCounterToZero)
+{
+    // 1a. Regular jump capture (x) resets counter
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2);
+        board.fromPositionString("2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:A33a,B34,B77e:29");
+        CHECK_EQUAL(29, board.getGame()->getNoProgressPlies());
+        board.getGame()->move("33a-35x");
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 1b. SuperProng bonus prelude capture (x) followed by regular step resets counter
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,5,0:0,0,5,0:A44a!c,B45,B77e:29");
+        CHECK_EQUAL(29, board.getGame()->getNoProgressPlies());
+        board.getGame()->move("44a!c-46x;46a!c-56");
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 2a. Reserve pod deployment (xy) resets counter
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2);
+        board.fromPositionString("2:3:0:0:P:A:-:0:2,0,5,0:2,0,5,0:A33a,B37e:29");
+        board.getGame()->move("53");
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 2b. Captured pod liberation (xy*) resets counter
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2);
+        board.fromPositionString("2:3:0:0:P:A:-:0:0,1,5,0:2,0,5,0:A33a,A37a,B77e:29");
+        board.getGame()->move("33*");
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 3a & 3b. Normal prong (+d) and SuperProng (+d!) insertions reset counter
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, true, false, octi::GAME_BASES_3);
+        board.fromPositionString("2:3:1:0:P:A:-:0:0,0,5,1:0,0,5,1:A33a,B37e:29");
+        board.getGame()->move("33a+c");
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+
+        board.getGame()->setNoProgressPlies(29);
+        board.getGame()->move("37e+g!");
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 4. 4P permanent base elimination via non-capturing step resets counter,
+    //    whereas re-entering an already-eliminated player's base does NOT reset
+    {
+        octi::OctiBoard board(octi::GAME_MODE_4);
+        board.fromPositionString(
+            "4:3:0:0:P:A:-:0:1,0,5,0:1,0,5,0:1,0,5,0:1,0,5,0:A36ae,B44e,C77ae,D73ae:59");
+        octi::OctiGame *game = board.getGame();
+        CHECK_EQUAL(59, game->getNoProgressPlies());
+
+        // Non-capturing step onto B's home base 37 permanently eliminates B -> progress!
+        game->move("36ae-37");
+        CHECK_TRUE(game->isPlayerEliminated(octi::PLAYER_B));
+        CHECK_FALSE(game->isGameOver());
+        CHECK_EQUAL(0, game->getNoProgressPlies());
+
+        // Advance C, D, then A vacates 37, C, D, then A re-enters 37 (B already eliminated)
+        game->move("77ae-76"); // ply 1
+        game->move("73ae-74"); // ply 2
+        game->move("37ae-36"); // ply 3
+        game->move("76ae-77"); // ply 4
+        game->move("74ae-73"); // ply 5
+        game->move("36ae-37"); // ply 6: B was already eliminated -> NO new elimination -> 6!
+        CHECK_EQUAL(6, game->getNoProgressPlies());
+    }
+}
+
+TEST(R7NoProgressDrawTests, SteppingOnOrOffBasesWithoutCaptureDoesNotResetCounter)
+{
+    // 2P_3B: stepping onto empty enemy base (2nd of 3), stepping off it,
+    // and stepping onto friendly-occupied enemy base all increment noProgressPlies
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:A36ae,A56a,A57a,B77ae:10");
+    octi::OctiGame *game = board.getGame();
+
+    game->move("36ae-37"); // step onto empty enemy base 37 (2nd base, not game over)
+    CHECK_EQUAL(11, game->getNoProgressPlies());
+
+    game->move("77ae-76");
+    CHECK_EQUAL(12, game->getNoProgressPlies());
+
+    game->move("37ae-36"); // step off enemy base 37
+    CHECK_EQUAL(13, game->getNoProgressPlies());
+
+    game->move("76ae-77");
+    CHECK_EQUAL(14, game->getNoProgressPlies());
+
+    game->move("56a-57");  // step onto friendly-occupied enemy base 57 (stacking)
+    CHECK_EQUAL(15, game->getNoProgressPlies());
+
+    // 4P: stepping onto neutral OCTI square 53 without capture increments counter
+    octi::OctiBoard b4(octi::GAME_MODE_4);
+    b4.fromPositionString(
+        "4:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:0,0,5,0:0,0,5,0:A52a,B37e,C77e,D73a:20");
+    b4.getGame()->move("52a-53");
+    CHECK_EQUAL(21, b4.getGame()->getNoProgressPlies());
+}
+
+TEST(R7NoProgressDrawTests, VictoryAndStalemateTakePrecedenceOverR7DrawOnBoundaryPly)
+{
+    // 1. 2P_3B base-occupation victory on ply 30 wins instead of drawing
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        board.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:A37a,A57a,A76a,B33e:29");
+        octi::OctiGame *game = board.getGame();
+        game->move("76a-77");
+        CHECK_EQUAL(30, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_EQUAL(octi::PLAYER_A, game->getWinner());
+        CHECK_FALSE(game->isNoProgressDraw());
+        auto root = nlohmann::json::parse(board.serializeJson());
+        STRCMP_EQUAL("BASE_OCCUPATION", root["termination"].get<std::string>().c_str());
+    }
+
+    // 2. 2P_1B base-occupation victory on ply 30 wins instead of drawing
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        board.fromPositionString("2:1:0:0:P:A:-:0:0,0,5,0:0,0,5,0:A36a,B33e:29");
+        octi::OctiGame *game = board.getGame();
+        game->move("36a-37");
+        CHECK_TRUE(game->isGameOver());
+        CHECK_EQUAL(octi::PLAYER_A, game->getWinner());
+        CHECK_FALSE(game->isNoProgressDraw());
+    }
+
+    // 3. 4P base-occupation victory on ply 60 wins instead of drawing
+    {
+        octi::OctiBoard board(octi::GAME_MODE_4);
+        board.fromPositionString(
+            "4:3:0:0:P:C:-:2:0,0,5,0:0,1,0,0:0,0,5,0:0,0,5,0:A37a,C72a,D55e:59");
+        octi::OctiGame *game = board.getGame();
+        game->move("72a-73");
+        CHECK_TRUE(game->isGameOver());
+        CHECK_EQUAL(octi::PLAYER_A, game->getWinner());
+        CHECK_FALSE(game->isNoProgressDraw());
+    }
+
+    // 4. Stalemate win on ply 30: A steps 28a-29 boxing in B19c (with A39a blocking jump)
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        board.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0,5,0:0,0,0,0:A28a,A39a,B19c:29");
+        octi::OctiGame *game = board.getGame();
+        game->move("28a-29");
+        CHECK_EQUAL(30, game->getNoProgressPlies());
+        CHECK_TRUE(game->isGameOver());
+        CHECK_EQUAL(octi::PLAYER_A, game->getWinner());
+        CHECK_FALSE(game->isNoProgressDraw());
+        auto root = nlohmann::json::parse(board.serializeJson());
+        STRCMP_EQUAL("STALEMATE", root["termination"].get<std::string>().c_str());
+    }
+}
+
+TEST(R7NoProgressDrawTests, UndoAndRedoRestoreNoProgressPliesAndDrawState)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2);
+    board.fromPositionString("2:3:0:0:P:A:-:0:0,0,5,0:0,0,5,0:A33ae,B37ae:28");
+    octi::OctiGame *game = board.getGame();
+
+    game->move("33ae-34"); // ply 29
+    CHECK_EQUAL(29, game->getNoProgressPlies());
+    CHECK_FALSE(game->isGameOver());
+
+    game->move("37ae-36"); // ply 30 -> R7 draw
+    CHECK_EQUAL(30, game->getNoProgressPlies());
+    CHECK_TRUE(game->isGameOver());
+    CHECK_TRUE(game->isNoProgressDraw());
+    CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+
+    game->undo();
+    CHECK_EQUAL(29, game->getNoProgressPlies());
+    CHECK_FALSE(game->isGameOver());
+    CHECK_FALSE(game->isNoProgressDraw());
+    CHECK_EQUAL(octi::PLAYER_B, game->getTurn());
+
+    game->redo();
+    CHECK_EQUAL(30, game->getNoProgressPlies());
+    CHECK_TRUE(game->isGameOver());
+    CHECK_TRUE(game->isNoProgressDraw());
+    CHECK_EQUAL(octi::PLAYER_UNDEF, game->getWinner());
+
+    // Undo again and play a progress move instead -> counter resets to 0
+    game->undo();
+    game->move("37ae+c");
+    CHECK_EQUAL(0, game->getNoProgressPlies());
+    CHECK_FALSE(game->isGameOver());
+}
+
+TEST(R7NoProgressDrawTests, OctiFenOptionalTokenAndCanonicalToPositionStringInvariance)
+{
+    auto countColons = [](const std::string &s) {
+        return static_cast<int>(std::count(s.begin(), s.end(), ':'));
+    };
+
+    // 2P 12-token FEN sets noProgressPlies while toPositionString stays 11 tokens (10 colons)
+    octi::OctiBoard b2;
+    const std::string fen2Canon = "2:3:0:0:P:A:-:0:4,0,23,0:4,0,23,0:A33ae,B37ae";
+    b2.fromPositionString(fen2Canon + ":27");
+    CHECK_EQUAL(27, b2.getGame()->getNoProgressPlies());
+    STRCMP_EQUAL(fen2Canon.c_str(), b2.toPositionString().c_str());
+    CHECK_EQUAL(10, countColons(b2.toPositionString()));
+
+    // OFK 12-token FEN
+    octi::OctiBoard bOfk(octi::GAME_MODE_OFK);
+    const std::string fenOfkCanon =
+        "OFK:1:0:0:P:A:-:0:0,0,10,0:0,0,10,0:A22ae,A32,A42,A52,B26ae,B36,B46,B56";
+    bOfk.fromPositionString(fenOfkCanon + ":19");
+    CHECK_EQUAL(19, bOfk.getGame()->getNoProgressPlies());
+    STRCMP_EQUAL(fenOfkCanon.c_str(), bOfk.toPositionString().c_str());
+
+    // 4P 14-token FEN sets noProgressPlies while toPositionString stays 13 tokens (12 colons)
+    octi::OctiBoard b4(octi::GAME_MODE_4);
+    const std::string fen4Canon =
+        "4:3:0:0:P:A:-:0:3,0,10,0:3,0,10,0:3,0,10,0:3,0,10,0:A33ae,D73ae,B37ae,C77ae";
+    b4.fromPositionString(fen4Canon + ":58");
+    CHECK_EQUAL(58, b4.getGame()->getNoProgressPlies());
+    STRCMP_EQUAL(fen4Canon.c_str(), b4.toPositionString().c_str());
+    CHECK_EQUAL(12, countColons(b4.toPositionString()));
+
+    // Terminal draw FEN without optional token defaults noProgressPlies to 30 (2P) / 60 (4P)
+    b2.fromPositionString("2:3:0:0:O:-:-:0:4,0,23,0:4,0,23,0:A34ae,B36ae");
+    CHECK_EQUAL(30, b2.getGame()->getNoProgressPlies());
+    CHECK_TRUE(b2.getGame()->isNoProgressDraw());
+
+    b4.fromPositionString(
+        "4:3:0:0:O:-:-:0:3,0,10,0:3,0,10,0:3,0,10,0:3,0,10,0:A34ae,B36ae,C76ae,D74ae");
+    CHECK_EQUAL(60, b4.getGame()->getNoProgressPlies());
+    CHECK_TRUE(b4.getGame()->isNoProgressDraw());
+
+    // Reject malformed optional tokens or wrong token counts
+    CHECK_THROWS(octi::IllegalMoveSyntaxException, b2.fromPositionString(fen2Canon + ":-1"));
+    CHECK_THROWS(octi::IllegalMoveSyntaxException, b2.fromPositionString(fen2Canon + ":abc"));
+    CHECK_THROWS(octi::IllegalMoveSyntaxException, b2.fromPositionString(fen2Canon + ":1001"));
+    CHECK_THROWS(octi::IllegalMoveSyntaxException, b2.fromPositionString(fen2Canon + ":"));
+    CHECK_THROWS(octi::IllegalMoveSyntaxException, b2.fromPositionString(fen2Canon + ":5:0"));
+}
+
+TEST(R7NoProgressDrawTests, OctiBotEngineSeeksDrawWhenLosingAndAvoidsDrawWhenWinningAtPly29)
+{
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0x20261117ULL);
+    octi::BotTuningProfile prof = bot.tuningProfile();
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.maxSearchDepth = 4;
+    prof.lazySmpThreads = 1;
+    prof.timeBudgetMs = 2000;
+    bot.setTuningProfile(prof);
+
+    // 1. Losing side at noProgressPlies = 29 forces an immediate R7 draw (score == 0)
+    //    over progress moves that lose next ply to B34e-33 / B54e-53 (-WIN_SCORE + 2).
+    //    First search at noProgressPlies = 0 on the SAME bot instance to verify TT horizon salting!
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        const std::string losingFen =
+            "2:1:0:0:P:A:-:0:0,0,1,0:0,0,5,0:A19ce,B29,B34e,B54e";
+        board.fromPositionString(losingFen);
+        octi::BotSearchStats statsLow;
+        (void)bot.chooseMove(board, &statsLow);
+        CHECK_TRUE(statsLow.bestScore < -900000);
+
+        board.getGame()->setNoProgressPlies(29);
+        octi::BotSearchStats statsDraw;
+        std::string chosen = bot.chooseMove(board, &statsDraw);
+        CHECK_FALSE(chosen.empty());
+        CHECK_EQUAL(0, statsDraw.bestScore);
+
+        board.getGame()->move(chosen);
+        CHECK_TRUE(board.getGame()->isGameOver());
+        CHECK_TRUE(board.getGame()->isNoProgressDraw());
+        CHECK_EQUAL(octi::PLAYER_UNDEF, board.getGame()->getWinner());
+    }
+
+    // 2. Winning side at noProgressPlies = 29 avoids R7 draw and plays progress move to win!
+    //    A has unarmed A36 (1 prong insertion +a away from 36a-37 win) plus A19ce (which could
+    //    step 19ce-18 for an instant 0-score R7 draw), while B only has harmless B79g.
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        const std::string winningFen =
+            "2:1:0:0:P:A:-:0:0,0,1,0:0,0,0,0:A36,A19ce,B79g";
+        board.fromPositionString(winningFen);
+        octi::BotSearchStats statsLow;
+        (void)bot.chooseMove(board, &statsLow);
+
+        board.getGame()->setNoProgressPlies(29);
+        octi::BotSearchStats statsWin;
+        std::string chosen = bot.chooseMove(board, &statsWin);
+        STRCMP_EQUAL("36+a", chosen.c_str());
+        CHECK_TRUE(statsWin.bestScore > 900000);
+
+        board.getGame()->move(chosen);
+        CHECK_FALSE(board.getGame()->isGameOver());
+        CHECK_FALSE(board.getGame()->isNoProgressDraw());
+        CHECK_EQUAL(0, board.getGame()->getNoProgressPlies());
+    }
+
+    // 3. searchTopMovesForBook & Lazy SMP threads propagate noProgressPlies and score draws as 0
+    {
+        octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+        board.fromPositionString(
+            "2:1:0:0:P:A:-:0:0,0,1,0:0,0,5,0:A19ce,B29,B34e,B54e:29");
+
+        auto top = bot.searchTopMovesForBook(board, 3, 1000, 3);
+        CHECK_FALSE(top.empty());
+        CHECK_EQUAL(0, top[0].score);
+
+        for (bool diversify : {false, true}) {
+            octi::BotTuningProfile smpProf = prof;
+            smpProf.lazySmpThreads = 2;
+            smpProf.lazySmpDiversifyHelpers = diversify;
+            smpProf.qsearchUseTt = true;
+            smpProf.timeBudgetMs = 600;
+            smpProf.maxSearchDepth = 3;
+            bot.setTuningProfile(smpProf);
+
+            octi::BotSearchStats smpStats;
+            std::string smpMove = bot.chooseMove(board, &smpStats);
+            CHECK_FALSE(smpMove.empty());
+            CHECK_EQUAL(0, smpStats.bestScore);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();

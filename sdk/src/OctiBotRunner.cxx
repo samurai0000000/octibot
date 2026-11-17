@@ -796,6 +796,7 @@ std::string MinimalStarterAgent::computeMove(const OctiBoard &board,
                             board.getGame()->getBases());
         nextBoard.fromPositionString(board.toPositionString());
         if (nextBoard.getGame()) {
+            nextBoard.getGame()->setNoProgressPlies(board.getGame()->getNoProgressPlies());
             nextBoard.getGame()->move(m);
             if (nextBoard.getGame()->isGameOver() && nextBoard.getGame()->getWinner() == myPlayer) {
                 bestMove = &m;
@@ -4365,6 +4366,9 @@ void OctiBotRunner::playEngineTurn() {
         }
         if (!fen.empty()) {
             _activeBoard->fromPositionString(fen);
+            if (_activeBoard->getGame()) {
+                _activeBoard->getGame()->setNoProgressPlies(_activeGameView.noProgressPlies);
+            }
         }
     }
 

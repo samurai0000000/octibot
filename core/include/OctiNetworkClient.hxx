@@ -420,6 +420,7 @@ struct GameViewData {
     std::string fen;
     int turnSeat = 0;
     int plyCount = 0;
+    int noProgressPlies = 0;
     std::vector<std::string> moves;
     std::string result;
     std::string termination;

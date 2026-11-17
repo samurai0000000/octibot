@@ -1812,6 +1812,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         res["phase"] = gv.data.phase;
         res["turn_seat"] = gv.data.turnSeat;
         res["turn_number"] = gv.data.plyCount;
+        res["no_progress_plies"] = gv.data.noProgressPlies;
         res["my_seat"] = (roomId == targetRunner->currentRoomId())
             ? targetRunner->currentSeat()
             : gv.data.viewerSeat;
@@ -1832,6 +1833,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         OctiBoard board(m, gv.data.superProngs, gv.data.edgeless, b);
         if (!gv.data.fen.empty()) {
             board.fromPositionString(gv.data.fen);
+            if (board.getGame()) {
+                board.getGame()->setNoProgressPlies(gv.data.noProgressPlies);
+            }
         }
 
         std::ostringstream ss;
@@ -1996,6 +2000,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                 if (!gv.data.fen.empty()) {
                     try {
                         board.fromPositionString(gv.data.fen);
+                        if (board.getGame()) {
+                            board.getGame()->setNoProgressPlies(gv.data.noProgressPlies);
+                        }
                     } catch (const std::exception &e) {
                         return nlohmann::json({{"ok", false}, {"error", std::string("Invalid FEN: ") + e.what()}}).dump(2);
                     }
@@ -2128,6 +2135,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                     try {
                         nextBoard.fromPositionString(rootPosStr);
                         if (nextBoard.getGame()) {
+                            if (board.getGame()) {
+                                nextBoard.getGame()->setNoProgressPlies(board.getGame()->getNoProgressPlies());
+                            }
                             nextBoard.getGame()->move(mv);
                             if (nextBoard.getGame()->isGameOver() &&
                                 nextBoard.getGame()->getWinner() != PLAYER_UNDEF &&
@@ -2155,6 +2165,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         out["super_prongs"] = superProngs;
         out["edgeless"] = edgeless;
         out["turn_player"] = playerToStr(mover);
+        out["no_progress_plies"] = board.getGame() ? board.getGame()->getNoProgressPlies() : 0;
         out["depth_reached"] = depthReached;
         out["nodes_visited"] = nodesVisited;
         out["total_legal_moves"] = legalMoves.size();

@@ -320,6 +320,7 @@ void OctiGame::reset()
     _prepOps.clear();
     _searchPlyOffset = 0;
     _nullMoveDepth = 0;
+    _noProgressPlies = 0;
 
     for (int p = 0; p < 5; p++) {
         _players[p] = OctiPlayerState();
@@ -404,6 +405,7 @@ void OctiGame::start(OctiPlayer startPlayer)
     _gameResigned = false;
     _winner = PLAYER_UNDEF;
     _nullMoveDepth = 0;
+    _noProgressPlies = 0;
 
     notifyGameUpdated();
     notifyUndoRedoStatusChanged();
@@ -499,6 +501,28 @@ void OctiGame::move(const OctiMove &m)
     executeMoveInternal(m, false);
 }
 
+static bool moveOpsHaveProgress(const std::vector<OctiMoveOp> &ops, bool anyNewElim)
+{
+    if (anyNewElim) {
+        return true;
+    }
+    bool checkedFirstRegular = false;
+    for (const auto &op : ops) {
+        if (!op.isSuperProngBonusMove && !checkedFirstRegular) {
+            checkedFirstRegular = true;
+            if (op.addPod || op.addProngDir != DIR_UNDEF) {
+                return true;
+            }
+        }
+        for (const auto &hop : op.hops) {
+            if (hop.capture) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
 {
     if (!_gameStarted) {
@@ -517,7 +541,9 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
     if (_searchMode) {
         OctiPlayer mover = _turn;
         applyMoveOps(m.getOps());
-        check4PlayerElimination();
+        bool anyNewElim = check4PlayerElimination(mover);
+        bool madeProgress = moveOpsHaveProgress(m.getOps(), anyNewElim);
+        _noProgressPlies = madeProgress ? 0 : (_noProgressPlies + 1);
         ++_searchPlyOffset;
         updateGameOverAndWinner();
         if (!_gameOver) {
@@ -538,19 +564,28 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
                     _winner = (mover == PLAYER_A || mover == PLAYER_C) ? PLAYER_A : PLAYER_B;
                 }
             }
+            if (!_gameOver && _noProgressPlies >= getNoProgressDrawLimit()) {
+                _gameOver = true;
+                _winner = PLAYER_UNDEF;
+                _turn = PLAYER_UNDEF;
+            }
         }
         return;
     }
 
     OctiGameSnapshot snapBefore = captureSnapshot();
+    bool anyNewElim = false;
 
     try {
         applyMoveOps(m.getOps());
-        check4PlayerElimination();
+        anyNewElim = check4PlayerElimination(_turn);
     } catch (...) {
         restoreSnapshot(snapBefore);
         throw;
     }
+
+    bool madeProgress = moveOpsHaveProgress(m.getOps(), anyNewElim);
+    _noProgressPlies = madeProgress ? 0 : (_noProgressPlies + 1);
 
     if (!isRedo) {
         snapBefore.lastMove = m;
@@ -580,6 +615,11 @@ void OctiGame::executeMoveInternal(const OctiMove &m, bool isRedo)
                 _gameOver = true;
                 _winner = (mover == PLAYER_A || mover == PLAYER_C) ? PLAYER_A : PLAYER_B;
             }
+        }
+        if (!_gameOver && _noProgressPlies >= getNoProgressDrawLimit()) {
+            _gameOver = true;
+            _winner = PLAYER_UNDEF;
+            _turn = PLAYER_UNDEF;
         }
     }
 
@@ -1223,12 +1263,13 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPrelud
     }
 }
 
-void OctiGame::check4PlayerElimination()
+bool OctiGame::check4PlayerElimination(OctiPlayer moverTurn)
 {
     if (_mode != GAME_MODE_4) {
-        return;
+        return false;
     }
 
+    bool anyNewElim = false;
     const std::pair<int, int> homeCoords[5] = {
         {-1, -1}, {2, 2}, {2, 6}, {6, 6}, {6, 2}
     };
@@ -1238,6 +1279,7 @@ void OctiGame::check4PlayerElimination()
             const OctiSquare &hsq = _board->squareAt(homeCoords[p].first, homeCoords[p].second);
             if (hsq.isCaptured()) {
                 _players[p].eliminated = true;
+                anyNewElim = true;
                 int bw = _board->getBoardWidth();
                 int bh = _board->getBoardHeight();
                 for (int x = 0; x < bw; x++) {
@@ -1247,8 +1289,8 @@ void OctiGame::check4PlayerElimination()
                         for (int pi = 0; pi < s.getNumPods(); pi++) {
                             const OctiPod &pod = s.getPodAt(pi);
                             if (podTypeToPlayer(pod.getType()) == player) {
-                                _players[_turn].freeProngs += pod.getNumNormalProngs();
-                                _players[_turn].freeSuperProngs += pod.getNumSuperProngs();
+                                _players[moverTurn].freeProngs += pod.getNumNormalProngs();
+                                _players[moverTurn].freeSuperProngs += pod.getNumSuperProngs();
                                 _players[p].capturedPods++;
                             } else {
                                 keep.push_back(pod);
@@ -1263,6 +1305,7 @@ void OctiGame::check4PlayerElimination()
             }
         }
     }
+    return anyNewElim;
 }
 
 void OctiGame::updateGameOverAndWinner()
@@ -4361,11 +4404,14 @@ std::string OctiGame::serializeJson(const OctiGameMetadata &meta) const
     }
 
     root["winner"] = playerToString(_winner);
+    root["noProgressPlies"] = _noProgressPlies;
 
     std::string term = meta.termination;
     if (term.empty()) {
         if (_gameResigned) {
             term = "RESIGNATION";
+        } else if (_gameOver && _winner == PLAYER_UNDEF) {
+            term = "NO_PROGRESS_DRAW";
         } else if (_gameOver && _winner != PLAYER_UNDEF) {
             bool baseOccupation = false;
             if (_board) {
@@ -4596,6 +4642,7 @@ OctiGameSnapshot OctiGame::captureSnapshot() const
     snap.gameResigned = _gameResigned;
     snap.searchPlyOffset = _searchPlyOffset;
     snap.nullMoveDepth = _nullMoveDepth;
+    snap.noProgressPlies = _noProgressPlies;
     if (!_searchMode) {
         snap.plyMetadata = _plyMetadata;
     }
@@ -4627,6 +4674,7 @@ void OctiGame::restoreSnapshot(const OctiGameSnapshot &snap)
     _gameResigned = snap.gameResigned;
     _searchPlyOffset = snap.searchPlyOffset;
     _nullMoveDepth = snap.nullMoveDepth;
+    _noProgressPlies = snap.noProgressPlies;
     if (!_searchMode) {
         _plyMetadata = snap.plyMetadata;
     }

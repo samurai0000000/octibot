@@ -171,7 +171,7 @@ const std::vector<RulebookSection> &rulebookSections()
             "ch4",
             "Chapter 4",
             "Victory & 4P Elimination",
-            "3-base vs 1-base infiltration, permanent 4P elimination & OFK 6x7"
+            "3-base vs 1-base infiltration, 4P elimination & 30/60-ply no-progress draw"
         },
         {
             "ch5",
@@ -344,7 +344,8 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "<code>44</code> is illegal). Furthermore, a jumping pod may <b>land back onto <code>S</code></b> at the end of a multi-hop loop "
        << "<b>only when all pods that started the turn on <code>S</code> vacate <code>S</code></b> during the move (for example, composite clear-out "
        << "<code>44a-45,44beg-66x-64x-44</code> is legal because <code>44</code> is completely vacated, whereas single <code>44beg-66x-64x-44</code> "
-       << "leaving stationary <code>A44a</code> on <code>44</code> is illegal).</li>"
+       << "leaving stationary <code>A44a</code> on <code>44</code> is illegal). Non-capturing circular multi-hop jumps (<code>S &rarr; ... &rarr; S</code> when "
+       << "<code>S</code> is completely vacated) remain legal and count as movement-only plies (<code>+1</code> toward the no-progress draw threshold).</li>"
        << "<li><b>Pod Liberation Scope &amp; Clearance (<code>2P_3B*</code> &amp; <code>4P*</code>):</b> Liberating a captured pod (<code>xy*</code>) "
        << "applies exclusively to <b>3-Base (<code>2P_3B*</code>) and 4-Player (<code>4P*</code>)</b> games (never 1-Base sudden death or <code>OFK</code>), "
        << "always liberates 1 of <b>your own</b> captured pods (<code>capturedPods &gt; 0</code>), and always requires the target OCTI square "
@@ -380,7 +381,7 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"12\" "
        << "style=\"margin-bottom:14px;border:1px solid " << lineHex
        << ";background-color:" << cardBg << ";\"><tr><td>"
-       << "<h2>Chapter 4 &mdash; Victory, Elimination &amp; Stalemate Conditions</h2>"
+       << "<h2>Chapter 4 &mdash; Victory, Elimination, Stalemate &amp; No-Progress Draw Conditions</h2>"
        << "<ul>"
        << "<li><b><code>2P_3B</code> Family (3-Base Standard):</b> Win at the completion of your full turn if your pods simultaneously occupy "
        << "<b>all 3</b> enemy home bases (<code>37</code>, <code>57</code>, <code>77</code> for A; <code>33</code>, <code>53</code>, <code>73</code> for B).</li>"
@@ -397,6 +398,13 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "board pods are completely boxed in has <b>zero legal moves</b>. If the next player in <code>2P</code> / <code>OFK</code> (or both enemy seats in "
        << "<code>4P</code>) has zero legal moves, the player/team who just moved wins immediately (in <code>4P</code>, a stalemated player whose partner "
        << "still has a legal move has their turn skipped). Timed matches also conclude on clock flag forfeit or resignation.</li>"
+       << "<li><b>Universal No-Progress Draw (<code>NO_PROGRESS_DRAW</code>, <code>noProgressPlies</code>):</b> A match terminates automatically in a "
+       << "<b>draw (<code>NO_PROGRESS_DRAW</code>)</b> when <b><code>30</code> consecutive plies (<code>15</code> full turns per player)</b> in any "
+       << "<code>2P*</code> or <code>OFK</code> variant&mdash;or <b><code>60</code> consecutive plies (<code>15</code> full rounds)</b> in any "
+       << "<code>4P*</code> variant&mdash;complete without any <b>progress event</b>: pod capture (<code>x</code>, including <code>_SP</code> bonus preludes), "
+       << "reserve pod deployment (<code>xy</code>) or liberation (<code>xy*</code>), prong/SuperProng insertion (<code>+d</code>/<code>+d!</code>), or "
+       << "permanent <code>4P</code> player elimination. Evaluated at turn completion <b>after</b> base-occupation victory, total capture wipeout, and "
+       << "zero-legal-move stalemate checks (so winning on ply <code>30</code>/<code>60</code> still wins).</li>"
        << "</ul>";
     appendFigureTable(os, "rule_10_4p_partnership.png",
                       "Figure 10: 4-Player Partnership (4P): diagonal allies A(33)&C(77) vs. B(37)&D(73), allied stack [A55ab, C55cf], and neutral 53/57.",
@@ -459,7 +467,7 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "<h3>OCTI-FEN Position String Format</h3>"
        << "<p>Board states serialize into colon-separated <b>OCTI-FEN</b> strings (11 tokens for <code>2</code> / <code>OFK</code>; "
        << "13 tokens for <code>4</code>):</p>"
-       << "<p><code>mode:bases:super:edgeless:status:turn:winner:elimMask:resA:resB[:resC:resD]:squares</code></p>"
+       << "<p><code>mode:bases:super:edgeless:status:turn:winner:elimMask:resA:resB[:resC:resD]:squares[:noProgressPlies]</code></p>"
        << "<ul>"
        << "<li><code>mode</code>: <code>2</code>, <code>4</code>, or <code>OFK</code> &bull; <code>bases</code>: <code>3</code> or <code>1</code> "
        << "&bull; <code>super</code> / <code>edgeless</code>: <code>0</code> or <code>1</code>.</li>"
@@ -469,6 +477,7 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "<li><code>resP</code>: <code>freePods,capturedPods,freeProngs,freeSuperProngs</code> (e.g., <code>4,0,25,0</code>).</li>"
        << "<li><code>squares</code>: comma-separated pods in row-major order <code>&lt;Owner&gt;&lt;x&gt;&lt;y&gt;&lt;prongs&gt;</code> "
        << "(e.g., <code>A44ab!,B55e!</code>), or <code>-</code> if empty.</li>"
+       << "<li><code>noProgressPlies</code> (optional trailing 12th/14th token): consecutive non-progress plies (<code>0..1000</code>, defaults to <code>0</code> when omitted; canonical <code>toPositionString()</code> emits the 11/13-token string).</li>"
        << "</ul></td></tr></table>\n";
 
     /* Chapter 7 */
