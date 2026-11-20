@@ -7,6 +7,7 @@
 #ifndef OCTIBOT_AGENT_HXX
 #define OCTIBOT_AGENT_HXX
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -111,16 +112,29 @@ struct BotIdentity {
     int draws = 0;
 };
 
+struct BotThinkMilestoneEvent {
+    int milestoneIndex = 0;
+    std::int64_t elapsedMs = 0;
+    std::int64_t maxBudgetMs = 0;
+    int depthReached = 0;
+    std::uint64_t nodesVisited = 0;
+    int evalScore = 0;
+    std::string reason;
+};
+
 struct BotMoveTelemetry {
     int depthReached = 0;
     std::int64_t nodesVisited = 0;
     int evalScore = 0;
     std::int64_t elapsedMs = 0;
     bool present = false;
+    bool adaptiveExtended = false;
+    bool hitAdaptiveMaxBudget = false;
+    std::int64_t adaptiveMaxBudgetMs = 0;
 };
 
 struct AgentPromptRequest {
-    std::string kind;            // "chat_lobby", "chat_game", "game_start", "game_over", "goodbye", "eval_swing"
+    std::string kind;            // "chat_lobby", "chat_game", "game_start", "game_over", "goodbye", "eval_swing", "thinking_mumble", "thinking_mumble_post_move"
     std::string roomId;
     std::string senderHandle;    // chat sender or opponent for events
     bool senderIsOwner = false;
@@ -134,8 +148,21 @@ struct AgentPromptAddition {
     bool suppress = false;       // proactive events only: skip this dispatch
 };
 
+struct BotResourceRequirements {
+    int cpuThreads = 1;                  // Concurrent CPU search/worker threads during computeMove()
+    bool usesGpu = false;                // True when GPU/NPU execution provider is active
+    int gpuStreams = 0;                  // Concurrent GPU compute streams required (0 or 1)
+    std::uint64_t staticRamMiB = 0;      // Persistent per-agent RAM (TT, weights, NN cache, worker boards)
+    std::uint64_t scratchRamMiB = 0;     // Per-search active CPU scratch RAM
+    std::uint64_t staticVramMiB = 0;     // Persistent GPU VRAM (ORT session + loaded weights)
+    std::uint64_t scratchVramMiB = 0;    // Active GPU inference workspace + batch tensors
+    std::string backendLabel;            // e.g. "cc_play(cpu:36T)", "search_worker(gpu:4W,bs=64)"
+};
+
 class OctiBotAgent {
 public:
+    using ThinkMilestoneCallback = std::function<void(const BotThinkMilestoneEvent &)>;
+
     virtual ~OctiBotAgent() = default;
 
     virtual void onConfigure(const OctiBotConfigStore &config) { (void) config; }
@@ -184,6 +211,24 @@ public:
         outUnsupportedReason.clear();
         return true;
     }
+    virtual BotResourceRequirements resourceRequirements() const {
+        BotResourceRequirements req;
+        req.cpuThreads = 1;
+        req.staticRamMiB = 16;
+        req.scratchRamMiB = 8;
+        req.backendLabel = "generic";
+        return req;
+    }
+    virtual void setSearchAffinityPlan(std::size_t slotOffset, bool allowPinning) {
+        (void) slotOffset;
+        (void) allowPinning;
+    }
+    virtual void setThinkMilestoneCallback(ThinkMilestoneCallback cb) {
+        (void) cb;
+    }
+    virtual void setThinkMumbleIntervalForTest(int intervalMs) {
+        (void) intervalMs;
+    }
 };
 
 class StockAlphaBetaAgent : public OctiBotAgent {
@@ -194,6 +239,7 @@ public:
     explicit StockAlphaBetaAgent(const OctiBotConfigStore &config);
 
     void onConfigure(const OctiBotConfigStore &config) override;
+    BotResourceRequirements resourceRequirements() const override;
     std::string computeMove(const OctiBoard &board,
                             const GameViewData &game,
                             int mySeat,
@@ -232,6 +278,7 @@ public:
     void onConnected(const BotIdentity &identity) override;
     void onGameStarted(const GameViewData &game, int mySeat,
                        std::string &outGreetingChat) override;
+    BotResourceRequirements resourceRequirements() const override;
     std::string computeMove(const OctiBoard &board,
                             const GameViewData &game,
                             int mySeat,
@@ -249,6 +296,7 @@ public:
     explicit LobbyHelperAgent(const OctiBotConfigStore &config);
 
     void onConfigure(const OctiBotConfigStore &config) override;
+    BotResourceRequirements resourceRequirements() const override;
     std::string computeMove(const OctiBoard &board,
                             const GameViewData &game,
                             int mySeat,

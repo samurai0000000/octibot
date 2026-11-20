@@ -48,7 +48,209 @@ bool caseInsensitiveEqual(const std::string &a, const std::string &b) {
     return toLower(a) == toLower(b);
 }
 
+std::vector<std::string> tokenizeChatWordsWithoutMentions(const std::string &text) {
+    const auto mentions = extractHandleMentions(text);
+    std::string cleaned = text;
+    for (const auto &m : mentions) {
+        for (std::size_t k = m.atPos; k < m.endPos && k < cleaned.size(); ++k) {
+            cleaned[k] = ' ';
+        }
+    }
+    std::vector<std::string> words;
+    std::string cur;
+    for (std::size_t i = 0; i < cleaned.size(); ++i) {
+        const unsigned char uc = static_cast<unsigned char>(cleaned[i]);
+        if (std::isalnum(uc) != 0) {
+            cur.push_back(static_cast<char>(std::tolower(uc)));
+        } else if ((cleaned[i] == '\'' || cleaned[i] == '_') &&
+                   !cur.empty() && i + 1 < cleaned.size() &&
+                   std::isalnum(static_cast<unsigned char>(cleaned[i + 1])) != 0) {
+            if (cleaned[i] == '_') {
+                cur.push_back('_');
+            }
+        } else {
+            if (!cur.empty()) {
+                words.push_back(std::move(cur));
+                cur.clear();
+            }
+        }
+    }
+    if (!cur.empty()) {
+        words.push_back(std::move(cur));
+    }
+    return words;
+}
+
+bool containsNonNegatedWordSequence(
+    const std::vector<std::string> &words,
+    std::initializer_list<const char *> seq) {
+    if (seq.size() == 0 || words.size() < seq.size()) {
+        return false;
+    }
+    const std::size_t seqLen = seq.size();
+    for (std::size_t i = 0; i + seqLen <= words.size(); ++i) {
+        bool match = true;
+        std::size_t j = 0;
+        for (const char *w : seq) {
+            if (words[i + j] != w) {
+                match = false;
+                break;
+            }
+            ++j;
+        }
+        if (!match) {
+            continue;
+        }
+        if (i > 0) {
+            const std::string &prev = words[i - 1];
+            if (prev == "not" || prev == "dont" || prev == "never" || prev == "no") {
+                continue;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 } // namespace
+
+bool isOctiHandleChar(char c) {
+    const unsigned char uc = static_cast<unsigned char>(c);
+    return std::isalnum(uc) != 0 || c == '-' || c == '_';
+}
+
+std::vector<ExtractedHandleMention> extractHandleMentions(const std::string &text) {
+    std::vector<ExtractedHandleMention> mentions;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        if (text[i] != '@') {
+            ++i;
+            continue;
+        }
+        const bool leftOk = (i == 0) ||
+            (!isOctiHandleChar(text[i - 1]) && text[i - 1] != '.' && text[i - 1] != '/');
+        const std::size_t hStart = i + 1;
+        std::size_t hEnd = hStart;
+        while (hEnd < text.size() && isOctiHandleChar(text[hEnd])) {
+            ++hEnd;
+        }
+        const bool isDomainSuffix = (hEnd + 1 < text.size() &&
+                                     text[hEnd] == '.' &&
+                                     isOctiHandleChar(text[hEnd + 1]));
+        if (leftOk && hEnd > hStart && !isDomainSuffix) {
+            ExtractedHandleMention m;
+            m.handle = text.substr(hStart, hEnd - hStart);
+            m.lowerHandle = toLower(m.handle);
+            m.atPos = i;
+            m.endPos = hEnd;
+            mentions.push_back(std::move(m));
+        }
+        i = (hEnd > i) ? hEnd : (i + 1);
+    }
+    return mentions;
+}
+
+bool hasExactHandleMention(const std::string &text,
+                           const std::string &targetHandle,
+                           bool allowHelperAlias,
+                           std::size_t *outAtPos) {
+    if (outAtPos) {
+        *outAtPos = std::string::npos;
+    }
+    std::string cleanTarget = trim(targetHandle);
+    while (!cleanTarget.empty() && cleanTarget.front() == '@') {
+        cleanTarget.erase(cleanTarget.begin());
+    }
+    cleanTarget = toLower(trim(cleanTarget));
+    if (cleanTarget.empty()) {
+        return false;
+    }
+    const bool checkHelper = allowHelperAlias && (cleanTarget == "octibot-helper");
+    const auto mentions = extractHandleMentions(text);
+    for (const auto &m : mentions) {
+        if (m.lowerHandle == cleanTarget || (checkHelper && m.lowerHandle == "helper")) {
+            if (outAtPos) {
+                *outAtPos = m.atPos;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+bool stripLeadingHandleCommand(const std::string &text,
+                               const std::string &myHandle,
+                               bool allowHelperAlias,
+                               std::string &outCommand) {
+    outCommand.clear();
+    const std::string trimmed = trim(text);
+    if (trimmed.size() < 2 || trimmed[0] != '@') {
+        return false;
+    }
+    std::string cleanMy = trim(myHandle);
+    while (!cleanMy.empty() && cleanMy.front() == '@') {
+        cleanMy.erase(cleanMy.begin());
+    }
+    cleanMy = toLower(trim(cleanMy));
+    if (cleanMy.empty()) {
+        return false;
+    }
+    std::size_t hEnd = 1;
+    while (hEnd < trimmed.size() && isOctiHandleChar(trimmed[hEnd])) {
+        ++hEnd;
+    }
+    if (hEnd <= 1) {
+        return false;
+    }
+    if (hEnd + 1 < trimmed.size() && trimmed[hEnd] == '.' && isOctiHandleChar(trimmed[hEnd + 1])) {
+        return false;
+    }
+    const std::string mentionedLower = toLower(trimmed.substr(1, hEnd - 1));
+    const bool checkHelper = allowHelperAlias && (cleanMy == "octibot-helper");
+    if (mentionedLower != cleanMy && !(checkHelper && mentionedLower == "helper")) {
+        return false;
+    }
+    std::size_t restStart = hEnd;
+    if (restStart < trimmed.size()) {
+        const char nextCh = trimmed[restStart];
+        if (nextCh == ':' || nextCh == ',') {
+            ++restStart;
+        } else if (!std::isspace(static_cast<unsigned char>(nextCh))) {
+            return false;
+        }
+    }
+    outCommand = trim(trimmed.substr(restStart));
+    return true;
+}
+
+bool matchesUnmuteChatPhrase(const std::string &text) {
+    const auto words = tokenizeChatWordsWithoutMentions(text);
+    if (words.empty()) {
+        return false;
+    }
+    return containsNonNegatedWordSequence(words, {"unmute"}) ||
+           containsNonNegatedWordSequence(words, {"you", "can", "talk"}) ||
+           containsNonNegatedWordSequence(words, {"speak"}) ||
+           containsNonNegatedWordSequence(words, {"talk", "again"});
+}
+
+bool matchesQuietChatPhrase(const std::string &text) {
+    if (matchesUnmuteChatPhrase(text)) {
+        return false;
+    }
+    const auto words = tokenizeChatWordsWithoutMentions(text);
+    if (words.empty()) {
+        return false;
+    }
+    return containsNonNegatedWordSequence(words, {"be", "quiet"}) ||
+           containsNonNegatedWordSequence(words, {"stay", "quiet"}) ||
+           containsNonNegatedWordSequence(words, {"quiet", "please"}) ||
+           containsNonNegatedWordSequence(words, {"shut", "up"}) ||
+           containsNonNegatedWordSequence(words, {"stop", "talking"}) ||
+           containsNonNegatedWordSequence(words, {"mute"}) ||
+           containsNonNegatedWordSequence(words, {"shush"}) ||
+           containsNonNegatedWordSequence(words, {"silence"});
+}
 
 OctiBotPolicyEngine::OctiBotPolicyEngine(const OctiBotConfigStore &config) {
     configure(config);
@@ -592,22 +794,8 @@ ChatCommandResult OctiBotConversationEngine::processLobbyMessage(
     // Push all incoming human messages into conversation inbox
     pushInbox("lobby", "", msg.handle, msg.playerUuid, isOwner, msg.text, msg.createdAtMs);
 
-    std::string text = trim(msg.text);
-    std::string prefix1 = "@" + toLower(myHandle) + ":";
-    std::string prefix2 = "@" + toLower(myHandle);
-
     std::string cmd;
-    std::string lowerText = toLower(text);
-    if (lowerText.rfind(prefix1, 0) == 0) {
-        cmd = trim(text.substr(prefix1.size()));
-    } else if (lowerText.rfind(prefix2, 0) == 0) {
-        cmd = trim(text.substr(prefix2.size()));
-    } else if (toLower(myHandle) == "octibot-helper" && lowerText.rfind("@helper:", 0) == 0) {
-        cmd = trim(text.substr(8));
-    } else if (toLower(myHandle) == "octibot-helper" && lowerText.rfind("@helper", 0) == 0 &&
-               (lowerText.size() == 7 || std::isspace(static_cast<unsigned char>(lowerText[7])))) {
-        cmd = trim(text.substr(7));
-    } else {
+    if (!stripLeadingHandleCommand(msg.text, myHandle, true, cmd)) {
         return result; // Not addressed to this robot
     }
 
@@ -644,16 +832,8 @@ ChatCommandResult OctiBotConversationEngine::processGameMessage(
     pushInbox("game", currentRoomId, senderHandle, senderUuid, isOwner, text, 0);
 
     std::string trimmed = trim(text);
-    std::string prefix1 = "@" + toLower(myHandle) + ":";
-    std::string prefix2 = "@" + toLower(myHandle);
-
     std::string cmd;
-    std::string lowerText = toLower(trimmed);
-    if (lowerText.rfind(prefix1, 0) == 0) {
-        cmd = trim(trimmed.substr(prefix1.size()));
-    } else if (lowerText.rfind(prefix2, 0) == 0) {
-        cmd = trim(trimmed.substr(prefix2.size()));
-    } else {
+    if (!stripLeadingHandleCommand(trimmed, myHandle, true, cmd)) {
         // In game chat, recognize short commands without @bot prefix
         std::string lowerTrim = toLower(trimmed);
         if (lowerTrim == "help" || lowerTrim == "info" ||

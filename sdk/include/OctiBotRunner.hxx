@@ -9,11 +9,14 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -24,6 +27,17 @@
 #include "OctiNetworkClient.hxx"
 
 namespace octi {
+
+enum class ActiveTurnTrust : std::uint8_t {
+    UntrustedDefault = 0,
+    ProactiveEvent = 1,
+    UntrustedChat = 2,
+    TrustedOwner = 3
+};
+
+#if !defined(OCTIBOT_MINIMAL)
+class OctiPersistentCliSession;
+#endif
 
 struct BotLogEntry {
     std::uint64_t seq = 0;
@@ -67,6 +81,27 @@ struct BotMatchOverride {
     int remainingGames = 1;
 };
 
+enum class LeaveRoomMode {
+    NONE,
+    WAITING_LEFT,
+    PLY0_ABORTED,
+    FINISHED_LEFT,
+    RESIGNED_AND_LEFT,
+    PURGED,
+    REFUSED_WOULD_RESIGN
+};
+
+struct LeaveRoomResult {
+    bool ok = false;
+    bool resigned = false;
+    bool stoodUpPly0 = false;
+    bool refusedWouldResign = false;
+    LeaveRoomMode mode = LeaveRoomMode::NONE;
+    std::string phase;
+    int plyCount = 0;
+    std::string error;
+};
+
 enum class PendingSseActionType {
     APPLY_SIBLING_LOBBY_OVERRIDE,
     APPLY_SIBLING_GAME_OVERRIDE,
@@ -76,7 +111,35 @@ enum class PendingSseActionType {
     LEAVE_INCOMPATIBLE_WAITING_ROOM,
     HANDLE_GAME_PROPOSAL,
     EMIT_VARIANT_DECLINE,
+    EMIT_RESOURCE_MAXED_DECLINE,
     LEAVE_ROOM
+};
+
+struct RunnerResourceStatus {
+    bool admissionEnabled = false;
+    bool admissionMaxedOut = false;
+    bool autonomousPaused = false;
+    bool oversubscribed = false;
+    bool pinningAllowed = true;
+    std::size_t assignedSlotOffset = 0;
+    std::uint32_t physicalCores = 0;
+    std::uint32_t logicalCores = 0;
+    std::uint32_t cpuCoreBudget = 0;
+    std::uint32_t usedCpuCores = 0;
+    int gpuCount = 0;
+    int gpuStreamBudget = 0;
+    int usedGpuStreams = 0;
+    std::string gpuProviderName = "none";
+    std::string gpuDeviceName = "none";
+    std::uint64_t totalRamMiB = 0;
+    std::uint64_t availableRamMiB = 0;
+    std::uint64_t ramBudgetMiB = 0;
+    std::uint64_t usedRamMiB = 0;
+    std::uint64_t gpuVramMiB = 0;
+    std::uint64_t vramBudgetMiB = 0;
+    std::uint64_t usedVramMiB = 0;
+    int activeTableCount = 0;
+    BotResourceRequirements selfRequirements;
 };
 
 struct PendingSseAction {
@@ -104,7 +167,7 @@ public:
     OctiBotRunner(std::unique_ptr<OctiBotAgent> agent,
                   const OctiBotConfigStore &config,
                   const std::string &customEndpoint = "");
-    ~OctiBotRunner();
+    virtual ~OctiBotRunner();
 
     bool connectAndAuthenticate(std::string &errorOut);
     bool reclaimIfUnused(std::string &errorOut);
@@ -120,13 +183,24 @@ public:
     bool isLobbyOnly() const { return _lobbyOnly; }
     static OctiBotRunner *findActiveRunnerByHandle(const std::string &handle);
     static std::vector<OctiBotRunner *> listActiveRunners();
+    static void wakeAllActiveRunners(bool markRoomDirty, bool markLobbyDirty);
     static std::string resolvePrimarySdkBotHandle();
     static std::string resolveCanonicalBotHandle(const std::string &rawHandle);
 
-    // Active chat sender tracking
+    // Active chat sender & turn trust tracking
     std::string activeChatSenderHandle() const;
     bool activeChatSenderIsOwner() const;
+    ActiveTurnTrust activeTurnTrust() const;
+    void setActiveTurnTrust(ActiveTurnTrust trust);
+    bool hasOwnerToolPrivilege() const;
     void setActiveChatSender(const std::string &handle, bool isOwner);
+
+    // Table-scoped persistent CLI session lifecycle & inspection
+    void closeTableCliSession();
+    long tableCliSessionPid() const;
+    int tableCliSessionTurnCount() const;
+    bool tableCliSessionBootstrapSent() const;
+    std::string tableCliSessionStderrTail() const;
 
     // Multi-chunk chat reply splitting
     static std::vector<std::string> splitChatReplyIntoChunks(
@@ -155,7 +229,20 @@ public:
     std::string currentFen() const;
     std::string renderAsciiBoard() const;
     std::vector<GameSeatInfo> currentSeats() const;
+    GameViewData activeGameView() const;
+    void updateActiveGameView(const GameViewData &view);
     std::int64_t currentTtlRemainingMs() const;
+
+    void setRoomChatMuted(const std::string &roomId, bool muted);
+    bool isRoomChatMuted(const std::string &roomId) const;
+    virtual bool shouldReplyToGameChat(const std::string &roomId,
+                                       const std::string &senderHandle,
+                                       const std::string &messageText,
+                                       bool senderIsOwner = false,
+                                       bool senderIsRobot = false,
+                                       const std::string &senderUuid = "") const;
+    virtual bool shouldEmitProactiveChat(const std::string &roomId,
+                                         const std::string &eventKind = "") const;
 
     const BotMoveTelemetry &lastTelemetry() const { return _lastTelemetry; }
     std::string moveControl() const { return _moveControl; }
@@ -212,9 +299,18 @@ public:
     bool joinRoomById(const std::string &roomId, int &outSeat, std::string &errorOut);
     bool joinRoomById(const std::string &roomId, int preferredSeat, int &outSeat, std::string &errorOut);
     bool hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut);
+    LeaveRoomResult leaveRoomWithOptions(const std::string &rawRoomId,
+                                         bool allowResign,
+                                         bool preferPly0Abort = true);
     bool leaveRoomById(const std::string &roomId, std::string &errorOut);
-    void requestLeaveAfterChat(const std::string &roomId, const std::string &replacementBotHandle = "");
-    bool takePendingLeaveAfterChat(std::string &outRoomId, std::string &outReplacementBotHandle);
+    void requestLeaveAfterChat(const std::string &roomId,
+                               const std::string &replacementBotHandle = "",
+                               bool allowResign = false);
+    bool takePendingLeaveAfterChat(std::string &outRoomId,
+                                   std::string &outReplacementBotHandle);
+    bool takePendingLeaveAfterChat(std::string &outRoomId,
+                                   std::string &outReplacementBotHandle,
+                                   bool &outAllowResign);
 
     BotMatchOverride matchOverride() const;
     bool applyMatchOverride(const BotMatchOverride &ov, std::string &outSummary, std::string &errorOut);
@@ -222,12 +318,15 @@ public:
     bool checkAgentSupportsVariant(const OctiVariantSpec &spec, std::string &outReason) const;
     bool checkPolicyAndAgentSupportsVariant(const OctiVariantSpec &spec, std::string &outReason) const;
     static std::string selectAutoBotHandleForVariant(const OctiVariantSpec &spec,
-                                                     const OctiBotRunner *excludeRunner = nullptr);
+                                                     const OctiBotRunner *excludeRunner = nullptr,
+                                                     const std::string &targetRoomId = "");
     bool leaveAndSummonReplacementBot(const std::string &roomId,
                                       const std::string &replacementBotHandle,
                                       const std::string &opponentHandle,
                                       std::string &outSelectedBot,
-                                      std::string &errorOut);
+                                      std::string &errorOut,
+                                      bool allowResign = false,
+                                      LeaveRoomResult *outLeaveResult = nullptr);
     bool emitVariantDeclineMessage(const std::string &channel,
                                    const std::string &roomId,
                                    const std::string &senderHandle,
@@ -235,6 +334,20 @@ public:
                                    const OctiVariantSpec &spec,
                                    const std::string &agentReason = "",
                                    bool waitForCompletion = false);
+    bool emitResourceMaxedDeclineMessage(const std::string &channel,
+                                         const std::string &roomId,
+                                         const std::string &senderHandle,
+                                         bool senderIsRobot);
+
+    // Virtual resource admission & status query hooks (upstream-clean permissive defaults)
+    virtual bool canCommitToMatch(const std::string &roomId,
+                                  const std::string &actionKind,
+                                  std::string &outDeclineReason) const;
+    virtual bool canSelectForMatch(const std::string &targetRoomId) const;
+    virtual std::size_t assignedCpuCoreSlotOffset() const;
+    virtual bool shouldAllowPinning() const;
+    virtual std::string resourceMaxedDeclineText() const;
+    virtual RunnerResourceStatus resourceStatusSnapshot() const;
     void dispatchOwnerPrompt(const std::string &promptText,
                              const std::string &channel = "dashboard",
                              const std::string &roomId = "");
@@ -249,13 +362,47 @@ public:
                                   const std::string &eventSummary,
                                   bool waitForCompletion = false);
     bool isAiChatBusy() const { return _aiChatBusy.load(); }
+    void setThinkMumbleIntervalForTest(int intervalMs);
+    int effectiveThinkMumbleIntervalMs() const;
+    int inGameMumblesSent() const { return _inGameMumblesSent.load(); }
+    void resetPerGameProactiveCounters();
+    void resetRateLimitsForTest();
+
+protected:
+    virtual bool onBeforeCommitMatch(const std::string &roomId,
+                                     std::string &outDeclineReason);
+    virtual void onForceAdoptInProgressMatch(const std::string &roomId);
+    virtual void onCommittedRoomBound(const std::string &oldKey,
+                                      const std::string &roomId);
+    virtual void onMatchReleased(const std::string &roomId);
+    virtual bool shouldStandUpAndUnhostWaitingRoom(const std::string &roomId) const;
+    virtual bool isAutonomousMatchmakingPaused() const;
+    virtual void onBeforeComputeMove();
+    virtual std::string buildResourcePromptContext() const;
+
+    bool standUpFromWaitingRoomWithoutResign(const std::string &rawRoomId,
+                                             bool &outTransitionedToInProgress);
 
 private:
+    bool joinRoomByIdImpl(const std::string &rawRoomId,
+                          int preferredSeat,
+                          int &outSeat,
+                          std::string &errorOut,
+                          bool forceAdopt,
+                          bool commitReservation,
+                          bool *outResourceMaxedOut);
+    bool hostRoomWithRequestImpl(const CreateTableRequest &req,
+                                 bool commitImmediately,
+                                 std::string &outRoomId,
+                                 int &outSeat,
+                                 std::string &errorOut,
+                                 bool *outResourceMaxedOut);
     bool applyMatchOverrideImpl(const BotMatchOverride &ov,
                                 std::string &outSummary,
                                 std::string &errorOut,
                                 bool *outVariantUnsupported,
-                                OctiVariantSpec *outUnsupportedSpec);
+                                OctiVariantSpec *outUnsupportedSpec,
+                                bool *outResourceMaxedOut = nullptr);
     void loopStep();
     void pollRecentLobbyChat();
     void enqueuePendingSseAction(PendingSseAction action);
@@ -266,6 +413,54 @@ private:
     void wakeLoop(bool markRoomDirty = false, bool markLobbyDirty = false);
     void waitForLoopWake(int maxWaitMs);
     int computeNextWaitMs() const;
+    void abortAndCloseTableCliSession(bool permanentStop);
+    void maybePrewarmTableCliSession(const std::string &roomId, const GameViewData &gv);
+    void spawnTrackedTask(std::function<void()> fn);
+    void joinAllTrackedTasks();
+    bool tryAcquireAiChatBusy();
+    bool waitAcquireAiChatBusy(int maxWaitMs);
+    void releaseAiChatBusy();
+
+    struct ProactiveDispatchOptions {
+        bool waitForCompletion = false;
+        bool requireSearchEpoch = false;
+        std::uint64_t expectedSearchEpoch = 0;
+        bool waitBrieflyForBusySlot = false;
+        std::string chosenMove;
+        BotThinkMilestoneEvent milestone;
+        BotMoveTelemetry postMoveTelemetry;
+    };
+    void dispatchAiProactiveEventImpl(const std::string &eventKind,
+                                      const std::string &roomId,
+                                      const std::string &opponentHandle,
+                                      const std::string &eventSummary,
+                                      const ProactiveDispatchOptions &opts);
+    void dispatchAiChatReplyImpl(const std::string &channel,
+                                 const std::string &roomId,
+                                 const std::string &senderHandle,
+                                 const std::string &messageText,
+                                 bool isTrustedOwner,
+                                 bool alreadyHoldsBusy);
+    void onSearchThinkMilestone(std::uint64_t capturedEpoch,
+                                const std::string &roomId,
+                                const GameViewData &gvSnap,
+                                int mySeat,
+                                const BotThinkMilestoneEvent &ev);
+    bool dispatchPostMoveMumble(const std::string &roomId,
+                                const GameViewData &gvSnap,
+                                int mySeat,
+                                const std::string &chosenMove,
+                                const BotMoveTelemetry &telem);
+    bool areAllSeatedOpponentsRobots(const std::vector<GameSeatInfo> &seats,
+                                     int mySeat) const;
+    bool hasPendingHumanChat() const;
+    void clearPendingHumanChat();
+    void clearPendingHumanChatForRoom(const std::string &rawRoomId);
+    void drainPendingHumanChatIfIdle();
+    bool canDispatchProactiveRateLimit(const std::string &eventKind) const;
+    bool tryReserveProactiveRateLimit(const std::string &eventKind);
+    bool isProactiveRateWithinCapNow(const std::string &eventKind) const;
+    bool tryReserveNonOwnerChatReply();
 
     std::unique_ptr<OctiBotAgent> _agent;
     OctiBotConfigStore _config;
@@ -276,6 +471,7 @@ private:
     BotIdentity _identity;
 
     std::atomic<bool> _running{false};
+    std::atomic<bool> _stopping{false};
     std::atomic<bool> _superseded{false};
     std::atomic<std::int64_t> _supersededAtMs{0};
     std::unique_ptr<std::thread> _workerThread;
@@ -287,16 +483,50 @@ private:
     mutable std::mutex _activeChatSenderMutex;
     std::string _activeChatSenderHandle;
     bool _activeChatSenderIsOwner = false;
+    ActiveTurnTrust _activeTurnTrust = ActiveTurnTrust::UntrustedDefault;
     int _agentMoveTimeoutMs = 15000;
     int _verbosity = 3;
+    mutable std::mutex _aiChatBusyMutex;
+    std::condition_variable _aiChatBusyCv;
     std::atomic<bool> _aiChatBusy{false};
+    int _waitingOwnerChatCount = 0;
     std::atomic<int> _mcpServerPort{0};
 
-    // Live search telemetry
+    struct PendingHumanChatItem {
+        bool active = false;
+        std::string channel;
+        std::string roomId;
+        std::string senderHandle;
+        std::string messageText;
+        bool isTrustedOwner = false;
+    };
+    mutable std::mutex _pendingHumanChatMutex;
+    PendingHumanChatItem _pendingHumanChat;
+
+    mutable std::mutex _rateLimitMutex;
+    mutable std::deque<std::int64_t> _proactiveCallTimestampsMs;
+    mutable std::deque<std::int64_t> _nonOwnerChatReplyTimestampsMs;
+
+    struct TrackedBgTask {
+        std::shared_ptr<std::atomic<bool>> done;
+        std::thread worker;
+    };
+    std::mutex _bgTasksMutex;
+    std::vector<TrackedBgTask> _bgTasks;
+    std::atomic<bool> _prewarmInFlight{false};
+#if !defined(OCTIBOT_MINIMAL)
+    mutable std::mutex _tableCliMutex;
+    std::unique_ptr<OctiPersistentCliSession> _tableCliSession;
+#endif
+
+    // Live search telemetry & epoch guard
     std::atomic<bool> _isSearching{false};
     std::atomic<int> _liveDepth{0};
     std::atomic<std::uint64_t> _liveNodes{0};
     std::atomic<int> _liveScore{0};
+    std::atomic<std::uint64_t> _searchTurnEpoch{0};
+    std::atomic<int> _inGameMumblesSent{0};
+    std::atomic<int> _thinkMumbleIntervalOverrideMsForTest{0};
 
     // Rolling 50-move history
     mutable std::mutex _historyMutex;
@@ -315,6 +545,7 @@ private:
     mutable std::mutex _overrideMutex;
     mutable std::mutex _declineMutex;
     std::map<std::string, std::int64_t> _variantDeclineCooldownsMs;
+    std::map<std::string, std::int64_t> _resourceDeclineCooldownsMs;
     mutable std::mutex _stateMutex;
     std::string _currentRoomId;
     std::string _currentPhase = "IDLE";
@@ -329,6 +560,7 @@ private:
     bool _matchOverrideRequesterIsRobot = false;
     std::string _pendingLeaveAfterChatRoomId;
     std::string _pendingLeaveReplacementBot;
+    bool _pendingLeaveAllowResign = false;
     std::string _excludedRoomId;
     std::int64_t _excludedRoomUntilMs = 0;
     std::string _excludedPlayerHandle;
@@ -336,6 +568,8 @@ private:
     std::int64_t _lastProcessedLobbyChatSeq = 0;
     std::int64_t _lastLobbyChatPollMs = 0;
     std::deque<PendingSseAction> _pendingSseActions;
+    std::set<std::string> _chatMutedRooms;
+    std::set<std::string> _lastSeatedOpponents;
     std::int64_t _matchOverrideJoinGraceUntilMs = 0;
     std::int64_t _lastLobbyStreamRestartMs = 0;
 
@@ -358,7 +592,7 @@ private:
     std::string _gameOverHandledRoomId;
     std::atomic<std::int64_t> _postGameSilenceStartMs{0};
     int _lastProactiveCommentPly = -100;
-    int _proactiveCommentsInGame = 0;
+    std::atomic<int> _proactiveCommentsInGame{0};
 };
 
 #if !defined(OCTIBOT_MINIMAL)
@@ -368,7 +602,7 @@ class OctiBotMcpServer;
 class OctiBotFleetRunner {
 public:
     OctiBotFleetRunner() = default;
-    ~OctiBotFleetRunner();
+    virtual ~OctiBotFleetRunner();
 
     bool startProfiles(const OctiBotConfigStore &config,
                        const std::vector<std::string> &profiles,
@@ -388,6 +622,13 @@ public:
 #if !defined(OCTIBOT_MINIMAL)
     const std::vector<std::unique_ptr<OctiBotMcpServer>> &mcpServers() const { return _mcpServers; }
 #endif
+
+protected:
+    virtual std::unique_ptr<OctiBotRunner> createRunner(
+        std::unique_ptr<OctiBotAgent> agent,
+        const OctiBotConfigStore &config,
+        const std::string &customEndpoint) const;
+    virtual void onFleetStarted();
 
 private:
     std::vector<std::unique_ptr<OctiBotRunner>> _runners;

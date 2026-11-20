@@ -39,6 +39,20 @@ min_move_think_ms = 0
 publish_move_telemetry = false   # Set to true to publish depth/nodes/score in move history
 allow_public_eval_chat = true
 
+# Proactive AI Commentary, Thinking Mumblings & Hourly Rate Caps
+ai_proactive_commentary = true
+ai_commentary_eval_swing_threshold = 2500
+ai_commentary_cooldown_plies = 8
+ai_think_mumbling = true         # Emit creative in-character thinking mumblings during >=20s adaptive searches
+mumble_interval_ms = 20000       # In-flight mumbling cadence (20s, 40s); post-move remark on 60s max ceiling
+mumble_ceiling_margin_ms = 2000  # Suppress in-flight milestone within margin of max ceiling (0 = no buffer)
+max_mumbles_per_game = 10        # Per-game mumble cap across in-flight + post-move mumbles (0 = unlimited)
+max_eval_swing_comments_per_game = 4 # Per-game eval_swing comment cap (0 = unlimited)
+max_proactive_calls_per_hour = 60    # Rolling hourly proactive LLM call cap (0 = unlimited)
+proactive_anchor_reserve_pct = 15    # Percentage [0..50] of hourly proactive budget reserved for game_start/game_over/goodbye
+max_chat_replies_per_hour = 120      # Rolling hourly untrusted non-owner chat reply cap (0 = unlimited; owner exempt)
+proactive_rate_window_seconds = 3600 # Rolling rate-limiter window duration in seconds
+
 # Aimon MCP Gateway Bridge
 aimon_enabled = true
 aimon_host = 127.0.0.1
@@ -50,8 +64,19 @@ default_profile = stock
 # Optional Managed Agent CLI Supervisor (disabled by default)
 # ai_cli_backend = none          # none, agy, claude, cursor-agent
 # ai_cli_executable = agy
-# ai_cli_model = flash
+# ai_cli_model = Gemini 3.8 Flash (Low)
 # ai_cli_interactive = false
+# ai_cli_persistent_table_session = true  # Table-scoped persistent agy stream-json process (0 MiB idle; pre-warmed on human join/observe)
+# ai_cli_delta_prompts = true             # Omit repeated bootstrap/legend blocks on Turn 2+ while preserving <UNTRUSTED_NETWORK_DATA>
+# ai_cli_session_max_turns = 120          # Rotate persistent table session after N turns
+# ai_cli_session_startup_timeout_ms = 15000
+# ai_cli_turn_timeout_ms = 45000
+# ai_cli_mumble_timeout_ms = 15000
+# ai_cli_session_eof_timeout_ms = 2000
+# ai_cli_session_term_timeout_ms = 1000
+# ai_cli_session_respawn_backoff_min_ms = 1000
+# ai_cli_session_respawn_backoff_max_ms = 30000
+# ai_cli_session_stderr_ring_bytes = 16384
 
 # Optional Variant-Specific & Tactical Search Tuning Defaults (inherited by all slim [profiles])
 # Define shared search/evaluation/variant weights once at global scope so multi-bot

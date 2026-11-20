@@ -29,12 +29,20 @@ class Server;
 
 namespace octi {
 
+enum class McpCallAuthContext : std::uint8_t {
+    HttpFromActiveTurn = 0,
+    TrustedDirect = 1
+};
+
 class OctiBotMcpServer {
 public:
     explicit OctiBotMcpServer(OctiBotRunner &runner);
     ~OctiBotMcpServer();
 
-    std::string handleJsonRpc(const std::string &rawBody, const std::string &defaultProtocolVersion = "2025-03-26");
+    std::string handleJsonRpc(
+        const std::string &rawBody,
+        const std::string &defaultProtocolVersion = "2025-03-26",
+        McpCallAuthContext authCtx = McpCallAuthContext::HttpFromActiveTurn);
 
     void runStdio(std::istream &in, std::ostream &out);
     bool startHttpServer(int port = 0, const std::string &bindAddr = "127.0.0.1");
@@ -69,15 +77,22 @@ public:
                                           std::string &errorOut);
     std::uint64_t recordedPlayerFeedbackCount() const { return _recordedFeedbackCount.load(); }
     static std::uint64_t recordedPlayerFeedbackCount(const OctiBotRunner &runner);
+    static McpCallAuthContext currentThreadCallAuthContext();
 
-    std::string callTool(const std::string &name, const std::string &argumentsJson);
+    std::string callTool(
+        const std::string &name,
+        const std::string &argumentsJson,
+        McpCallAuthContext authCtx = McpCallAuthContext::HttpFromActiveTurn);
 
     std::string renderDashboardHtml() const;
     nlohmann::json buildStatusJson();
     nlohmann::json buildConfigJson() const;
 
 private:
-    std::string handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion);
+    std::string handleSingleJsonRpcObject(
+        const nlohmann::json &req,
+        const std::string &defaultProtocolVersion,
+        McpCallAuthContext authCtx);
     void registerHttpRoutes();
     OctiBotRunner *resolveToolRunner(const nlohmann::json &args, std::string &errorOut);
 
@@ -138,6 +153,14 @@ public:
         int mcpPort,
         const std::string &model,
         const std::string &prompt,
+        const std::string &sandboxDir,
+        bool allowControlTools = false);
+
+    static std::vector<std::string> buildPersistentStreamArgs(
+        const std::string &backend,
+        const std::string &executable,
+        int mcpPort,
+        const std::string &model,
         const std::string &sandboxDir,
         bool allowControlTools = false);
 

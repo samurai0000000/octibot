@@ -2285,6 +2285,22 @@ int OctiBotEngine::adjustLmrReduction(const OctiBoard &board,
     return defaultReduction;
 }
 
+int OctiBotEngine::effectiveMaxSearchThreads(int requestedThreads,
+                                             unsigned int hwConcurrency) const
+{
+    return std::min(requestedThreads,
+                    std::max(1, static_cast<int>(hwConcurrency > 0 ? hwConcurrency : 2)));
+}
+
+std::unique_ptr<OctiBotEngine::SearchThreadAffinityScope>
+OctiBotEngine::enterSearchThreadAffinity(int threadIdx,
+                                         int totalThreads) const
+{
+    (void)threadIdx;
+    (void)totalThreads;
+    return nullptr;
+}
+
 void OctiBotEngine::ensureTranspositionTableSize()
 {
     int clampedLog2 = clampTtSizeLog2(_profile.ttSizeLog2);
@@ -4667,11 +4683,12 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
 
     // Lazy SMP: spawn helper threads if budget >= 500ms and lazySmpThreads > 1
     _stopSearch.store(false, std::memory_order_relaxed);
+    std::unique_ptr<SearchThreadAffinityScope> mainAffinityGuard;
     std::vector<std::thread> helpers;
 
     if (_timeBudgetMs >= 500 && _profile.lazySmpThreads > 1) {
         unsigned int hw = std::thread::hardware_concurrency();
-        int numThreads = std::min(_profile.lazySmpThreads, static_cast<int>(hw > 0 ? hw : 2));
+        int numThreads = effectiveMaxSearchThreads(_profile.lazySmpThreads, hw);
         if (numThreads > 1) {
             helperStates.reserve(static_cast<std::size_t>(numThreads - 1));
             for (int t = 1; t < numThreads; ++t) {
@@ -4685,7 +4702,8 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                 if (!diversifyHelpers) {
                     int depthOffset = (t % 2 == 1) ? 1 : 2;
                     helpers.emplace_back([this, rootFen, rootNoProgressPlies, deadlineMs, depthOffset,
-                                          maxTargetDepth, rootTurn, hState]() {
+                                          t, numThreads, maxTargetDepth, rootTurn, hState]() {
+                        auto helperAffinityGuard = enterSearchThreadAffinity(t, numThreads);
                         OctiBoard threadBoard;
                         threadBoard.suppressBoardUpdateNotification(true);
                         threadBoard.fromPositionString(rootFen);
@@ -4715,7 +4733,8 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                     });
                 } else {
                     helpers.emplace_back([this, rootFen, rootNoProgressPlies, initialCandidates, deadlineMs,
-                                          t, maxTargetDepth, rootTurn, mode, hState]() {
+                                          t, numThreads, maxTargetDepth, rootTurn, mode, hState]() {
+                        auto helperAffinityGuard = enterSearchThreadAffinity(t, numThreads);
                         OctiBoard threadBoard;
                         threadBoard.suppressBoardUpdateNotification(true);
                         threadBoard.fromPositionString(rootFen);
@@ -4821,6 +4840,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                     });
                 }
             }
+            mainAffinityGuard = enterSearchThreadAffinity(0, numThreads);
         }
     }
 
@@ -5186,12 +5206,12 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
     std::vector<std::unique_ptr<SearchThreadState>> helperStates;
 
     _stopSearch.store(false, std::memory_order_relaxed);
+    std::unique_ptr<SearchThreadAffinityScope> mainAffinityGuard;
     std::vector<std::thread> helpers;
 
     if ((timeBudgetMs <= 0 || effBudgetMs >= 200) && _profile.lazySmpThreads > 1) {
         unsigned int hw = std::thread::hardware_concurrency();
-        int numThreads = std::min(_profile.lazySmpThreads,
-                                  static_cast<int>(hw > 0 ? hw : 2));
+        int numThreads = effectiveMaxSearchThreads(_profile.lazySmpThreads, hw);
         if (numThreads > 1) {
             helperStates.reserve(static_cast<std::size_t>(numThreads - 1));
             for (int t = 1; t < numThreads; ++t) {
@@ -5202,8 +5222,9 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
             for (int t = 1; t < numThreads; ++t) {
                 SearchThreadState *hState = helperStates[static_cast<std::size_t>(t - 1)].get();
                 helpers.emplace_back([this, rootFen, rootNoProgressPlies, initialCandidates, deadlineMs,
-                                      t, maxTargetDepth, rootTurn, mode,
+                                      t, numThreads, maxTargetDepth, rootTurn, mode,
                                       diversifyHelpers, hState]() {
+                    auto helperAffinityGuard = enterSearchThreadAffinity(t, numThreads);
                     OctiBoard threadBoard;
                     threadBoard.suppressBoardUpdateNotification(true);
                     threadBoard.fromPositionString(rootFen);
@@ -5267,6 +5288,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                                                 std::memory_order_relaxed);
                 });
             }
+            mainAffinityGuard = enterSearchThreadAffinity(0, numThreads);
         }
     }
 

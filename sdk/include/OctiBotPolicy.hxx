@@ -54,6 +54,26 @@ struct HostVariantSpec {
     bool edgeless = false;
 };
 
+struct ExtractedHandleMention {
+    std::string handle;
+    std::string lowerHandle;
+    std::size_t atPos = 0;
+    std::size_t endPos = 0;
+};
+
+bool isOctiHandleChar(char c);
+std::vector<ExtractedHandleMention> extractHandleMentions(const std::string &text);
+bool hasExactHandleMention(const std::string &text,
+                           const std::string &targetHandle,
+                           bool allowHelperAlias = false,
+                           std::size_t *outAtPos = nullptr);
+bool stripLeadingHandleCommand(const std::string &text,
+                               const std::string &myHandle,
+                               bool allowHelperAlias,
+                               std::string &outCommand);
+bool matchesQuietChatPhrase(const std::string &text);
+bool matchesUnmuteChatPhrase(const std::string &text);
+
 class OctiBotPolicyEngine {
 public:
     OctiBotPolicyEngine() = default;

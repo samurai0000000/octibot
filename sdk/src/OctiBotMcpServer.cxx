@@ -776,7 +776,9 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
                 {"super_prongs", {{"type", "boolean"}}},
                 {"edgeless", {{"type", "boolean"}}},
                 {"allow_robots", {{"type", "boolean"}}},
-                {"replacement_bot", {{"type", "string"}, {"description", "Optional replacement bot handle (e.g. 'octibot-yale-2001' or 'auto') to summon when action is 'leave'"}}}
+                {"replacement_bot", {{"type", "string"}, {"description", "Optional replacement bot handle (e.g. 'octibot-yale-2001' or 'auto') to summon when action is 'leave'"}}},
+                {"allow_resign", {{"type", "boolean"}, {"description", "When action is 'leave', allow resigning an active game if moves have been played (ply_count > 0). Default false (clean Ply-0 stand-up or non-active leave only; forbidden for non-owners)."}}},
+                {"require_no_resign", {{"type", "boolean"}, {"description", "Alias: when true, strictly forbid resigning (forces allow_resign=false)."}}}
             }}
         }}
     });
@@ -967,7 +969,9 @@ nlohmann::json OctiBotMcpServer::buildToolsListJson() const {
                 {"super_prongs", {{"type", "boolean"}, {"description", "Enable superprongs variant (default false)"}}},
                 {"edgeless", {{"type", "boolean"}, {"description", "Enable edgeless toroidal board variant (default false)"}}},
                 {"games", {{"type", "integer"}, {"description", "Number of games to play under this match override (default 1)"}}},
-                {"seat", {{"type", "integer"}, {"description", "Optional preferred seat (1..4)"}}}
+                {"seat", {{"type", "integer"}, {"description", "Optional preferred seat (1..4)"}}},
+                {"allow_resign", {{"type", "boolean"}, {"description", "When switching away from a seated bot, allow resigning if moves have been played (ply_count > 0). Default false (owner only)."}}},
+                {"require_no_resign", {{"type", "boolean"}, {"description", "Alias: when true, strictly forbid resigning (forces allow_resign=false)."}}}
             }}
         }}
     });
@@ -1086,7 +1090,32 @@ std::string OctiBotMcpServer::createMcpSession() {
     return sid;
 }
 
-std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &req, const std::string &defaultProtocolVersion) {
+namespace {
+
+thread_local McpCallAuthContext s_threadCallAuthContext =
+    McpCallAuthContext::HttpFromActiveTurn;
+
+struct ScopedThreadCallAuthContext {
+    McpCallAuthContext prev;
+    explicit ScopedThreadCallAuthContext(McpCallAuthContext next)
+        : prev(s_threadCallAuthContext) {
+        s_threadCallAuthContext = next;
+    }
+    ~ScopedThreadCallAuthContext() {
+        s_threadCallAuthContext = prev;
+    }
+};
+
+} // namespace
+
+McpCallAuthContext OctiBotMcpServer::currentThreadCallAuthContext() {
+    return s_threadCallAuthContext;
+}
+
+std::string OctiBotMcpServer::handleSingleJsonRpcObject(
+    const nlohmann::json &req,
+    const std::string &defaultProtocolVersion,
+    McpCallAuthContext authCtx) {
     if (!req.is_object()) {
         nlohmann::json err;
         err["jsonrpc"] = "2.0";
@@ -1191,7 +1220,7 @@ std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &re
     if (method == "tools/call") {
         std::string toolName = params.value("name", "");
         nlohmann::json args = params.value("arguments", nlohmann::json::object());
-        std::string toolResult = callTool(toolName, args.dump());
+        std::string toolResult = callTool(toolName, args.dump(), authCtx);
         bool isError = (toolResult.rfind("Unknown tool: ", 0) == 0);
         if (!isError) {
             try {
@@ -1220,7 +1249,11 @@ std::string OctiBotMcpServer::handleSingleJsonRpcObject(const nlohmann::json &re
     return resp.dump();
 }
 
-std::string OctiBotMcpServer::handleJsonRpc(const std::string &rawBody, const std::string &defaultProtocolVersion) {
+std::string OctiBotMcpServer::handleJsonRpc(
+    const std::string &rawBody,
+    const std::string &defaultProtocolVersion,
+    McpCallAuthContext authCtx) {
+    ScopedThreadCallAuthContext authScope(authCtx);
     nlohmann::json req;
     try {
         req = nlohmann::json::parse(rawBody);
@@ -1249,7 +1282,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &rawBody, const st
                 err["error"] = {{"code", -32600}, {"message", "Invalid Request"}};
                 batchResp.push_back(err);
             } else {
-                std::string singleResp = handleSingleJsonRpcObject(item, defaultProtocolVersion);
+                std::string singleResp = handleSingleJsonRpcObject(item, defaultProtocolVersion, authCtx);
                 if (!singleResp.empty()) {
                     try {
                         batchResp.push_back(nlohmann::json::parse(singleResp));
@@ -1264,7 +1297,7 @@ std::string OctiBotMcpServer::handleJsonRpc(const std::string &rawBody, const st
     }
 
     if (req.is_object()) {
-        return handleSingleJsonRpcObject(req, defaultProtocolVersion);
+        return handleSingleJsonRpcObject(req, defaultProtocolVersion, authCtx);
     }
 
     nlohmann::json err;
@@ -1316,7 +1349,18 @@ OctiBotRunner *OctiBotMcpServer::resolveToolRunner(const nlohmann::json &args, s
     return found;
 }
 
-std::string OctiBotMcpServer::callTool(const std::string &name, const std::string &argumentsJson) {
+std::string OctiBotMcpServer::callTool(
+    const std::string &name,
+    const std::string &argumentsJson,
+    McpCallAuthContext authCtx) {
+    ScopedThreadCallAuthContext authScope(authCtx);
+    const bool isTrustedDirect = (authCtx == McpCallAuthContext::TrustedDirect);
+    const bool hasOwnerPriv = (isTrustedDirect || _runner.hasOwnerToolPrivilege());
+    const std::string activeSender = _runner.activeChatSenderHandle();
+    const bool hasAuthenticatedNonOwnerChatSender =
+        (!hasOwnerPriv && !activeSender.empty() &&
+         _runner.activeTurnTrust() == ActiveTurnTrust::UntrustedChat);
+
     nlohmann::json args;
     try {
         args = nlohmann::json::parse(argumentsJson);
@@ -1523,7 +1567,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_find_or_host_table") {
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+        if (!hasOwnerPriv) {
             return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_find_or_host_table\"}";
         }
         std::string resolveErr;
@@ -1623,27 +1667,26 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             }
             return s;
         };
+        auto iequalsAscii = [](const std::string &a, const std::string &b) {
+            if (a.size() != b.size()) return false;
+            for (std::size_t i = 0; i < a.size(); ++i) {
+                if (std::tolower(static_cast<unsigned char>(a[i])) !=
+                    std::tolower(static_cast<unsigned char>(b[i]))) {
+                    return false;
+                }
+            }
+            return true;
+        };
         nlohmann::json res;
         bool hasExplicitBotArg = args.contains("bot_handle") && args["bot_handle"].is_string() &&
                                  !args["bot_handle"].get<std::string>().empty();
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
-            bool allowUntrustedLeave = false;
-            if (!hasExplicitBotArg && action == "leave" &&
-                _runner.plyCount() == 0 && !_runner.currentRoomId().empty()) {
-                std::string sender = _runner.activeChatSenderHandle();
-                for (const auto &s : _runner.currentSeats()) {
-                    if (!s.handle.empty() && s.handle == sender) {
-                        allowUntrustedLeave = true;
-                        break;
-                    }
-                }
-            }
-            if (!allowUntrustedLeave) {
-                res["ok"] = false;
-                res["error"] = "Only the robot owner can execute this table action";
-                return res.dump(2);
-            }
+        if (!hasOwnerPriv &&
+            (!hasAuthenticatedNonOwnerChatSender || action != "leave" || hasExplicitBotArg)) {
+            res["ok"] = false;
+            res["error"] = "Only the robot owner can execute this table action";
+            return res.dump(2);
         }
+        const bool isUntrustedChatSender = !hasOwnerPriv;
         std::string resolveErr;
         OctiBotRunner *targetRunner = resolveToolRunner(args, resolveErr);
         if (!targetRunner) {
@@ -1710,35 +1753,282 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["summary"] = summary;
             if (!ok) res["error"] = err;
         } else if (action == "leave") {
-            targetRunner->clearMatchOverride();
+            bool explicitAllowResignTrue = false;
+            bool allowResign = false;
+            if (args.contains("allow_resign") && !args["allow_resign"].is_null()) {
+                if (!args["allow_resign"].is_boolean()) {
+                    res["ok"] = false;
+                    res["error"] = "allow_resign must be a boolean";
+                    return res.dump(2);
+                }
+                allowResign = args["allow_resign"].get<bool>();
+                explicitAllowResignTrue = allowResign;
+            }
+            if (args.contains("require_no_resign") && !args["require_no_resign"].is_null()) {
+                if (!args["require_no_resign"].is_boolean()) {
+                    res["ok"] = false;
+                    res["error"] = "require_no_resign must be a boolean";
+                    return res.dump(2);
+                }
+                if (args["require_no_resign"].get<bool>()) {
+                    allowResign = false;
+                }
+            }
+
             std::string roomId = stripRoomPrefix(args.value("room_id", targetRunner->currentRoomId()));
             if (roomId.empty()) {
                 roomId = targetRunner->currentRoomId();
             }
+            if (roomId.empty()) {
+                res["ok"] = false;
+                if (isUntrustedChatSender) {
+                    res["error"] = "Only the robot owner can execute this table action";
+                } else {
+                    res["room_id"] = "";
+                    res["phase"] = "IDLE";
+                    res["ply_count"] = 0;
+                    res["can_leave_without_resign"] = true;
+                    res["will_resign"] = false;
+                    res["error"] = "Not currently in a room";
+                }
+                return res.dump(2);
+            }
+
+            GameViewData liveGv = targetRunner->activeGameView();
+            std::string phase = targetRunner->currentPhase();
+            int plyCount = targetRunner->plyCount();
+            const bool canQueryNet = targetRunner->networkClient().isAuthenticated() ||
+                                     targetRunner->networkClient().host() != OctiNetworkClient::canonicalHost();
+            if (canQueryNet) {
+                auto gvRes = targetRunner->networkClient().fetchGameView(roomId);
+                if (gvRes.ok) {
+                    liveGv = gvRes.data;
+                    phase = gvRes.data.phase;
+                    plyCount = std::max(gvRes.data.plyCount,
+                                        static_cast<int>(gvRes.data.moves.size()));
+                    if (targetRunner->currentRoomId() == roomId) {
+                        targetRunner->updateActiveGameView(gvRes.data);
+                    }
+                } else if (gvRes.httpStatus == 404 || gvRes.httpStatus == 410) {
+                    phase = "FINISHED";
+                    plyCount = 0;
+                } else if (liveGv.roomId == roomId && !liveGv.phase.empty()) {
+                    phase = liveGv.phase;
+                    plyCount = std::max(liveGv.plyCount,
+                                        static_cast<int>(liveGv.moves.size()));
+                }
+            } else if (liveGv.roomId == roomId && !liveGv.phase.empty()) {
+                phase = liveGv.phase;
+                plyCount = std::max(liveGv.plyCount,
+                                    static_cast<int>(liveGv.moves.size()));
+            }
+
+            const bool willResign = (phase == "IN_PROGRESS" && plyCount > 0);
+            const bool canLeaveWithoutResign = !willResign;
+
+            if (isUntrustedChatSender) {
+                allowResign = false;
+                std::string cleanSender = activeSender;
+                while (!cleanSender.empty() && cleanSender.front() == '@') {
+                    cleanSender.erase(cleanSender.begin());
+                }
+                bool senderIsSeated = false;
+                const auto &seatsToCheck = !liveGv.seats.empty()
+                    ? liveGv.seats
+                    : targetRunner->currentSeats();
+                for (const auto &s : seatsToCheck) {
+                    if (!s.handle.empty() && iequalsAscii(s.handle, cleanSender)) {
+                        senderIsSeated = true;
+                        break;
+                    }
+                }
+                if (!senderIsSeated) {
+                    res["ok"] = false;
+                    res["room_id"] = roomId;
+                    res["phase"] = phase;
+                    res["ply_count"] = plyCount;
+                    res["can_leave_without_resign"] = canLeaveWithoutResign;
+                    res["will_resign"] = willResign;
+                    res["refused_reason"] = "forbidden_not_seated_or_not_owner";
+                    res["error"] = "Only the robot owner can execute this table action";
+                    return res.dump(2);
+                }
+                if (explicitAllowResignTrue) {
+                    res["ok"] = false;
+                    res["room_id"] = roomId;
+                    res["phase"] = phase;
+                    res["ply_count"] = plyCount;
+                    res["can_leave_without_resign"] = canLeaveWithoutResign;
+                    res["will_resign"] = willResign;
+                    res["refused_reason"] = "non_owner_cannot_resign";
+                    res["error"] = "Only the robot owner may set allow_resign=true";
+                    return res.dump(2);
+                }
+                if (!canLeaveWithoutResign) {
+                    res["ok"] = false;
+                    res["room_id"] = roomId;
+                    res["phase"] = phase;
+                    res["ply_count"] = plyCount;
+                    res["can_leave_without_resign"] = false;
+                    res["will_resign"] = true;
+                    res["refused_reason"] = "in_progress_moves_played";
+                    res["error"] = "Cannot stand up without resigning after moves have been played (ply_count=" +
+                                   std::to_string(plyCount) + "); non-owners cannot force resignation";
+                    return res.dump(2);
+                }
+            }
+
+            if (willResign && !allowResign) {
+                res["ok"] = false;
+                res["room_id"] = roomId;
+                res["phase"] = phase;
+                res["ply_count"] = plyCount;
+                res["can_leave_without_resign"] = false;
+                res["will_resign"] = true;
+                res["refused_reason"] = "in_progress_moves_played";
+                res["error"] = "Cannot leave active game at ply " + std::to_string(plyCount) +
+                               " without resigning; pass allow_resign=true only if the owner explicitly wants to resign.";
+                return res.dump(2);
+            }
+
+            auto modeLabelFor = [](const std::string &ph, int ply) -> std::string {
+                if (ph == "IN_PROGRESS") {
+                    return (ply == 0) ? "ply0_abort" : "resign_and_leave";
+                }
+                if (ph == "WAITING_FOR_PLAYERS") {
+                    return "waiting_leave";
+                }
+                return "finished_leave";
+            };
+            auto modeLabelFromResult = [&](const LeaveRoomResult &lr) -> std::string {
+                switch (lr.mode) {
+                case LeaveRoomMode::PLY0_ABORTED:
+                    return "ply0_abort";
+                case LeaveRoomMode::WAITING_LEFT:
+                    return "waiting_leave";
+                case LeaveRoomMode::RESIGNED_AND_LEFT:
+                    return "resign_and_leave";
+                case LeaveRoomMode::FINISHED_LEFT:
+                case LeaveRoomMode::PURGED:
+                    return "finished_leave";
+                default:
+                    return modeLabelFor(phase, plyCount);
+                }
+            };
+
             std::string repBot = args.value("replacement_bot", "");
             if (targetRunner == &_runner && !_runner.activeChatSenderHandle().empty()) {
-                _runner.requestLeaveAfterChat(roomId, repBot);
+                if (!repBot.empty() && !liveGv.roomId.empty()) {
+                    std::string normRep = repBot;
+                    while (!normRep.empty() && (normRep.front() == '@' || normRep.front() == ' ')) {
+                        normRep.erase(normRep.begin());
+                    }
+                    std::string lowRep = normRep;
+                    for (char &c : lowRep) {
+                        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    }
+                    if (!lowRep.empty() && lowRep != "auto") {
+                        std::string canonRep = OctiBotRunner::resolveCanonicalBotHandle(normRep);
+                        if (auto *repRunner = OctiBotRunner::findActiveRunnerByHandle(canonRep)) {
+                            if (repRunner != targetRunner) {
+                                std::string varErr;
+                                if (!repRunner->checkAgentSupportsVariant(
+                                        OctiVariantSpec::fromGameView(liveGv), varErr)) {
+                                    res["ok"] = false;
+                                    res["room_id"] = roomId;
+                                    res["phase"] = phase;
+                                    res["ply_count"] = plyCount;
+                                    res["can_leave_without_resign"] = canLeaveWithoutResign;
+                                    res["will_resign"] = willResign;
+                                    res["error"] = varErr;
+                                    return res.dump(2);
+                                }
+                            }
+                        }
+                    }
+                }
+                targetRunner->clearMatchOverride();
+                _runner.requestLeaveAfterChat(roomId, repBot, allowResign);
                 res["ok"] = true;
                 res["room_id"] = roomId;
-                res["status"] = "leaving_table_immediately_after_reply";
+                res["phase"] = phase;
+                res["ply_count"] = plyCount;
+                res["can_leave_without_resign"] = canLeaveWithoutResign;
+                res["will_resign"] = willResign;
+                res["leave_mode"] = modeLabelFor(phase, plyCount);
+                res["status"] = willResign
+                    ? "resigning_and_leaving_immediately_after_reply"
+                    : "leaving_table_immediately_after_reply";
                 if (!repBot.empty()) {
                     res["replacement_bot"] = repBot;
                 }
             } else if (!repBot.empty()) {
                 std::string selectedBot, err;
-                bool ok = targetRunner->leaveAndSummonReplacementBot(roomId, repBot, "", selectedBot, err);
-                res["ok"] = ok;
-                if (!selectedBot.empty()) {
-                    res["replacement_bot"] = selectedBot;
-                }
-                if (!ok && !err.empty()) {
-                    res["error"] = err;
+                LeaveRoomResult leaveRes;
+                bool ok = targetRunner->leaveAndSummonReplacementBot(
+                    roomId, repBot, "", selectedBot, err, allowResign, &leaveRes);
+                if (ok) {
+                    targetRunner->clearMatchOverride();
+                    res["ok"] = true;
+                    res["room_id"] = roomId;
+                    res["phase"] = leaveRes.phase.empty() ? phase : leaveRes.phase;
+                    res["ply_count"] = leaveRes.plyCount;
+                    res["can_leave_without_resign"] = !leaveRes.resigned;
+                    res["will_resign"] = leaveRes.resigned;
+                    res["leave_mode"] = modeLabelFromResult(leaveRes);
+                    res["status"] = leaveRes.resigned
+                        ? "resigned_and_left_table"
+                        : (leaveRes.stoodUpPly0 ? "stood_up_at_ply0_without_resigning" : "left_table");
+                    if (!selectedBot.empty()) {
+                        res["replacement_bot"] = selectedBot;
+                    }
+                } else {
+                    res["ok"] = false;
+                    res["room_id"] = roomId;
+                    res["phase"] = leaveRes.phase.empty() ? phase : leaveRes.phase;
+                    res["ply_count"] = leaveRes.plyCount;
+                    res["can_leave_without_resign"] = !leaveRes.refusedWouldResign && canLeaveWithoutResign;
+                    res["will_resign"] = leaveRes.refusedWouldResign || willResign;
+                    if (leaveRes.refusedWouldResign) {
+                        res["refused_reason"] = (leaveRes.plyCount > 0)
+                            ? "in_progress_moves_played"
+                            : "ply0_abort_rejected";
+                    }
+                    if (!err.empty()) {
+                        res["error"] = err;
+                    }
                 }
             } else {
-                std::string err;
-                bool ok = targetRunner->leaveRoomById(roomId, err);
-                res["ok"] = ok;
-                if (!ok) res["error"] = err;
+                LeaveRoomResult leaveRes = targetRunner->leaveRoomWithOptions(
+                    roomId, allowResign, /*preferPly0Abort=*/true);
+                if (leaveRes.ok) {
+                    targetRunner->clearMatchOverride();
+                    res["ok"] = true;
+                    res["room_id"] = roomId;
+                    res["phase"] = leaveRes.phase.empty() ? phase : leaveRes.phase;
+                    res["ply_count"] = leaveRes.plyCount;
+                    res["can_leave_without_resign"] = !leaveRes.resigned;
+                    res["will_resign"] = leaveRes.resigned;
+                    res["leave_mode"] = modeLabelFromResult(leaveRes);
+                    res["status"] = leaveRes.resigned
+                        ? "resigned_and_left_table"
+                        : (leaveRes.stoodUpPly0 ? "stood_up_at_ply0_without_resigning" : "left_table");
+                } else {
+                    res["ok"] = false;
+                    res["room_id"] = roomId;
+                    res["phase"] = leaveRes.phase.empty() ? phase : leaveRes.phase;
+                    res["ply_count"] = leaveRes.plyCount;
+                    res["can_leave_without_resign"] = !leaveRes.refusedWouldResign && canLeaveWithoutResign;
+                    res["will_resign"] = leaveRes.refusedWouldResign || willResign;
+                    if (leaveRes.refusedWouldResign) {
+                        res["refused_reason"] = (leaveRes.plyCount > 0)
+                            ? "in_progress_moves_played"
+                            : "ply0_abort_rejected";
+                    }
+                    if (!leaveRes.error.empty()) {
+                        res["error"] = leaveRes.error;
+                    }
+                }
             }
         } else if (action == "kick") {
             std::string roomId = stripRoomPrefix(args.value("room_id", targetRunner->currentRoomId()));
@@ -2174,7 +2464,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_game_action") {
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+        if (!hasOwnerPriv) {
             return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_game_action\"}";
         }
         std::string resolveErr;
@@ -2200,7 +2490,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_send_chat") {
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+        if (!hasOwnerPriv) {
             return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_send_chat\"}";
         }
         std::string resolveErr;
@@ -2229,7 +2519,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_configure_policy") {
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+        if (!hasOwnerPriv) {
             return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_configure_policy\"}";
         }
         std::string resolveErr;
@@ -2262,7 +2552,7 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
     }
 
     if (name == "octibot_set_match_override") {
-        if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+        if (!hasOwnerPriv) {
             return "{\"ok\":false,\"error\":\"Only the robot owner can invoke octibot_set_match_override\"}";
         }
         std::string resolveErr;
@@ -2666,6 +2956,33 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
 
     if (name == "octibot_assist_match") {
         nlohmann::json res;
+        if (!hasOwnerPriv && !hasAuthenticatedNonOwnerChatSender) {
+            res["ok"] = false;
+            res["error"] = "Authenticated active chat sender or owner privilege required to invoke octibot_assist_match";
+            return res.dump(2);
+        }
+        bool explicitAllowResignTrue = false;
+        bool allowResign = false;
+        if (args.contains("allow_resign") && !args["allow_resign"].is_null()) {
+            if (!args["allow_resign"].is_boolean()) {
+                res["ok"] = false;
+                res["error"] = "allow_resign must be a boolean";
+                return res.dump(2);
+            }
+            allowResign = args["allow_resign"].get<bool>();
+            explicitAllowResignTrue = allowResign;
+        }
+        if (args.contains("require_no_resign") && !args["require_no_resign"].is_null()) {
+            if (!args["require_no_resign"].is_boolean()) {
+                res["ok"] = false;
+                res["error"] = "require_no_resign must be a boolean";
+                return res.dump(2);
+            }
+            if (args["require_no_resign"].get<bool>()) {
+                allowResign = false;
+            }
+        }
+
         std::string roomId = args.value("room_id", "");
         while (!roomId.empty() && (roomId.front() == '#' || roomId.front() == ' ' || roomId.front() == '\t')) {
             roomId.erase(roomId.begin());
@@ -2682,6 +2999,57 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         bool edgeless = hasEdgeless ? args["edgeless"].get<bool>() : false;
         int games = std::max(1, args.value("games", 1));
         int preferredSeat = args.value("seat", 0);
+
+        const bool isAfterLeaveCandidate =
+            !_runner.isLobbyOnly() && !_runner.currentRoomId().empty() &&
+            !_runner.activeChatSenderHandle().empty();
+        const std::string selfRoomId = isAfterLeaveCandidate ? _runner.currentRoomId() : "";
+        GameViewData selfLiveGv = _runner.activeGameView();
+        std::string selfLivePhase = _runner.currentPhase();
+        int selfLivePlyCount = _runner.plyCount();
+        bool haveSelfLiveGv = false;
+        if (isAfterLeaveCandidate) {
+            const bool canQuerySelfNet =
+                _runner.networkClient().isAuthenticated() ||
+                _runner.networkClient().host() != OctiNetworkClient::canonicalHost();
+            if (canQuerySelfNet) {
+                auto gvSelf = _runner.networkClient().fetchGameView(selfRoomId);
+                if (gvSelf.ok) {
+                    selfLiveGv = gvSelf.data;
+                    selfLivePhase = gvSelf.data.phase;
+                    selfLivePlyCount = std::max(gvSelf.data.plyCount,
+                                                static_cast<int>(gvSelf.data.moves.size()));
+                    haveSelfLiveGv = true;
+                    if (_runner.currentRoomId() == selfRoomId) {
+                        _runner.updateActiveGameView(gvSelf.data);
+                    }
+                } else if (gvSelf.httpStatus == 404 || gvSelf.httpStatus == 410) {
+                    selfLivePhase = "FINISHED";
+                    selfLivePlyCount = 0;
+                    haveSelfLiveGv = true;
+                }
+            }
+            if (!haveSelfLiveGv && selfLiveGv.roomId == selfRoomId && !selfLiveGv.phase.empty()) {
+                selfLivePhase = selfLiveGv.phase;
+                selfLivePlyCount = std::max(selfLiveGv.plyCount,
+                                            static_cast<int>(selfLiveGv.moves.size()));
+            }
+        }
+
+        if (!hasOwnerPriv && explicitAllowResignTrue) {
+            res["ok"] = false;
+            if (isAfterLeaveCandidate) {
+                const bool willRes = (selfLivePhase == "IN_PROGRESS" && selfLivePlyCount > 0);
+                res["room_id"] = selfRoomId;
+                res["phase"] = selfLivePhase;
+                res["ply_count"] = selfLivePlyCount;
+                res["can_leave_without_resign"] = !willRes;
+                res["will_resign"] = willRes;
+            }
+            res["refused_reason"] = "non_owner_cannot_resign";
+            res["error"] = "Only the robot owner may set allow_resign=true";
+            return res.dump(2);
+        }
 
         OctiVariantSpec reqSpec;
         reqSpec.mode = mode;
@@ -2711,11 +3079,17 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                     }
                 }
             }
+        } else if (roomId.empty() && isAfterLeaveCandidate && !selfLiveGv.roomId.empty()) {
+            reqSpec = OctiVariantSpec::fromGameView(selfLiveGv);
+            if (!args.contains("mode")) mode = reqSpec.mode;
+            if (!args.contains("bases")) bases = reqSpec.bases;
+            if (!hasSuperProngs) superProngs = reqSpec.superProngs;
+            if (!hasEdgeless) edgeless = reqSpec.edgeless;
         }
 
         // Multi-bot batch orchestration path (bot_handles array)
         if (args.contains("bot_handles") && args["bot_handles"].is_array() && !args["bot_handles"].empty()) {
-            if (!_runner.activeChatSenderHandle().empty() && !_runner.activeChatSenderIsOwner()) {
+            if (!hasOwnerPriv) {
                 res["ok"] = false;
                 res["error"] = "Only the robot owner can arrange multi-bot matches via bot_handles";
                 return res.dump(2);
@@ -2774,7 +3148,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             }
 
             nlohmann::json participants = nlohmann::json::array();
+            std::vector<OctiBotRunner *> seatedByBatch;
             bool allOk = true;
+            bool rolledBack = false;
             std::string activeRoomId = roomId;
 
             for (std::size_t i = 0; i < batchRunners.size(); ++i) {
@@ -2800,6 +3176,8 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                         if (err.empty() && activeRoomId.empty()) {
                             err = "Host bot @" + canonHandles[i] + " is not connected/running to create a live room";
                         }
+                    } else {
+                        seatedByBatch.push_back(r);
                     }
                     nlohmann::json p = {
                         {"bot_handle", canonHandles[i]},
@@ -2826,6 +3204,8 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                     ok = r->applyMatchOverride(joinOv, sum, err);
                     if (!ok) {
                         allOk = false;
+                    } else {
+                        seatedByBatch.push_back(r);
                     }
                     nlohmann::json p = {
                         {"bot_handle", canonHandles[i]},
@@ -2839,6 +3219,22 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                 }
             }
 
+            if (!allOk && !seatedByBatch.empty()) {
+                for (auto it = seatedByBatch.rbegin(); it != seatedByBatch.rend(); ++it) {
+                    OctiBotRunner *rb = *it;
+                    if (!rb) {
+                        continue;
+                    }
+                    rb->clearMatchOverride();
+                    if (!activeRoomId.empty() && rb->currentRoomId() == activeRoomId &&
+                        rb->currentPhase() != "IN_PROGRESS") {
+                        std::string rbErr;
+                        rb->leaveRoomById(activeRoomId, rbErr);
+                        rolledBack = true;
+                    }
+                }
+            }
+
             res["ok"] = allOk;
             res["dispatch_mode"] = "in_process_batch";
             res["mode"] = mode;
@@ -2846,6 +3242,9 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             res["super_prongs"] = superProngs;
             res["edgeless"] = edgeless;
             res["room_id"] = activeRoomId;
+            if (rolledBack) {
+                res["rolled_back"] = true;
+            }
             res["participants"] = participants;
             return res.dump(2);
         }
@@ -2868,16 +3267,20 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
         }
 
         // Sender-handle binding for non-owners
-        if (!_runner.activeChatSenderIsOwner() && !_runner.activeChatSenderHandle().empty()) {
-            std::string activeSender = _runner.activeChatSenderHandle();
-            while (!activeSender.empty() && activeSender.front() == '@') activeSender.erase(activeSender.begin());
+        if (!hasOwnerPriv) {
+            std::string cleanActiveSender = activeSender;
+            while (!cleanActiveSender.empty() && cleanActiveSender.front() == '@') {
+                cleanActiveSender.erase(cleanActiveSender.begin());
+            }
 #if !defined(_WIN32)
-            if (::strcasecmp(activeSender.c_str(), playerHandle.c_str()) != 0) {
+            if (cleanActiveSender.empty() || playerHandle.empty() ||
+                ::strcasecmp(cleanActiveSender.c_str(), playerHandle.c_str()) != 0) {
 #else
-            if (::_stricmp(activeSender.c_str(), playerHandle.c_str()) != 0) {
+            if (cleanActiveSender.empty() || playerHandle.empty() ||
+                ::_stricmp(cleanActiveSender.c_str(), playerHandle.c_str()) != 0) {
 #endif
                 res["ok"] = false;
-                res["error"] = "Cannot dispatch match on behalf of another player (mismatch with sender @" + activeSender + ")";
+                res["error"] = "Cannot dispatch match on behalf of another player (mismatch with sender @" + cleanActiveSender + ")";
                 return res.dump(2);
             }
         }
@@ -2927,13 +3330,14 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
             }
         }
 
+        const std::string effectiveSelectRoomId =
+            !roomId.empty() ? roomId : selfRoomId;
+
         if (botHandle.empty() || lowerBot == "auto") {
             const OctiBotRunner *excludeSelf =
-                (!_runner.isLobbyOnly() && !_runner.currentRoomId().empty() &&
-                 !_runner.activeChatSenderHandle().empty())
-                    ? &_runner
-                    : nullptr;
-            botHandle = OctiBotRunner::selectAutoBotHandleForVariant(reqSpec, excludeSelf);
+                isAfterLeaveCandidate ? &_runner : nullptr;
+            botHandle = OctiBotRunner::selectAutoBotHandleForVariant(
+                reqSpec, excludeSelf, effectiveSelectRoomId);
         }
 
         auto targetRunner = OctiBotRunner::findActiveRunnerByHandle(botHandle);
@@ -2951,18 +3355,106 @@ std::string OctiBotMcpServer::callTool(const std::string &name, const std::strin
                 res["error"] = targetVarErr;
                 return res.dump(2);
             }
+            std::string targetResErr;
+            if (!targetRunner->canSelectForMatch(effectiveSelectRoomId) ||
+                !targetRunner->canCommitToMatch(effectiveSelectRoomId, "assist_match", targetResErr)) {
+                res["ok"] = false;
+                res["target_bot"] = botHandle;
+                res["error"] = targetResErr.empty()
+                    ? targetRunner->resourceMaxedDeclineText()
+                    : targetResErr;
+                return res.dump(2);
+            }
         }
 
-        if (!_runner.isLobbyOnly() && !_runner.currentRoomId().empty() &&
-            !_runner.activeChatSenderHandle().empty() && botHandle != _runner.identity().handle) {
+        if (isAfterLeaveCandidate && botHandle != _runner.identity().handle) {
+            const bool willResign = (selfLivePhase == "IN_PROGRESS" && selfLivePlyCount > 0);
+            const bool canLeaveWithoutResign = !willResign;
+
+            if (!hasOwnerPriv) {
+                allowResign = false;
+                std::string cleanSender = _runner.activeChatSenderHandle();
+                while (!cleanSender.empty() && cleanSender.front() == '@') {
+                    cleanSender.erase(cleanSender.begin());
+                }
+                bool senderIsSeated = false;
+                const auto &seatsToCheck = !selfLiveGv.seats.empty()
+                    ? selfLiveGv.seats
+                    : _runner.currentSeats();
+                for (const auto &s : seatsToCheck) {
+                    if (s.handle.size() == cleanSender.size()) {
+                        bool match = true;
+                        for (std::size_t k = 0; k < s.handle.size(); ++k) {
+                            if (std::tolower(static_cast<unsigned char>(s.handle[k])) !=
+                                std::tolower(static_cast<unsigned char>(cleanSender[k]))) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            senderIsSeated = true;
+                            break;
+                        }
+                    }
+                }
+                if (!senderIsSeated) {
+                    res["ok"] = false;
+                    res["dispatch_mode"] = "after_leave";
+                    res["room_id"] = selfRoomId;
+                    res["target_bot"] = botHandle;
+                    res["phase"] = selfLivePhase;
+                    res["ply_count"] = selfLivePlyCount;
+                    res["can_leave_without_resign"] = canLeaveWithoutResign;
+                    res["will_resign"] = willResign;
+                    res["refused_reason"] = "forbidden_not_seated_or_not_owner";
+                    res["error"] = "Only the robot owner or a seated opponent at Ply 0 can switch bots at this table";
+                    return res.dump(2);
+                }
+            }
+
+            if (willResign && !allowResign) {
+                res["ok"] = false;
+                res["dispatch_mode"] = "after_leave";
+                res["room_id"] = selfRoomId;
+                res["target_bot"] = botHandle;
+                res["phase"] = selfLivePhase;
+                res["ply_count"] = selfLivePlyCount;
+                res["can_leave_without_resign"] = false;
+                res["will_resign"] = true;
+                res["refused_reason"] = "in_progress_moves_played";
+                res["error"] = "Cannot stand up and switch bots at ply " +
+                               std::to_string(selfLivePlyCount) +
+                               " without resigning; pass allow_resign=true only if the owner explicitly wants to resign.";
+                return res.dump(2);
+            }
+
+            std::string leaveMode = "finished_leave";
+            if (selfLivePhase == "IN_PROGRESS") {
+                leaveMode = (selfLivePlyCount == 0) ? "ply0_abort" : "resign_and_leave";
+            } else if (selfLivePhase == "WAITING_FOR_PLAYERS") {
+                leaveMode = "waiting_leave";
+            }
+            const std::string statusStr = willResign
+                ? "resigning_and_leaving_immediately_after_reply"
+                : "leaving_table_immediately_after_reply";
+
             _runner.clearMatchOverride();
-            _runner.requestLeaveAfterChat(_runner.currentRoomId(), botHandle);
+            _runner.requestLeaveAfterChat(selfRoomId, botHandle, allowResign);
             res["ok"] = true;
             res["dispatch_mode"] = "after_leave";
+            res["room_id"] = selfRoomId;
             res["target_bot"] = botHandle;
-            res["summary"] = "Standing up from #" + _runner.currentRoomId() +
-                             " immediately after replying and summoning @" + botHandle +
-                             " to play with @" + playerHandle + ".";
+            res["phase"] = selfLivePhase;
+            res["ply_count"] = selfLivePlyCount;
+            res["can_leave_without_resign"] = canLeaveWithoutResign;
+            res["will_resign"] = willResign;
+            res["leave_mode"] = leaveMode;
+            res["status"] = statusStr;
+            res["summary"] = (willResign
+                ? ("Resigning and leaving #" + selfRoomId)
+                : ("Standing up from #" + selfRoomId + " without resigning")) +
+                " immediately after replying and summoning @" + botHandle +
+                " to play with @" + playerHandle + ".";
             return res.dump(2);
         }
 
@@ -3031,7 +3523,7 @@ void OctiBotMcpServer::runStdio(std::istream &in, std::ostream &out) {
     std::string line;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
-        std::string resp = handleJsonRpc(line);
+        std::string resp = handleJsonRpc(line, "2025-03-26", McpCallAuthContext::TrustedDirect);
         if (!resp.empty()) {
             out << resp << "\n";
             out.flush();
@@ -3142,7 +3634,8 @@ void OctiBotMcpServer::registerHttpRoutes() {
     _httpServer->Post("/api/v1/override", [this](const httplib::Request &req, httplib::Response &res) {
         try {
             auto j = nlohmann::json::parse(req.body);
-            std::string out = callTool("octibot_set_match_override", j.dump());
+            std::string out = callTool(
+                "octibot_set_match_override", j.dump(), McpCallAuthContext::TrustedDirect);
             res.set_content(out, "application/json");
         } catch (const std::exception &e) {
             res.status = 400;
@@ -3228,7 +3721,8 @@ void OctiBotMcpServer::registerHttpRoutes() {
             res.set_header("Mcp-Session-Id", sessionId);
         }
 
-        std::string resp = handleJsonRpc(req.body, "2025-03-26");
+        std::string resp = handleJsonRpc(
+            req.body, "2025-03-26", McpCallAuthContext::HttpFromActiveTurn);
         if (resp.empty()) {
             res.status = 202;
             res.body.clear();
@@ -3244,7 +3738,8 @@ void OctiBotMcpServer::registerHttpRoutes() {
 
     _httpServer->Post("/message", [this, setCorsHeaders](const httplib::Request &req, httplib::Response &res) {
         setCorsHeaders(res);
-        std::string resp = handleJsonRpc(req.body, "2024-11-05");
+        std::string resp = handleJsonRpc(
+            req.body, "2024-11-05", McpCallAuthContext::HttpFromActiveTurn);
         if (resp.empty()) {
             res.status = 202;
             res.body.clear();
@@ -3551,6 +4046,44 @@ nlohmann::json OctiBotMcpServer::buildStatusJson() {
         });
     }
     root["conversations"] = convsJson;
+
+    // 6. Runtime Hardware Resource & Admission Status
+    const RunnerResourceStatus rs = _runner.resourceStatusSnapshot();
+    root["resource_status"] = {
+        {"admission_enabled", rs.admissionEnabled},
+        {"admission_maxed_out", rs.admissionMaxedOut},
+        {"autonomous_paused", rs.autonomousPaused},
+        {"oversubscribed", rs.oversubscribed},
+        {"pinning_allowed", rs.pinningAllowed},
+        {"assigned_slot_offset", rs.assignedSlotOffset},
+        {"physical_cores", rs.physicalCores},
+        {"logical_cores", rs.logicalCores},
+        {"cpu_core_budget", rs.cpuCoreBudget},
+        {"used_cpu_cores", rs.usedCpuCores},
+        {"gpu_count", rs.gpuCount},
+        {"gpu_stream_budget", rs.gpuStreamBudget},
+        {"used_gpu_streams", rs.usedGpuStreams},
+        {"gpu_provider", rs.gpuProviderName},
+        {"gpu_device", rs.gpuDeviceName},
+        {"total_ram_mib", rs.totalRamMiB},
+        {"available_ram_mib", rs.availableRamMiB},
+        {"ram_budget_mib", rs.ramBudgetMiB},
+        {"used_ram_mib", rs.usedRamMiB},
+        {"gpu_vram_mib", rs.gpuVramMiB},
+        {"vram_budget_mib", rs.vramBudgetMiB},
+        {"used_vram_mib", rs.usedVramMiB},
+        {"active_table_count", rs.activeTableCount},
+        {"self_requirements", {
+            {"cpu_threads", rs.selfRequirements.cpuThreads},
+            {"uses_gpu", rs.selfRequirements.usesGpu},
+            {"gpu_streams", rs.selfRequirements.gpuStreams},
+            {"static_ram_mib", rs.selfRequirements.staticRamMiB},
+            {"scratch_ram_mib", rs.selfRequirements.scratchRamMiB},
+            {"static_vram_mib", rs.selfRequirements.staticVramMiB},
+            {"scratch_vram_mib", rs.selfRequirements.scratchVramMiB},
+            {"backend_label", rs.selfRequirements.backendLabel}
+        }}
+    };
 
     return root;
 }
@@ -4739,6 +5272,86 @@ input[type="checkbox"].input-control:disabled {
         <input type="checkbox" id="cfg_ai_proactive_commentary" class="input-control">
       </div>
       <div class="field-group">
+        <label>ai_think_mumbling <span class="field-desc">creative LLM thinking mumblings</span></label>
+        <input type="checkbox" id="cfg_ai_think_mumbling" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>mumble_interval_ms <span class="field-desc">thinking mumble cadence (ms)</span></label>
+        <input type="number" id="cfg_mumble_interval_ms" class="input-control" min="1000" max="120000">
+      </div>
+      <div class="field-group">
+        <label>mumble_ceiling_margin_ms <span class="field-desc">suppress mumble near ceiling (ms)</span></label>
+        <input type="number" id="cfg_mumble_ceiling_margin_ms" class="input-control" min="0" max="30000">
+      </div>
+      <div class="field-group">
+        <label>max_mumbles_per_game <span class="field-desc">per-game mumble cap (0=unlimited)</span></label>
+        <input type="number" id="cfg_max_mumbles_per_game" class="input-control" min="0" max="1000">
+      </div>
+      <div class="field-group">
+        <label>max_eval_swing_comments_per_game <span class="field-desc">per-game eval swing cap (0=unlimited)</span></label>
+        <input type="number" id="cfg_max_eval_swing_comments_per_game" class="input-control" min="0" max="100">
+      </div>
+      <div class="field-group">
+        <label>max_proactive_calls_per_hour <span class="field-desc">hourly proactive cap (0=unlimited)</span></label>
+        <input type="number" id="cfg_max_proactive_calls_per_hour" class="input-control" min="0" max="10000">
+      </div>
+      <div class="field-group">
+        <label>proactive_anchor_reserve_pct <span class="field-desc">hourly reserve % for start/over/bye</span></label>
+        <input type="number" id="cfg_proactive_anchor_reserve_pct" class="input-control" min="0" max="50">
+      </div>
+      <div class="field-group">
+        <label>max_chat_replies_per_hour <span class="field-desc">non-owner chat cap/hr (0=unlimited)</span></label>
+        <input type="number" id="cfg_max_chat_replies_per_hour" class="input-control" min="0" max="10000">
+      </div>
+      <div class="field-group">
+        <label>proactive_rate_window_seconds <span class="field-desc">rolling rate window (seconds)</span></label>
+        <input type="number" id="cfg_proactive_rate_window_seconds" class="input-control" min="10" max="86400">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_persistent_table_session <span class="field-desc">table-scoped warm agy stdio process</span></label>
+        <input type="checkbox" id="cfg_ai_cli_persistent_table_session" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_delta_prompts <span class="field-desc">compact delta follow-up prompts</span></label>
+        <input type="checkbox" id="cfg_ai_cli_delta_prompts" class="input-control">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_max_turns <span class="field-desc">persistent session turn rotation cap</span></label>
+        <input type="number" id="cfg_ai_cli_session_max_turns" class="input-control" min="10" max="1000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_startup_timeout_ms <span class="field-desc">persistent init handshake timeout</span></label>
+        <input type="number" id="cfg_ai_cli_session_startup_timeout_ms" class="input-control" min="1000" max="120000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_turn_timeout_ms <span class="field-desc">persistent chat turn timeout</span></label>
+        <input type="number" id="cfg_ai_cli_turn_timeout_ms" class="input-control" min="1000" max="120000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_mumble_timeout_ms <span class="field-desc">persistent mumble turn timeout</span></label>
+        <input type="number" id="cfg_ai_cli_mumble_timeout_ms" class="input-control" min="1000" max="120000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_eof_timeout_ms <span class="field-desc">session stdin EOF grace timeout</span></label>
+        <input type="number" id="cfg_ai_cli_session_eof_timeout_ms" class="input-control" min="100" max="30000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_term_timeout_ms <span class="field-desc">session SIGTERM grace timeout</span></label>
+        <input type="number" id="cfg_ai_cli_session_term_timeout_ms" class="input-control" min="100" max="30000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_respawn_backoff_min_ms <span class="field-desc">min crash respawn backoff (ms)</span></label>
+        <input type="number" id="cfg_ai_cli_session_respawn_backoff_min_ms" class="input-control" min="100" max="60000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_respawn_backoff_max_ms <span class="field-desc">max crash respawn backoff (ms)</span></label>
+        <input type="number" id="cfg_ai_cli_session_respawn_backoff_max_ms" class="input-control" min="1000" max="300000">
+      </div>
+      <div class="field-group">
+        <label>ai_cli_session_stderr_ring_bytes <span class="field-desc">session stderr ring buffer bytes</span></label>
+        <input type="number" id="cfg_ai_cli_session_stderr_ring_bytes" class="input-control" min="1024" max="262144">
+      </div>
+      <div class="field-group">
         <label>max_chat_reply_chunks <span class="field-desc">max split reply chunks (1..5)</span></label>
         <input type="number" id="cfg_max_chat_reply_chunks" class="input-control" min="1" max="5">
       </div>
@@ -5497,7 +6110,8 @@ void OctiBotMcpServer::startAimonBridge() {
                         }
                     } catch (...) {}
 
-                    std::string resp = handleJsonRpc(line);
+                    std::string resp = handleJsonRpc(
+                        line, "2025-03-26", McpCallAuthContext::TrustedDirect);
                     if (!resp.empty()) {
                         resp += "\n";
                         sendAll(sock, resp.c_str(), resp.size());
@@ -5862,6 +6476,66 @@ std::vector<std::string> OctiBotAgentCliLauncher::buildChatCommandArgs(
         }
         args.push_back("-p");
         args.push_back(prompt);
+    }
+
+    return args;
+}
+
+std::vector<std::string> OctiBotAgentCliLauncher::buildPersistentStreamArgs(
+    const std::string &backend,
+    const std::string &executable,
+    int mcpPort,
+    const std::string &model,
+    const std::string &sandboxDir,
+    bool allowControlTools) {
+
+    std::vector<std::string> args;
+    std::string exe = executable.empty() ? backend : normalizeCliExecutableArg(executable);
+#if defined(_WIN32)
+    if (backend == "agy" && (exe.empty() || exe == "agy" || exe.rfind("/home/", 0) == 0)) {
+        const char *localAppData = std::getenv("LOCALAPPDATA");
+        if (localAppData && localAppData[0] != '\0') {
+            std::string candidate = std::string(localAppData) + "/agy/bin/agy.exe";
+            for (char &c : candidate) {
+                if (c == '\\') c = '/';
+            }
+            struct _stat st;
+            if (::_stat(candidate.c_str(), &st) == 0) {
+                exe = candidate;
+            }
+        }
+    }
+#endif
+    args.push_back(exe);
+
+    (void) mcpPort;
+    (void) sandboxDir;
+
+    if (backend == "agy") {
+        args.push_back("--app_data_dir=antigravity-octibot");
+        std::string agyModel = normalizeAgyModelName(model);
+        if (!agyModel.empty()) {
+            args.push_back("--model");
+            args.push_back(agyModel);
+        }
+        args.push_back("--input-format");
+        args.push_back("stream-json");
+        args.push_back("--output-format");
+        args.push_back("stream-json");
+        args.push_back("--sandbox");
+        args.push_back("--disable-slash-commands");
+        args.push_back("--settings");
+        if (allowControlTools) {
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/*)\",\"mcp(octibot_octibot:*)\",\"mcp(octibot/*)\",\"mcp(octibot:*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        } else {
+            args.push_back("{\"allowNonWorkspaceAccess\":false,\"permissions\":{\"allow\":[\"mcp(octibot_octibot/octibot_get_*)\",\"mcp(octibot_octibot/octibot_analyze_position)\",\"mcp(octibot_octibot/octibot_assist_match)\",\"mcp(octibot_octibot/octibot_table_action)\",\"mcp(octibot_octibot/octibot_record_player_feedback)\",\"mcp(octibot_octibot/octibot_repo_*)\",\"mcp(octibot_octibot:octibot_get_*)\",\"mcp(octibot_octibot:octibot_analyze_position)\",\"mcp(octibot_octibot:octibot_assist_match)\",\"mcp(octibot_octibot:octibot_table_action)\",\"mcp(octibot_octibot:octibot_record_player_feedback)\",\"mcp(octibot_octibot:octibot_repo_*)\",\"mcp(octibot/octibot_get_*)\",\"mcp(octibot/octibot_analyze_position)\",\"mcp(octibot/octibot_assist_match)\",\"mcp(octibot/octibot_table_action)\",\"mcp(octibot/octibot_record_player_feedback)\",\"mcp(octibot/octibot_repo_*)\",\"mcp(octibot:octibot_get_*)\",\"mcp(octibot:octibot_analyze_position)\",\"mcp(octibot:octibot_assist_match)\",\"mcp(octibot:octibot_table_action)\",\"mcp(octibot:octibot_record_player_feedback)\",\"mcp(octibot:octibot_repo_*)\"],\"deny\":[\"command(*)\",\"command(regex:[\\\\s\\\\S]*)\",\"read_file(*)\",\"write_file(*)\",\"read_url(*)\",\"mcp(aimon/*)\",\"mcp(aimon:*)\"]}}");
+        }
+        // Strictly place -p "" LAST so --print does not consume --input-format as its prompt
+        args.push_back("-p");
+        args.push_back("");
+    } else {
+        return buildChatCommandArgs(
+            backend, executable, mcpPort, model, "", sandboxDir, allowControlTools);
     }
 
     return args;

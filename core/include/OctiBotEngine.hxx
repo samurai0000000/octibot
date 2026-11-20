@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -289,6 +290,11 @@ public:
 
 class OctiBotEngine {
 public:
+    class SearchThreadAffinityScope {
+    public:
+        virtual ~SearchThreadAffinityScope() = default;
+    };
+
     explicit OctiBotEngine(BotDifficulty difficulty = BotDifficulty::TACTICAL,
                            std::uint64_t rngSeed = 0x5EED2026ULL);
     OctiBotEngine(const OctiBotEngine &other);
@@ -471,6 +477,13 @@ protected:
                                    bool mvIsTactical,
                                    bool mvIsKiller,
                                    int defaultReduction) const;
+
+    virtual int effectiveMaxSearchThreads(int requestedThreads,
+                                          unsigned int hwConcurrency) const;
+
+    virtual std::unique_ptr<SearchThreadAffinityScope> enterSearchThreadAffinity(
+        int threadIdx,
+        int totalThreads) const;
 
     static bool isEnemyHomeSquareFor(OctiSquareType sqType,
                                      OctiGameMode mode,
