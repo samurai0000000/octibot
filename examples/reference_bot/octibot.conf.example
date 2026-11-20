@@ -1,5 +1,5 @@
 # ==============================================================================
-# OCTIBOT - Reference Bot Configuration
+# OCTIBOT - Starter & Reference Bot Configuration
 # Copyright (C) 2026, Charles Chiou
 # ==============================================================================
 
@@ -7,6 +7,9 @@
 server_host = 127.0.0.1
 server_port = 8080
 server_use_ssl = false
+allow_supersede = false          # Set to true (or pass --supersede) to kick an active bot session using the same token
+default_profile = stock
+verbosity = verbose              # verbose (3), info (2), error (1), quiet (0)
 
 # Table & Match Policy
 table_behavior = auto            # Options: auto, join_only, host_only, matchmaking, idle
@@ -19,6 +22,7 @@ accept_takeback = any
 min_initial_time_sec = 0
 max_initial_time_sec = 14400
 min_increment_sec = 0
+# host_variants = 2P_3B, 2P_3B_SP, 2P_3B_ED, 2P_3B_SPED, 2P_1B, 2P_1B_SP, 2P_1B_ED, 2P_1B_SPED, 4P, 4P_SP, 4P_ED, 4P_SPED, OFK
 
 # Social & Opponent Policies
 # friend_list = alice, bob
@@ -35,52 +39,17 @@ max_consecutive_rematches = 5
 claim_forfeit_delay_sec = 10
 min_move_think_ms = 0
 
-# Telemetry
+# Telemetry & Search Chat Announcements
 publish_move_telemetry = false   # Set to true to publish depth/nodes/score in move history
-allow_public_eval_chat = true
+announce_move_search_chat = true # Announce search depth/nodes/score/elapsed in room chat after each move
 
-# Proactive AI Commentary, Thinking Mumblings & Hourly Rate Caps
-ai_proactive_commentary = true
-ai_commentary_eval_swing_threshold = 2500
-ai_commentary_cooldown_plies = 8
-ai_think_mumbling = true         # Emit creative in-character thinking mumblings during >=20s adaptive searches
-mumble_interval_ms = 20000       # In-flight mumbling cadence (20s, 40s); post-move remark on 60s max ceiling
-mumble_ceiling_margin_ms = 2000  # Suppress in-flight milestone within margin of max ceiling (0 = no buffer)
-max_mumbles_per_game = 10        # Per-game mumble cap across in-flight + post-move mumbles (0 = unlimited)
-max_eval_swing_comments_per_game = 4 # Per-game eval_swing comment cap (0 = unlimited)
-max_proactive_calls_per_hour = 60    # Rolling hourly proactive LLM call cap (0 = unlimited)
-proactive_anchor_reserve_pct = 15    # Percentage [0..50] of hourly proactive budget reserved for game_start/game_over/goodbye
-max_chat_replies_per_hour = 120      # Rolling hourly untrusted non-owner chat reply cap (0 = unlimited; owner exempt)
-proactive_rate_window_seconds = 3600 # Rolling rate-limiter window duration in seconds
-
-# Aimon MCP Gateway Bridge
-aimon_enabled = true
-aimon_host = 127.0.0.1
-aimon_port = 3883
-aimon_gateway_port = 3885
-expose_mcp_tools = true
-default_profile = stock
-
-# Optional Managed Agent CLI Supervisor (disabled by default)
-# ai_cli_backend = none          # none, agy, claude, cursor-agent
-# ai_cli_executable = agy
-# ai_cli_model = Gemini 3.8 Flash (Low)
-# ai_cli_interactive = false
-# ai_cli_persistent_table_session = true  # Table-scoped persistent agy stream-json process (0 MiB idle; pre-warmed on human join/observe)
-# ai_cli_delta_prompts = true             # Omit repeated bootstrap/legend blocks on Turn 2+ while preserving <UNTRUSTED_NETWORK_DATA>
-# ai_cli_session_max_turns = 120          # Rotate persistent table session after N turns
-# ai_cli_session_startup_timeout_ms = 15000
-# ai_cli_turn_timeout_ms = 45000
-# ai_cli_mumble_timeout_ms = 15000
-# ai_cli_session_eof_timeout_ms = 2000
-# ai_cli_session_term_timeout_ms = 1000
-# ai_cli_session_respawn_backoff_min_ms = 1000
-# ai_cli_session_respawn_backoff_max_ms = 30000
-# ai_cli_session_stderr_ring_bytes = 16384
+# Post-Game Linger & Goodbye
+post_game_linger_sec = 60
+chat_goodbye = Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!
 
 # Optional Variant-Specific & Tactical Search Tuning Defaults (inherited by all slim [profiles])
 # Define shared search/evaluation/variant weights once at global scope so multi-bot
-# [profile] sections stay slim and only override identity, port, or hosted variant:
+# [profile] sections stay slim and only override identity or hosted variant:
 # composite_tactical_only_min_ply = 0
 # qsearch_include_base_threat_prongs = false
 # fix_stack_and_home_eval_mirage = false

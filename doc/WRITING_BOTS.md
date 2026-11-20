@@ -20,10 +20,10 @@ The repository is divided into three clean layers:
                                    v
 +-----------------------------------------------------------------------+
 | octibot_sdk (sdk/include/*.hxx)                                       |
-|  - OctiBotRunner: SSE event loop, turn dispatch, reconnect & lease    |
+|  - OctiBotRunner & OctiBotFleetRunner: SSE loop, turns, lease & fleet |
 |  - OctiBotPolicyEngine: table hosting/joining, draw/undo/rematch      |
 |  - OctiBotConfigStore: INI profile & tokens.conf resolution           |
-|  - OctiBotMcpServer: Embedded Web Dashboard (:3888) & MCP server      |
+|  - OctiBotAgent & StockAlphaBetaAgent: agent interface & stock engine |
 +-----------------------------------------------------------------------+
                                    |
                                    v
@@ -50,7 +50,7 @@ namespace octi {
 
 struct BotIdentity {
     std::string robotUuid;
-    std::string handle;       // Registered Robot Name (e.g. "my_bot")
+    std::string handle;       // Registered Robot Name (e.g. "stock")
     std::string description;  // Registered Robot Description
     std::string ownerUuid;
     std::string ownerHandle;
@@ -67,21 +67,9 @@ struct BotMoveTelemetry {
     int evalScore = 0;
     std::int64_t elapsedMs = 0;
     bool present = false;
-};
-
-struct AgentPromptRequest {
-    std::string kind;            // "chat_lobby", "chat_game", "game_start", "game_over", "goodbye", "eval_swing"
-    std::string roomId;
-    std::string senderHandle;    // chat sender or opponent for events
-    bool senderIsOwner = false;
-    std::vector<GameSeatInfo> seats;
-    int mySeat = 0;
-};
-
-struct AgentPromptAddition {
-    std::string guidance;        // trusted text from agent code, placed before <UNTRUSTED_NETWORK_DATA>
-    std::string contextLines;    // placed inside <UNTRUSTED_NETWORK_DATA>, after "Live Context"
-    bool suppress = false;       // proactive events only: skip this dispatch
+    bool adaptiveExtended = false;
+    bool hitAdaptiveMaxBudget = false;
+    std::int64_t adaptiveMaxBudgetMs = 0;
 };
 
 class OctiBotAgent {
@@ -91,7 +79,7 @@ public:
     // Called once at startup and whenever configuration is hot-reloaded
     virtual void onConfigure(const OctiBotConfigStore &config) {}
 
-    // Called after POST /api/v1/robot/connect succeeds
+    // Called after POST /api/v1/robots/connect succeeds
     virtual void onConnected(const BotIdentity &identity) {}
 
     // Called when a lobby chat message arrives; set outReply to respond
@@ -122,18 +110,19 @@ public:
     // Called when a match concludes (FINISHED / GAME_OVER / ABANDONED)
     virtual void onGameOver(const GameViewData &game, int mySeat) {}
 
-    // Optional hook (H1): contribute trusted guidance or live context lines to AI CLI prompts,
-    // or set suppress=true to skip a proactive commentary event.
-    virtual AgentPromptAddition onBuildPrompt(const AgentPromptRequest &req) {
-        (void) req;
-        return {};
+    // Return false (and populate outUnsupportedReason) if the agent only plays specific variants
+    virtual bool supportsVariant(const OctiVariantSpec &spec,
+                                 std::string &outUnsupportedReason) const {
+        (void) spec;
+        outUnsupportedReason.clear();
+        return true;
     }
 };
 
 } // namespace octi
 ```
 
-Subclasses of `octi::StockAlphaBetaAgent` can also adjust per-move or per-match search parameters (such as `timeBudgetMs`, `maxSearchDepth`, or `useOpeningBook`) before delegating to `StockAlphaBetaAgent::computeMove(...)` via the protected `BotTuningProfile &mutableProfile()` accessor (hook H3).
+Subclasses of `octi::StockAlphaBetaAgent` can also adjust per-move or per-match search parameters (such as `timeBudgetMs`, `maxSearchDepth`, or `useOpeningBook`) before delegating to `StockAlphaBetaAgent::computeMove(...)` via the protected `BotTuningProfile &mutableProfile()` accessor.
 
 ---
 
@@ -241,19 +230,19 @@ if (outTelemetry) {
 }
 ```
 
-`OctiBotRunner` automatically performs three actions after submitting your move:
+`OctiBotRunner` automatically performs two actions after submitting your move:
 
 1. **Table Chat Broadcast (`announce_move_search_chat = true`)**:
-   Posts a live search status line to the game room chat (`POST /api/v1/game/{room_id}/chat` with `"scope": "ALL"`):
+   Posts a live search status line to the game room chat (`POST /api/v1/games/{room_id}/chat` with `"scope": "ALL"`):
    ```text
    depth=8 | nodes=581440 | eval_score=16 | elapsed=10001ms
    ```
 2. **Permanent `.octi` Archive Telemetry (`publish_move_telemetry = true`)**:
-   Includes your telemetry object in the move submission (`POST /api/v1/game/{room_id}/move`):
+   Includes your telemetry object in the move submission (`POST /api/v1/games/{room_id}/moves`):
    ```json
    {
      "move": "32+a",
-     "telemetry": {
+     "ai": {
        "depth": 8,
        "nodes": 581440,
        "score": 16,
@@ -262,8 +251,6 @@ if (outTelemetry) {
    }
    ```
    This metadata is stored permanently in the server's `.octi` v3.0 game transcript (`aiDepthReached`, `aiNodesVisited`, `aiBestScore`, `elapsedMs`) so anyone reviewing the archived match can analyze your bot's evaluation curve ply by ply.
-3. **Interactive Chat Queries (`allow_public_eval_chat = true`)**:
-   Human players or spectators in the room can type `@<your_bot> eval` or `@<your_bot> status` in chat, and `OctiBotRunner` will reply with your bot's latest search telemetry and W-L-D record.
 
 ### 4.2 Custom Interactive Diagnostics via `onGameChat`
 
@@ -285,9 +272,9 @@ void onGameChat(const std::string &senderHandle,
 
 ## 5. Step-by-Step Example: Creating & Registering a Custom C++ Agent
 
-You can either modify `examples/minimal_bot/Main.cxx` directly or register a new named algorithm in `OctiBotAgentRegistry` so it can be selected via `algorithm = my_custom_algo` in `octibot.conf`.
+You can either modify `examples/reference_bot/Main.cxx` directly or register a new named algorithm in `OctiBotAgentRegistry` so it can be selected via `algorithm = my_custom_negamax` in `octibot.conf`.
 
-### Example (`examples/minimal_bot/Main.cxx` or your own source file)
+### Example (`examples/reference_bot/Main.cxx` or your own source file)
 
 ```cpp
 #include <chrono>
@@ -316,6 +303,8 @@ public:
     void onGameStarted(const GameViewData &game,
                        int mySeat,
                        std::string &outGreetingChat) override {
+        (void) game;
+        (void) mySeat;
         outGreetingChat = "Hello! Running MyCustomNegamaxAgent (max_depth=" +
                           std::to_string(_maxDepth) + "). Good luck!";
     }
@@ -494,14 +483,14 @@ Even when writing a brand-new search algorithm (such as MCTS, Proof-Number Searc
 | `OctiBotEngine::computePositionHashStatic(board)` | Deterministic 64-bit Zobrist hash of board pods, prongs, reserves, and turn for transposition tables |
 | `OctiBotEngine::computeCanonicalOpeningHash(board, &mirrored)` | Horizontal-symmetry canonical Zobrist hash for opening book lookups |
 | `OctiBotEngine::mirrorMoveNotation(moveStr, width)` | Mirrors a move string across the vertical board axis (`x' = width - 1 - x`) |
-| `OctiBotEngine::evaluatePosition(board, perspective, profile)` | Full 46-parameter static heuristic evaluation in centipawn-like units |
+| `OctiBotEngine::evaluatePosition(board, perspective, profile)` | Full static heuristic evaluation in centipawn-like units |
 | `OctiBotEngine::probeOpeningBookTable(...)` | Probes a sorted `OpeningBookEntry[]` table with temperature-weighted candidate selection |
 
 ---
 
 ## 7. Porting External Engines & Non-C++ Algorithms
 
-If your algorithm is written in **Python (PyTorch / JAX)**, **Rust**, **Go**, or **Java**, you have four clean integration paths:
+If your algorithm is written in **Python (PyTorch / JAX)**, **Rust**, **Go**, or **Java**, you have three clean integration paths:
 
 ### Option A — Subprocess / Pipe Bridge inside `OctiBotAgent`
 
@@ -514,18 +503,6 @@ Keep `octibot` as your connection, rules validation, and legal move generator wr
 
 Link your C++ `OctiBotAgent` against **ONNX Runtime** or **LibTorch** in `CMakeLists.txt` and evaluate board feature tensors directly inside your search loop.
 
-### Option C — Centaur / MCP External Agent Mode (`move_control = agent`)
-
-Set `algorithm = centaur_mcp`, `move_control = agent`, and `expose_mcp_tools = true` (with `mcp_port = 3888`) in `octibot.conf`.
-Your external AI agent or script can then drive the robot over HTTP JSON-RPC 2.0 (`POST http://127.0.0.1:3888/mcp`) using the 9 built-in MCP tools:
-- `octibot_wait_for_event` (wakes immediately on `BOT_TURN`, `CHAT_MENTION`, `PROPOSAL`, or `GAME_OVER`)
-- `octibot_get_game_state` (returns FEN, ASCII board, legal moves, and clocks)
-- `octibot_analyze_position` (runs `OctiBotEngine` search to assist your agent)
-- `octibot_game_action` (submits the chosen move or accepts/declines proposals)
-- `octibot_send_chat` (posts messages or commentary to lobby/table chat)
-
-Custom bots can also register additional MCP tools on `OctiBotMcpServer` at runtime using `OctiBotMcpServer::registerExtensionTool(descriptor, handler, errorOut)` (hook H2). Each descriptor must be a JSON object with non-empty `name`, `description`, and object `inputSchema` that does not collide with built-in or previously registered tools; registered tools are automatically appended to `buildToolsListJson()` (`tools/list`) and dispatched by `callTool(...)` (`tools/call`).
-
-### Option D — Pure Wire-Protocol Client in Any Language
+### Option C — Pure Wire-Protocol Client in Any Language
 
 If you want to write a 100% standalone client in Python, Rust, TypeScript, or Go without C++, implement the REST + Server-Sent Events (SSE) endpoints documented in **[`doc/ROBOT_PROTOCOL.md`](ROBOT_PROTOCOL.md)**.

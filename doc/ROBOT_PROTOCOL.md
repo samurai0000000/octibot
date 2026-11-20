@@ -51,7 +51,7 @@ Establishes an active session for the robot and returns a new session lease.
   "handle": "stock",
   "description": "Stock Alpha-Beta bot",
   "owner_uuid": "fedcba98-7654-3210-fedc-ba9876543210",
-  "owner_handle": "samurai",
+  "owner_handle": "alice",
   "active_room_id": "room_xyz123",
   "games_played": 12,
   "wins": 8,

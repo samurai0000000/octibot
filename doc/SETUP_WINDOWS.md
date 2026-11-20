@@ -12,7 +12,7 @@ On Windows, OCTIBOT compiles cleanly with zero external library dependencies: HT
 
 1. **Visual Studio 2022 or 2026** (Community, Professional, Enterprise, or **Build Tools for Visual Studio**)
    - During installation in the **Visual Studio Installer**, select the **"Desktop development with C++"** workload (includes the MSVC v143/v145 C++17 compiler and Windows 10/11 SDK).
-2. **CMake** (`>= 3.20`)
+2. **CMake** (`>= 3.16`)
    - Included with the Visual Studio C++ workload, or installable via Winget (`winget install Kitware.CMake`) or from [cmake.org](https://cmake.org/download/).
 3. **Git for Windows**
    - Install via Winget (`winget install Git.Git`) or from [git-scm.com](https://git-scm.com/download/win).
@@ -59,14 +59,13 @@ cmake --build build --config Release --parallel
 
 > **Note:** CMake automatically detects your installed Visual Studio version (`Visual Studio 17 2022` or `Visual Studio 18 2026`) and targets `x64` by default.
 
-### Compiled Executables
+### Compiled Executable
 
-Once compilation finishes, the Windows executables are located at:
+Once compilation finishes, the Windows executable is located at:
 
 | Binary Path | Description |
 | :--- | :--- |
-| `build\Release\octibot.exe` | Full-featured reference robot daemon (`StockAlphaBetaAgent`, 46 tunable parameters, opening book, multi-profile fleet runner, embedded Web Dashboard at `http://localhost:3888`, and Centaur MCP server) |
-| `build\Release\octibot-minimal.exe` | Lightweight starter robot (`MinimalStarterAgent`) with zero MCP/web dependencies—ideal as a clean starting point for custom C++ bots |
+| `build\Release\octibot.exe` | Standard starter & reference robot daemon (`StockAlphaBetaAgent`, 85 tunable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner`) |
 
 ---
 
@@ -94,8 +93,8 @@ Create the directory and write `%APPDATA%\OCTIBOT\tokens.conf` in PowerShell:
 New-Item -ItemType Directory -Force -Path "$env:APPDATA\OCTIBOT" | Out-Null
 
 @"
-# Format: <robot_handle> = <octi_bot_token>
-my_win_bot = octi_bot_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# Format: bot_token_<robot_handle> = <octi_bot_token>
+bot_token_my_win_bot = octi_bot_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 "@ | Set-Content -Encoding UTF8 "$env:APPDATA\OCTIBOT\tokens.conf"
 ```
 
@@ -123,22 +122,27 @@ server_use_ssl = true
 # Default profile to run when --profile is not specified on the CLI
 default_profile = my_win_bot
 
-# Verbosity: 0=quiet, 1=error, 2=info, 3=debug
-verbosity = 2
+# Verbosity: 0=quiet, 1=error, 2=info, 3=verbose
+verbosity = info
 
 # ==============================================================================
 # 2. Table & Matchmaking Behavior
 # ==============================================================================
-# Options: host_only | join_waiting | matchmake | host_or_join | passive
-table_behavior = host_or_join
-preferred_modes = 2P
-preferred_bases = 3
-preferred_super_prongs = false
-preferred_edgeless = false
-preferred_time_control = true
-preferred_initial_ms = 600000
-preferred_increment_ms = 5000
-allow_robots_on_hosted_table = true
+# Options: auto | join_only | host_only | matchmaking | idle
+table_behavior = auto
+accept_modes = 2P, 4P, OFK
+accept_bases = any
+accept_super_prongs = any
+accept_edgeless = any
+accept_time_control = any
+host_mode = 2P
+host_bases = 3
+host_super_prongs = false
+host_edgeless = false
+host_time_control_enabled = true
+host_initial_ms = 600000
+host_increment_ms = 5000
+host_allow_robots = true
 
 # ==============================================================================
 # 3. Search State Announcements & Move Telemetry
@@ -151,23 +155,16 @@ announce_move_search_chat = true
 # submissions so it is permanently recorded in the .octi game archive:
 publish_move_telemetry = true
 
-# Allow human players to query "@<bot_handle> eval" or "status" in chat:
-allow_public_eval_chat = true
-
 # ==============================================================================
 # 4. Robot Profile Definition
 # ==============================================================================
-[profile.my_win_bot]
+[my_win_bot]
 robot_name = my_win_bot
-bot_token = auto
 algorithm = alpha_beta
-difficulty = 3
 time_budget_ms = 10000
 max_search_depth = 64
 lazy_smp_threads = 2
 use_opening_book = true
-web_port = 3888
-web_bind = 127.0.0.1
 ```
 
 ---
@@ -187,46 +184,32 @@ Or specify explicit paths to `octibot.conf` and `tokens.conf`:
 ```powershell
 .\build\Release\octibot.exe `
     --config "$env:APPDATA\OCTIBOT\octibot.conf" `
-    --tokens "$env:APPDATA\OCTIBOT\tokens.conf" `
+    --tokens-file "$env:APPDATA\OCTIBOT\tokens.conf" `
     --profile my_win_bot
 ```
 
 Expected console output:
 
 ```text
-OCTIBOT v1.1.0 (config=C:\Users\user\AppData\Roaming\OCTIBOT\octibot.conf, tokens=C:\Users\user\AppData\Roaming\OCTIBOT\tokens.conf)
-[2026-11-05 11:05:10] [my_win_bot] Connected to octi.selfso.com:443 as @my_win_bot (owner: @your_handle, record: 0W-0L-0D)
-[2026-11-05 11:05:11] [my_win_bot] Hosted new 2P table Room #1048 (3 bases, 10+5 clock, allow_robots=true)
+OCTIBOT v1.3.0 (config=C:\Users\user\AppData\Roaming\OCTIBOT\octibot.conf, tokens=C:\Users\user\AppData\Roaming\OCTIBOT\tokens.conf)
+[my_win_bot] Connecting to server octi.selfso.com:443...
+[my_win_bot] Authenticated robot @my_win_bot (uuid=..., owner=@your_handle, record=0W/0L/0D)
 ```
 
-### 6.2 Run the Minimal Starter Bot (`octibot-minimal.exe`)
+### 6.2 Run Multiple Profiles or Clones Concurrently
 
-```powershell
-.\build\Release\octibot-minimal.exe --profile minimal
-```
-
-### 6.3 Run Multiple Profiles or Clones Concurrently
-
-You can run multiple distinct robot profiles (e.g., comparing three different evaluation functions or neural network variants simultaneously) in one process or separate PowerShell windows:
+You can run multiple distinct robot profiles (e.g., comparing three different evaluation functions or search configurations simultaneously) in one process or separate PowerShell windows:
 
 ```powershell
 # Run multiple named profiles in one process:
-.\build\Release\octibot.exe --profiles bot_v1,bot_v2,bot_v3
+.\build\Release\octibot.exe --profiles stock,bot_fast,bot_deep
 
-# Or run all [profile.*] sections defined in octibot.conf:
+# Or run all [profile] sections defined in octibot.conf:
 .\build\Release\octibot.exe --all-profiles
 
 # Spawn 3 concurrent clones of a profile using 3 tokens from tokens.conf:
 .\build\Release\octibot.exe --profile my_win_bot --instances 3
 ```
-
-### 6.4 Inspecting the Embedded Web Dashboard
-
-While `octibot.exe` is running with `web_port = 3888`, open **`http://localhost:3888/`** in Edge, Chrome, or Firefox to inspect:
-- Live board visualization, room ID, seat, and player clocks
-- Real-time search depth, node count, and evaluation score
-- Rolling 50-move telemetry log and 5,000-line console log buffer
-- Live configuration tuning without restarting the binary
 
 To stop the bot cleanly and release its token lease on `octi.selfso.com`, press **`Ctrl+C`** in the PowerShell window.
 

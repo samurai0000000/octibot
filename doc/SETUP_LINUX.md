@@ -30,7 +30,7 @@ sudo apt install -y \
 
 | Package | Purpose |
 | :--- | :--- |
-| `build-essential`, `g++`, `cmake`, `pkg-config` | C++17 compiler (`g++ >= 11`), CMake (`>= 3.20`), and build system |
+| `build-essential`, `g++`, `cmake`, `pkg-config` | C++17 compiler (`g++ >= 11`), CMake (`>= 3.16`), and build system |
 | `git` | Cloning the `octibot` repository and submodules |
 | `libssl-dev` | OpenSSL TLS client support (`OCTI_HAS_OPENSSL`) for `https://octi.selfso.com:443` |
 | `zlib1g-dev`, `libpng-dev`, `libsqlite3-dev` | Core engine serialization and transcript utilities |
@@ -40,7 +40,7 @@ sudo apt install -y \
 
 ## 2. Cloning the Repository
 
-Clone the repository and initialize its `third_party/` submodules (`nlohmann_json`, `httplib`, `antimatter`):
+Clone the repository and initialize its `third_party/` submodules (`json`, `cpp-httplib`):
 
 ```bash
 mkdir -p ~/work
@@ -61,18 +61,17 @@ git submodule update --init --recursive
 
 The top-level `Makefile` wraps CMake and automatically parallelizes compilation across all available CPU cores.
 
-### Build Release Binaries
+### Build Release Binary
 
 ```bash
 make all
 ```
 
-This produces two main executables in `build/`:
+This produces the standard starter and reference robot executable in `build/`:
 
 | Binary Path | Description |
 | :--- | :--- |
-| `build/octibot` | Full-featured reference robot daemon with alpha-beta engine (`StockAlphaBetaAgent`), 46 tunable parameters, opening book, multi-profile fleet runner, embedded Web Dashboard (`http://localhost:3888`), and Centaur MCP server |
-| `build/octibot-minimal` | Lightweight starter robot (`MinimalStarterAgent`) with zero MCP/web dependencies—ideal as a clean template for custom bots |
+| `build/octibot` | Standard starter & reference robot daemon with alpha-beta engine (`StockAlphaBetaAgent`), 85 tunable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner` |
 
 ### Run the Verification Test Suite (Optional)
 
@@ -111,8 +110,8 @@ By default on Linux, `octibot` reads tokens from `~/.config/octibot/tokens.conf`
 ```bash
 mkdir -p -m 0700 ~/.config/octibot
 cat > ~/.config/octibot/tokens.conf << 'EOF'
-# Format: <robot_handle> = <octi_bot_token>
-my_alpha_bot = octi_bot_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# Format: bot_token_<robot_handle> = <octi_bot_token>
+bot_token_my_alpha_bot = octi_bot_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 EOF
 chmod 0600 ~/.config/octibot/tokens.conf
 ```
@@ -137,28 +136,30 @@ server_host = octi.selfso.com
 server_port = 443
 server_use_ssl = true
 
-# Path to tokens.conf mapping <robot_name> = <octi_bot_token>
-tokens_file = ~/.config/octibot/tokens.conf
-
 # Default profile to run when --profile is not specified on the CLI
 default_profile = my_alpha_bot
 
-# Verbosity: 0=quiet, 1=error, 2=info, 3=debug
-verbosity = 2
+# Verbosity: 0=quiet, 1=error, 2=info, 3=verbose
+verbosity = info
 
 # ==============================================================================
 # 2. Table & Matchmaking Behavior
 # ==============================================================================
-# Options: host_only | join_waiting | matchmake | host_or_join | passive
-table_behavior = host_or_join
-preferred_modes = 2P
-preferred_bases = 3
-preferred_super_prongs = false
-preferred_edgeless = false
-preferred_time_control = true
-preferred_initial_ms = 600000
-preferred_increment_ms = 5000
-allow_robots_on_hosted_table = true
+# Options: auto | join_only | host_only | matchmaking | idle
+table_behavior = auto
+accept_modes = 2P, 4P, OFK
+accept_bases = any
+accept_super_prongs = any
+accept_edgeless = any
+accept_time_control = any
+host_mode = 2P
+host_bases = 3
+host_super_prongs = false
+host_edgeless = false
+host_time_control_enabled = true
+host_initial_ms = 600000
+host_increment_ms = 5000
+host_allow_robots = true
 
 # ==============================================================================
 # 3. Search State Announcements & Move Telemetry
@@ -171,36 +172,29 @@ announce_move_search_chat = true
 # submissions so it is permanently recorded in the .octi game archive:
 publish_move_telemetry = true
 
-# Allow human players to query "@<bot_handle> eval" or "status" in chat:
-allow_public_eval_chat = true
-
 # ==============================================================================
 # 4. Robot Profile Definition
 # ==============================================================================
-[profile.my_alpha_bot]
+[my_alpha_bot]
 robot_name = my_alpha_bot
-bot_token = auto
 algorithm = alpha_beta
-difficulty = 3
 time_budget_ms = 10000
 max_search_depth = 64
 lazy_smp_threads = 2
 use_opening_book = true
-web_port = 3888
-web_bind = 127.0.0.1
 ```
 
 ### Key Configuration Options
 
-- **`bot_token = auto`**: Automatically looks up `robot_name` in `~/.config/octibot/tokens.conf`. You can also paste an explicit `octi_bot_...` token directly.
+- **`robot_name`** & **`tokens.conf`**: `octibot` automatically resolves `bot_token_<robot_name>` from `~/.config/octibot/tokens.conf` (or you can set `bot_token = octi_bot_...` directly, or `bot_token = auto` to claim the first unused token from the pool).
 - **`table_behavior`**:
-  - `host_or_join` *(recommended)*: Joins any compatible waiting table in the lobby, or hosts a new table if none is available.
-  - `host_only`: Immediately creates a waiting table matching `preferred_modes`, `preferred_bases`, and `preferred_time_control`, and re-hosts after each game finishes.
-  - `join_waiting`: Scans the lobby and joins compatible waiting tables that allow robots (`allow_robots = true`).
-  - `matchmake`: Enters the automated matchmaking queue with `allow_robots = true`.
-  - `passive`: Idles in the lobby until invited or directed via chat (`@my_alpha_bot join <room_id>` or `@my_alpha_bot host 2P`).
+  - `auto` *(recommended)*: Joins any compatible waiting table in the lobby, or hosts a new table if none is available.
+  - `host_only`: Immediately creates a waiting table matching `host_mode`, `host_bases`, and `host_time_control_enabled` (or cycles through `host_variants`), and re-hosts after each game finishes.
+  - `join_only`: Scans the lobby and joins compatible waiting tables that allow robots (`allow_robots = true`).
+  - `matchmaking`: Enters the automated matchmaking queue with `allow_robots = true`.
+  - `idle`: Connects to the lobby without autonomously joining or hosting tables.
 - **`announce_move_search_chat = true`**: After each move, posts a concise summary of the search state (`depth=8 | nodes=581440 | eval_score=16 | elapsed=10001ms`) to the game room chat so opponents and spectators can follow your algorithm's thinking in real time.
-- **`publish_move_telemetry = true`**: Embeds `{"telemetry": {"depth", "nodes", "score", "elapsed_ms"}}` into the `POST /api/v1/game/{room_id}/move` payload, storing your algorithm's per-ply statistics in the `.octi` transcript archive.
+- **`publish_move_telemetry = true`**: Embeds `{"ai": {"depth", "nodes", "score", "elapsed_ms"}}` into the `POST /api/v1/games/{room_id}/moves` payload, storing your algorithm's per-ply statistics in the `.octi` transcript archive.
 
 ---
 
@@ -211,7 +205,7 @@ web_bind = 127.0.0.1
 ```bash
 ./build/octibot \
     --config ~/.config/octibot/octibot.conf \
-    --tokens ~/.config/octibot/tokens.conf \
+    --tokens-file ~/.config/octibot/tokens.conf \
     --profile my_alpha_bot
 ```
 
@@ -224,46 +218,27 @@ Since `~/.config/octibot/octibot.conf` and `~/.config/octibot/tokens.conf` are t
 Expected console output upon connecting:
 
 ```text
-OCTIBOT v1.1.0 (config=/home/user/.config/octibot/octibot.conf, tokens=/home/user/.config/octibot/tokens.conf)
-[2026-11-05 11:00:01] [my_alpha_bot] Connected to octi.selfso.com:443 as @my_alpha_bot (owner: @your_handle, record: 0W-0L-0D)
-[2026-11-05 11:00:02] [my_alpha_bot] Hosted new 2P table Room #1042 (3 bases, 10+5 clock, allow_robots=true)
+OCTIBOT v1.3.0 (config=/home/user/.config/octibot/octibot.conf, tokens=/home/user/.config/octibot/tokens.conf)
+[my_alpha_bot] Connecting to server octi.selfso.com:443...
+[my_alpha_bot] Authenticated robot @my_alpha_bot (uuid=..., owner=@your_handle, record=0W/0L/0D)
 ```
 
-### 6.2 Run the Minimal Starter Bot (`octibot-minimal`)
-
-If you are developing your own algorithm inside `examples/minimal_bot/` (or registered as `minimal_starter`):
-
-```bash
-./build/octibot-minimal \
-    --config ~/.config/octibot/octibot.conf \
-    --tokens ~/.config/octibot/tokens.conf \
-    --profile minimal
-```
-
-### 6.3 Multi-Profile Fleet & Clone Execution
+### 6.2 Multi-Profile Fleet & Clone Execution
 
 You can run multiple distinct robot profiles—or multiple concurrent clones of a profile using a pool of tokens—inside a single `octibot` process:
 
 ```bash
 # Run specific named profiles concurrently:
-./build/octibot --profiles fast_bot,deep_bot,experimental_bot
+./build/octibot --profiles stock,bot_fast,bot_deep
 
-# Run all [profile.*] sections defined in octibot.conf:
+# Run all [profile] sections defined in octibot.conf:
 ./build/octibot --all-profiles
 
 # Spawn 4 concurrent instances of a profile (claims 4 unused tokens from tokens.conf):
 ./build/octibot --profile my_alpha_bot --instances 4
 ```
 
-### 6.4 Inspecting the Embedded Web Dashboard
-
-When running `build/octibot` with `web_port = 3888`, open **`http://localhost:3888/`** in your browser to view:
-- Live ASCII/board state, active room ID, seat assignment, and remaining clock
-- Real-time iterative deepening search progress (`depth`, `nodes`, `live_score`)
-- Rolling 50-move telemetry log and 5,000-line stdout console ring buffer
-- Hot-reloadable configuration parameters (adjust `time_budget_ms`, `table_behavior`, or heuristic weights on the fly)
-
-### 6.5 Running Persistently in the Background (`screen` or `systemd`)
+### 6.3 Running Persistently in the Background (`screen` or `systemd`)
 
 To keep your robot connected on a headless Linux server or workstation:
 

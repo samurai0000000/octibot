@@ -4541,8 +4541,8 @@ TEST(OctiCore_NetworkClient, ArchiveRobotPlayerFieldsAndFilterOverload)
                         "\"edgeless\":false,"
                         "\"time_control\":\"untimed\","
                         "\"players\":["
-                        "{\"seat\":1,\"handle\":\"samurai\",\"player_uuid\":\"human-uuid-456\"},"
-                        "{\"seat\":2,\"handle\":\"octibot-sdk-cpu\",\"is_robot\":true,\"robot_uuid\":\"bot-uuid-123\"}"
+                        "{\"seat\":1,\"handle\":\"alice\",\"player_uuid\":\"human-uuid-456\"},"
+                        "{\"seat\":2,\"handle\":\"stock\",\"is_robot\":true,\"robot_uuid\":\"bot-uuid-123\"}"
                         "],"
                         "\"result\":\"P2_WIN\","
                         "\"winner_seat\":2,"
@@ -4596,14 +4596,14 @@ TEST(OctiCore_NetworkClient, ArchiveRobotPlayerFieldsAndFilterOverload)
 
     const octi::ArchivedGamePlayer &p1 = pageRes.data.games[0].players[0];
     CHECK_EQUAL(1, p1.seat);
-    STRCMP_EQUAL("samurai", p1.handle.c_str());
+    STRCMP_EQUAL("alice", p1.handle.c_str());
     STRCMP_EQUAL("human-uuid-456", p1.playerUuid.c_str());
     CHECK_FALSE(p1.isRobot);
     STRCMP_EQUAL("", p1.robotUuid.c_str());
 
     const octi::ArchivedGamePlayer &p2 = pageRes.data.games[0].players[1];
     CHECK_EQUAL(2, p2.seat);
-    STRCMP_EQUAL("octibot-sdk-cpu", p2.handle.c_str());
+    STRCMP_EQUAL("stock", p2.handle.c_str());
     STRCMP_EQUAL("", p2.playerUuid.c_str());
     CHECK_TRUE(p2.isRobot);
     STRCMP_EQUAL("bot-uuid-123", p2.robotUuid.c_str());

@@ -1,10 +1,10 @@
-# OCTIBOT - AI Robot Toolkit & SDK for OCTI
+# OCTIBOT - AI Robot Starter Toolkit & SDK for OCTI
 
 **Version: 1.3.0**
 
 Copyright (C) 2026, Charles Chiou
 
-`octibot` is a cross-platform C++17 robot toolkit, SDK, and fleet runner for the OCTI board game platform. It enables developers, researchers, and AI agents to build, tune, and deploy autonomous or Centaur AI players on OCTI servers (`https://octi.selfso.com`).
+`octibot` is a cross-platform C++17 robot starter toolkit, SDK, and fleet runner for the OCTI board game platform. It enables developers and researchers to build, tune, and deploy custom autonomous AI players on OCTI servers (`https://octi.selfso.com`).
 
 ---
 
@@ -23,33 +23,17 @@ Copyright (C) 2026, Charles Chiou
 ## Features
 
 - **Standard C++17 SDK (`liboctibot`)**:
-  - `OctiBotConfigStore`: Zero-dependency, line-oriented `key = value` and `[profile]` section parser supporting arbitrary algorithmic parameters, comments, quoted strings, and token pools.
-  - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls), and social governance (`friend_list`, `ban_list`, proposals).
-  - `OctiBotConversationEngine`: Interactive in-game and lobby chat handler supporting public commands (`@bot help`, `@bot stats`), owner management (`@bot status`, `@bot host`, `@bot set`), and thread-safe inbox buffering for Agentic AI.
-  - `OctiBotMcpServer`: Built-in Model Context Protocol (MCP) server supporting MCP Streamable HTTP (`2025-03-26`) on `/mcp` (`Mcp-Session-Id`, HTTP `202 Accepted` notifications, batching, and SSE streaming) plus legacy `/sse` & `/message` (`2024-11-05`), exposing 17 specialized tools (`octibot_get_status`, `octibot_get_lobby`, `octibot_get_game_state`, `octibot_analyze_position`, `octibot_game_action`, `octibot_table_action`, `octibot_find_or_host_table`, `octibot_send_chat`, `octibot_wait_for_event`, `octibot_configure_policy`, `octibot_set_match_override`, `octibot_get_skill_guide`, `octibot_assist_match`, `octibot_record_player_feedback`, `octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`).
-  - `OctiBotAgentCliLauncher`: Managed supervisor for external agent CLIs (`agy`, `claude`, `cursor-agent`) with guaranteed process cleanup, isolated `agy` app-data directory (`~/.gemini/antigravity-octibot`), and hardened security sandboxing.
-- **Lobby Concierge & Matchmaking Assistant (`octibot-helper`)**:
-  - Non-playing concierge (`algorithm = helper`, `lobby_only = true`, `table_behavior = lobby_only`) designed to welcome players in the `octi.selfso.com` lobby.
-  - Jailed technical Q&A assistant: safely inspects the public project repositories (`octi`, `octibot`) via read-only tools (`octibot_repo_list_files`, `octibot_repo_read_file`, `octibot_repo_search`), path-jailed with dot-segment traversal protection and binary file omission.
-  - Bot matchmaking assistant: arranges matches between human players and running fleet bots via `octibot_assist_match` (and sibling `[MATCH ...]` chat commands).
-  - Player feedback ledger: records structured bug reports and feature ideas via `octibot_record_player_feedback` into `plan/player_feedback.md` with injection defenses and strict sanitization.
-- **Embedded Web Dashboard & `aimon` Fleet Integration**:
-  - Embedded HTTP server automatically bound on `web_port = 3888` (configurable, with automatic fallback to ephemeral port if busy).
-  - Live satellite tab registration with `aimon` gateway (`port 3885`), rendering an integrated dashboard inside the `aimon` web UI.
-  - Real-time OCTI server health and bot telemetry (`GET /api/v1/status`).
-  - Thread-safe 5,000-line scrollable `stdout` console viewer (`GET /api/v1/logs`) with monotonic sequence tailing and oldest-line eviction.
-  - Interactive categorized configuration editor (`GET /api/v1/config`, `POST /api/v1/config`) with locked read-only network keys and atomic disk persistence.
+  - `OctiBotConfigStore`: Zero-dependency, line-oriented `key = value` and `[profile]` section parser supporting arbitrary algorithmic parameters, comments, quoted strings, and `tokens.conf` token pools.
+  - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls, `host_variants`), and social governance (`friend_list`, `ban_list`, draw/undo/pause/rematch proposals).
+  - `OctiBotAgent` & `StockAlphaBetaAgent`: Clean virtual agent interface (`onConfigure`, `onConnected`, `onLobbyChat`, `onGameStarted`, `computeMove`, `onProposal`, `onGameChat`, `onGameOver`, `supportsVariant`) paired with `OctiBotAgentRegistry` and a ready-to-play alpha-beta search agent (`OctiBotEngine`, Lazy SMP, transposition table, opening book, and 85 tunable heuristic/search parameters).
+  - `OctiBotRunner` & `OctiBotFleetRunner`: Full connection lifecycle manager handling authentication, token-pool claiming, SSE lobby/room event loops, turn dispatch, automatic reconnect, and single-process multi-profile or multi-instance supervision.
 - **Search Telemetry & Chat Announcements**:
   - `announce_move_search_chat` (default `true`): Automatically announces search depth, visited nodes, evaluation score, and elapsed milliseconds to in-game board chat upon move submission.
-- **Hardened Multi-Backend AI CLI Sandboxing**:
-  - Isolated execution environment (`/tmp/octibot-ai-sandbox` at `0700` permissions) for `agy`, `claude`, and `cursor-agent`.
-  - Zero-trust network field sanitization: strict stripping of control characters and angle brackets to eliminate prompt injection risks.
-  - Strict tool restriction flags (`agy --sandbox --settings`, `claude --restricted --strict-mcp-config --tools ""`, `cursor-agent --mode ask --sandbox enabled`) hard-denying external command execution, file modifications, or access outside the game MCP context.
-- **Bot Executables**:
-  - `octibot`: Production-grade autonomous bot supporting alpha-beta search, dynamic time allocation, single-process multi-profile fleet deployment, Centaur MCP mode, embedded web dashboard, and `aimon` integration.
-  - `octibot-minimal`: Standalone, lightweight starter bot binary built with `-DOCTIBOT_MINIMAL=1`, excluding MCP server, `aimon`, and AI CLI subprocess code for minimal environments.
+  - `publish_move_telemetry` (default `false`): Embeds structured search telemetry (`depth`, `nodes`, `score`, `elapsed_ms`) into move submissions for permanent `.octi` transcript archiving.
+- **Starter Executable (`octibot`)**:
+  - Single standard `octibot` target (`examples/reference_bot/Main.cxx`) backed by `StockAlphaBetaAgent` (`algorithm = alpha_beta`), ready to play out of the box or serve as the entry point for custom `OctiBotAgent` subclasses.
 - **Robust Network Protocol**:
-  - Superseding token leases with graceful takeover.
+  - Superseding token leases with graceful takeover (`--supersede` / `allow_supersede`) and standby reclaim.
   - Seamless active game reconnect upon crash or restart.
   - Server-Sent Events (SSE) streaming with low-latency event notification.
   - Human-only Elo rating invariant.
@@ -63,8 +47,8 @@ Copyright (C) 2026, Charles Chiou
 Prerequisites:
 - C++17 compiler (GCC 9+, Clang 10+, or MSVC 2019+)
 - CMake 3.16+
-- OpenSSL development libraries (`libssl-dev`)
-- CppUTest and RapidCheck (for test execution)
+- OpenSSL development libraries (`libssl-dev` on Linux; native WinHTTP on Windows)
+- CppUTest and RapidCheck (optional, for running the Linux test suite)
 
 ```bash
 make all
@@ -89,27 +73,24 @@ bot_token_tactician = octi_bot_fedcba9876543210fedcba9876543210fedcba9876543210f
 
 ### 3. Configure `octibot.conf`
 
-Create an `octibot.conf` in the working directory or in `~/.config/octibot/octibot.conf`:
+Create an `octibot.conf` in the working directory or in `~/.config/octibot/octibot.conf` (Linux) / `%APPDATA%\OCTIBOT\octibot.conf` (Windows):
 
 ```ini
 # Global defaults
 server_host = 127.0.0.1
 server_port = 8080
 server_use_ssl = false
-verbosity = verbose         # verbose (default, 3), info (2), error (1), quiet (0)
+verbosity = verbose               # verbose (default, 3), info (2), error (1), quiet (0)
 
 # Table & gameplay behavior
-table_behavior = auto       # auto, join_only, host_only, matchmaking, idle
+table_behavior = auto             # auto, join_only, host_only, matchmaking, idle
 accept_modes = 2P, 4P, OFK
 publish_move_telemetry = false
 announce_move_search_chat = true  # Announce search stats in board chat after move
 
-# Embedded Web Dashboard & aimon integration
-web_port = 3888                   # Dashboard HTTP port (default 3888)
-aimon_enabled = true              # Register with aimon gateway (port 3885)
-
 # Default profile (runs stock alpha-beta engine)
 [stock]
+robot_name = stock
 algorithm = alpha_beta
 time_budget_ms = 1500
 max_search_depth = 6
@@ -121,6 +102,7 @@ time_budget_ms = 500
 max_search_depth = 4
 
 [bot_deep]
+robot_name = bot_deep
 algorithm = alpha_beta
 time_budget_ms = 4000
 max_search_depth = 8
@@ -133,6 +115,7 @@ max_search_depth = 8
 ./build/octibot --profile stock
 # Detailed stdout logging is enabled by default (verbosity = verbose).
 # Override via CLI: --verbosity <verbose|info|error|quiet>, --verbose / -v, or --quiet / -q
+# Custom config/token paths: --config <path> --tokens-file <path>
 ```
 
 **Run multiple profiles concurrently in a single process:**
@@ -150,31 +133,11 @@ max_search_depth = 8
 ./build/octibot --profile stock --instances 3
 ```
 
-**Run the standalone lightweight starter bot (`octibot-minimal`):**
-```bash
-./build/octibot-minimal --profile stock
-```
-
-**Run the lobby concierge and technical guide (`octibot-helper`):**
-```bash
-./build/octibot --profile octibot-helper
-```
-
-### 5. Embedded Web Dashboard & Fleet Supervision
-
-When `aimon_enabled = true` or `web_port > 0`, `octibot` automatically serves a real-time web dashboard on port `3888` (or an ephemeral fallback port):
-- Direct browser access: `http://localhost:3888/`
-- Integrated `aimon` supervision: Appears automatically as an **octibot** satellite tab in the `aimon` management console (`http://builder.selfso.com:3883`).
-- REST API endpoints:
-  - `GET /api/v1/status`: Server reachability, active room status, bot record, and live search engine telemetry.
-  - `GET /api/v1/logs?after_seq=<seq>`: Monotonic 5,000-line stdout console stream.
-  - `GET /api/v1/config` & `POST /api/v1/config`: Live categorized configuration inspector and hot-reloader.
-
 ---
 
 ## Writing a Custom C++ Bot
 
-Custom AI engines can be registered with `OctiBotAgentRegistry`:
+Custom AI engines subclass `octi::OctiBotAgent` and register with `OctiBotAgentRegistry`:
 
 ```cpp
 #include "OctiBotAgent.hxx"
@@ -231,41 +194,7 @@ int main(int argc, char **argv) {
 
 ---
 
-## Centaur Agentic AI & MCP Integration
+## Protocol & Developer References
 
-`octibot` provides native Model Context Protocol (MCP) server support, allowing Large Language Model agents (Claude Code, Google Antigravity, Cursor) to supervise or play OCTI games interactively:
-
-### Standard I/O MCP Mode:
-```bash
-./build/octibot --profile stock --mcp-stdio
-```
-
-### Ephemeral / Managed CLI Supervisor:
-Launch a managed child CLI agent that connects to an ephemeral loopback MCP port:
-```bash
-./build/octibot --profile stock --ai-cli agy --ai-prompt "Analyze table chat and assist with tactical move recommendations."
-```
-
-Or launch via the convenience Makefile target (automatically isolates `agy` session transcripts into `~/.gemini/antigravity-octibot` so `agy -r` in coding workspaces remains clean):
-```bash
-make play-agy PROFILE=stock MODEL=flash
-```
-
-Or run interactively in the terminal:
-```bash
-./build/octibot --profile stock --ai-cli claude --ai-interactive
-```
-
-### Lobby Concierge Mode (`octibot-helper`):
-Run `@octibot-helper` as an autonomous lobby concierge backed by an AI agent CLI (`agy` with Gemini):
-```bash
-./build/octibot --profile octibot-helper
-```
-The helper stays exclusively in the lobby (`lobby_only = true`), answers visitor questions about OCTI rules, tables, and bots, inspects technical documentation in `octi`/`octibot` repositories via jailed MCP tools, coordinates human-vs-bot matches via `octibot_assist_match`, and records structured bug/feature feedback into `plan/player_feedback.md`.
-
----
-
-## Protocol Reference & Skill Guide
-
-- See `doc/ROBOT_PROTOCOL.md` for complete wire protocol details (HTTP REST + SSE, headers, superseding token lifecycle, and payload schemas).
-- See `skills/octibot/SKILL.md` for the autonomous agent skill guide (rules, notation, search heuristics, and MCP tool workflows).
+- See **[`doc/WRITING_BOTS.md`](doc/WRITING_BOTS.md)** for a complete walk-through of `OctiBotAgent`, fast `captureSnapshot`/`restoreSnapshot` tree search, `StockAlphaBetaAgent` customization, and external engine integration.
+- See **[`doc/ROBOT_PROTOCOL.md`](doc/ROBOT_PROTOCOL.md)** for complete wire protocol details (HTTP REST + SSE, headers, superseding token lifecycle, and payload schemas).

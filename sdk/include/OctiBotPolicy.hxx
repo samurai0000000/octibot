@@ -1,4 +1,6 @@
 /*
+ * OctiBotPolicy.hxx
+ *
  * Copyright (C) 2026, Charles Chiou
  */
 
@@ -15,37 +17,6 @@
 
 namespace octi {
 
-enum class ChatCommandActionType {
-    NONE,
-    REPLY_ONLY,
-    JOIN_SENDER_TABLE,
-    HOST_TABLE,
-    JOIN_ROOM,
-    LEAVE_ROOM,
-    CONFIG_CHANGED
-};
-
-struct ChatCommandResult {
-    ChatCommandActionType action = ChatCommandActionType::NONE;
-    std::string replyText;
-    std::string targetRoomId;
-    std::string mode = "2P";
-    std::string configKey;
-    std::string configValue;
-};
-
-struct ChatInboxEntry {
-    std::uint64_t id = 0;
-    std::string channel;
-    std::string roomId;
-    std::string senderHandle;
-    std::string senderUuid;
-    bool isOwner = false;
-    std::string text;
-    std::int64_t timestampMs = 0;
-    bool read = false;
-};
-
 struct HostVariantSpec {
     std::string name;
     std::string mode = "2P";
@@ -53,26 +24,6 @@ struct HostVariantSpec {
     bool superProngs = false;
     bool edgeless = false;
 };
-
-struct ExtractedHandleMention {
-    std::string handle;
-    std::string lowerHandle;
-    std::size_t atPos = 0;
-    std::size_t endPos = 0;
-};
-
-bool isOctiHandleChar(char c);
-std::vector<ExtractedHandleMention> extractHandleMentions(const std::string &text);
-bool hasExactHandleMention(const std::string &text,
-                           const std::string &targetHandle,
-                           bool allowHelperAlias = false,
-                           std::size_t *outAtPos = nullptr);
-bool stripLeadingHandleCommand(const std::string &text,
-                               const std::string &myHandle,
-                               bool allowHelperAlias,
-                               std::string &outCommand);
-bool matchesQuietChatPhrase(const std::string &text);
-bool matchesUnmuteChatPhrase(const std::string &text);
 
 class OctiBotPolicyEngine {
 public:
@@ -170,100 +121,16 @@ private:
     mutable std::size_t _nextHostVariantIndex = 0;
 };
 
-class OctiBotConversationEngine {
-public:
-    OctiBotConversationEngine() = default;
-    explicit OctiBotConversationEngine(const OctiBotConfigStore &config);
-
-    void configure(const OctiBotConfigStore &config);
-
-    std::uint64_t pushInbox(const std::string &channel,
-                            const std::string &roomId,
-                            const std::string &senderHandle,
-                            const std::string &senderUuid,
-                            bool isOwner,
-                            const std::string &text,
-                            std::int64_t timestampMs);
-
-    std::vector<ChatInboxEntry> getUnreadInbox() const;
-    std::vector<ChatInboxEntry> getAllInbox() const;
-    void markInboxRead(std::uint64_t upToId);
-    void clearInbox();
-
-    ChatCommandResult processLobbyMessage(
-        const LobbyChatEntry &msg,
-        const std::string &myHandle,
-        const std::string &ownerHandle,
-        OctiBotPolicyEngine &policy,
-        OctiBotConfigStore &config,
-        const std::string &currentRoomId,
-        const std::string &currentPhase,
-        int wins, int losses, int draws,
-        const std::string &description,
-        bool allowPublicEvalChat,
-        const std::string &lastTelemetryStr);
-
-    ChatCommandResult processGameMessage(
-        const std::string &senderHandle,
-        const std::string &senderUuid,
-        bool isRobot,
-        const std::string &text,
-        const std::string &myHandle,
-        const std::string &ownerHandle,
-        OctiBotPolicyEngine &policy,
-        OctiBotConfigStore &config,
-        const std::string &currentRoomId,
-        const std::string &currentPhase,
-        int wins, int losses, int draws,
-        const std::string &description,
-        bool allowPublicEvalChat,
-        const std::string &lastTelemetryStr);
-
-    std::string formatLobbyGreeting(const std::string &myHandle) const;
-    std::string formatGameStartGreeting(const std::string &myHandle,
-                                        const std::string &opponentHandle) const;
-    std::string formatGameOverChat(const std::string &result,
-                                   const std::string &myHandle) const;
-    std::string formatGoodbyeChat(const std::string &myHandle,
-                                  const std::string &opponentHandle) const;
-
-private:
-    ChatCommandResult executeCommand(
-        const std::string &cmdLine,
-        const std::string &senderHandle,
-        const std::string &senderUuid,
-        bool isOwner,
-        const std::string &myHandle,
-        const std::string &ownerHandle,
-        OctiBotPolicyEngine &policy,
-        OctiBotConfigStore &config,
-        const std::string &currentRoomId,
-        const std::string &currentPhase,
-        int wins, int losses, int draws,
-        const std::string &description,
-        bool allowPublicEvalChat,
-        const std::string &lastTelemetryStr);
-
-    mutable std::mutex _inboxMutex;
-    std::uint64_t _nextInboxId = 1;
-    std::vector<ChatInboxEntry> _inbox;
-
-    std::string _greetingLobby = "Hello! I am an automated OCTI robot player.";
-    std::string _greetingGameStart = "Good luck and have fun!";
-    std::string _chatGameOverWin = "Good game!";
-    std::string _chatGameOverLoss = "Good game, well played!";
-    std::string _chatGameOverDraw = "Good game, well fought!";
-    std::string _chatGoodbye = "Thanks for the game! Since things are quiet here, I'll head back to the lobby to host a new table—see you next time!";
-};
-
 } // namespace octi
 
 #endif /* OCTIBOT_POLICY_HXX */
 
 /*
  * Local variables:
- * tab-width: 4
+ * mode: C++
+ * c-file-style: "BSD"
  * c-basic-offset: 4
+ * tab-width: 4
+ * indent-tabs-mode: nil
  * End:
- * vim: set ft=cpp et ts=4 sts=4 sw=4:
  */
