@@ -102,6 +102,7 @@ struct ArchivedGamesPage {
 struct UploadTranscriptRequest {
     std::string transcriptJson;
     std::string clientId;
+    std::string installDeleteToken;
 };
 
 struct UploadTranscriptResponse {
@@ -121,6 +122,7 @@ struct CrashReportRequest {
     std::string stackTrace;
     std::string contextJson = "{}";
     std::string installId;
+    std::string installDeleteToken;
 };
 
 struct CrashReportResponse {
@@ -280,6 +282,7 @@ struct TableSummaryInfo {
     int seatsFilled = 0;
     std::vector<TableSeatInfo> seats;
     std::vector<std::string> players;
+    std::vector<std::string> observerHandles;
     int observerCount = 0;
     bool allowRobots = true;
 
@@ -416,6 +419,7 @@ struct GameViewData {
     int viewerSeat = 0;
     std::vector<GameSeatInfo> seats;
     std::vector<std::string> observers;
+    std::vector<std::string> observerHandles;
     int observerCount = 0;
     std::string fen;
     int turnSeat = 0;
@@ -503,6 +507,8 @@ struct GameActionData {
     std::string action;
     std::string roomId;
     bool gameOver = false;
+    bool stoodUpPly0 = false;
+    std::string detail;
     std::int64_t seq = 0;
 };
 
@@ -599,6 +605,9 @@ public:
     void setInstallId(const std::string &installId);
     std::string installId() const;
 
+    void setInstallDeleteToken(const std::string &token);
+    std::string installDeleteToken() const;
+
     /* ---- 1..10: Health, Auth, Profile & Leaderboard ---- */
     ApiResult<HealthInfo> fetchHealth();
     ApiResult<std::vector<AuthProviderInfo>> fetchAuthProviders();
@@ -660,7 +669,8 @@ public:
         const std::string &roomId,
         int seat = 0,
         const std::string &passcode = "");
-    ApiResult<bool> leaveTable(const std::string &roomId);
+    ApiResult<bool> leaveTable(const std::string &roomId,
+                               bool abortIfPly0 = false);
     ApiResult<bool> purgeTable(const std::string &roomId);
     ApiResult<bool> kickSeat(
         const std::string &roomId,
@@ -689,6 +699,7 @@ public:
         const std::string &moveStr,
         const MoveTelemetryData &telemetry);
     ApiResult<bool> resignGame(const std::string &roomId);
+    ApiResult<GameActionData> abortGame(const std::string &roomId);
     ApiResult<GameActionData> submitGameAction(
         const std::string &roomId,
         const std::string &action);
@@ -737,7 +748,8 @@ public:
     CrashReportResponse uploadCrashReport(
         const CrashReportRequest &req);
     ApiResult<int> deleteInstallArchiveData(
-        const std::string &installId);
+        const std::string &installId,
+        const std::string &installDeleteToken = "");
 
     /* ---- 36..38: Robot Protocol & Administration ---- */
     ApiResult<RobotConnectData> connectRobot(bool ifUnused = false);

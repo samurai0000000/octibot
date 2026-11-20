@@ -33,6 +33,8 @@
 #include <nlohmann/json.hpp>
 #include <rapidcheck.h>
 #include <initializer_list>
+#include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -3210,7 +3212,7 @@ TEST(OctiCryptoAndTranscriptV3Test, JsonV3MetadataAndPerPlyAiEffortRoundTrip)
     meta.gameId = "custom-test-game-12345";
     meta.source = "TEST_SUITE";
     meta.license = "CC-BY-4.0";
-    meta.attribution = "Octi game data, Charles Chiou (selfso.com)";
+    meta.attribution = octi::OCTI_DATA_ATTRIBUTION;
     meta.appVersion = "2.1.1";
     meta.buildType = "debug";
     meta.platform = "linux-x86_64";
@@ -3265,6 +3267,7 @@ TEST(OctiCryptoAndTranscriptV3Test, JsonV3MetadataAndPerPlyAiEffortRoundTrip)
     CHECK_TRUE(jsonStr.find("\"format\": \"octi.transcript.v3\"") != std::string::npos);
     CHECK_TRUE(jsonStr.find("\"gameId\": \"custom-test-game-12345\"") != std::string::npos);
     CHECK_TRUE(jsonStr.find("\"license\": \"CC-BY-4.0\"") != std::string::npos);
+    CHECK_TRUE(jsonStr.find("\"attribution\": \"octi.selfso.com\"") != std::string::npos);
     CHECK_TRUE(jsonStr.find("\"installId\": \"f47ac10b-58cc-4372-a567-0e02b2c3d479\"") != std::string::npos);
     CHECK_TRUE(jsonStr.find("\"nodesVisited\":84200") != std::string::npos ||
                jsonStr.find("\"nodesVisited\": 84200") != std::string::npos);
@@ -3280,6 +3283,7 @@ TEST(OctiCryptoAndTranscriptV3Test, JsonV3MetadataAndPerPlyAiEffortRoundTrip)
     const octi::OctiGameMetadata &repMeta = replayBoard.getGame()->getGameMetadata();
     STRCMP_EQUAL("custom-test-game-12345", repMeta.gameId.c_str());
     STRCMP_EQUAL("CC-BY-4.0", repMeta.license.c_str());
+    STRCMP_EQUAL("octi.selfso.com", repMeta.attribution.c_str());
     CHECK_TRUE(repMeta.extended.present);
     STRCMP_EQUAL("f47ac10b-58cc-4372-a567-0e02b2c3d479", repMeta.extended.installId.c_str());
     CHECK_EQUAL(2, repMeta.players.size());
@@ -4802,6 +4806,73 @@ TEST(OctiCore_NetworkClient, KeepAliveClientPoolReusesSingleSocketAcrossSequenti
     STRCMP_EQUAL("ok", faultSecond.data.status.c_str());
     CHECK_EQUAL(2, server3.acceptCount.load());
     CHECK_EQUAL(2, server3.requestCount.load());
+}
+
+TEST(OctiCore_NetworkClient, ObserverHandlesWireFormatInGameViewAndTables)
+{
+    httplib::Server svr;
+    svr.Get("/api/v1/games/g-obs-wire-1",
+            [](const httplib::Request &, httplib::Response &res) {
+                const nlohmann::json body = {
+                    {"ok", true},
+                    {"live", true},
+                    {"room_id", "g-obs-wire-1"},
+                    {"mode", "2P"},
+                    {"bases", 3},
+                    {"phase", "WAITING_FOR_PLAYERS"},
+                    {"observers", {"f03d0863-1111-2222-3333-444444444444", ""}},
+                    {"observer_handles", {"player_one", "anonymous-127.0.0.1"}},
+                    {"observer_count", 2}
+                };
+                res.set_content(body.dump(), "application/json");
+            });
+    svr.Get("/api/v1/tables",
+            [](const httplib::Request &, httplib::Response &res) {
+                const nlohmann::json body = {
+                    {"ok", true},
+                    {"tables", {{
+                        {"room_id", "g-obs-wire-1"},
+                        {"mode", "2P"},
+                        {"bases", 3},
+                        {"phase", "WAITING_FOR_PLAYERS"},
+                        {"observer_handles", {"player_one", "anonymous-127.0.0.1"}},
+                        {"observer_count", 2}
+                    }}}
+                };
+                res.set_content(body.dump(), "application/json");
+            });
+
+    int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread serverThread([&svr]() { svr.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    CHECK_TRUE(client != nullptr);
+
+    octi::ApiResult<octi::GameViewData> gv = client->fetchGameView("g-obs-wire-1");
+    CHECK_TRUE(gv.ok);
+    CHECK_EQUAL(200, gv.httpStatus);
+    CHECK_EQUAL(2, gv.data.observerCount);
+    CHECK_EQUAL(static_cast<std::size_t>(2), gv.data.observers.size());
+    CHECK_EQUAL(static_cast<std::size_t>(2), gv.data.observerHandles.size());
+    STRCMP_EQUAL("f03d0863-1111-2222-3333-444444444444", gv.data.observers[0].c_str());
+    STRCMP_EQUAL("", gv.data.observers[1].c_str());
+    STRCMP_EQUAL("player_one", gv.data.observerHandles[0].c_str());
+    STRCMP_EQUAL("anonymous-127.0.0.1", gv.data.observerHandles[1].c_str());
+
+    octi::ApiResult<std::vector<octi::TableSummaryInfo>> tb = client->listTables();
+    CHECK_TRUE(tb.ok);
+    CHECK_EQUAL(static_cast<std::size_t>(1), tb.data.size());
+    CHECK_EQUAL(2, tb.data[0].observerCount);
+    CHECK_EQUAL(static_cast<std::size_t>(2), tb.data[0].observerHandles.size());
+    STRCMP_EQUAL("player_one", tb.data[0].observerHandles[0].c_str());
+    STRCMP_EQUAL("anonymous-127.0.0.1", tb.data[0].observerHandles[1].c_str());
+
+    svr.stop();
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -8995,6 +9066,623 @@ TEST(OctiLeafEvaluatorHookTest, LazySmpEightThreadsInvokeLeafEvaluatorConcurrent
 
 namespace {
 
+class EvalBoardCountingEngine : public octi::OctiBotEngine
+{
+public:
+    using octi::OctiBotEngine::OctiBotEngine;
+    using octi::OctiBotEngine::evaluateBoard;
+
+    int evaluateBoard(const octi::OctiBoard &board,
+                      octi::OctiPlayer perspective) const override
+    {
+        _evalBoardCalls.fetch_add(1, std::memory_order_relaxed);
+        return octi::OctiBotEngine::evaluateBoard(
+            board, perspective, tuningProfile());
+    }
+
+    int evaluateBoard(const octi::OctiBoard &board,
+                      octi::OctiPlayer perspective,
+                      const octi::BotTuningProfile &profile) const override
+    {
+        _evalBoardCalls.fetch_add(1, std::memory_order_relaxed);
+        return octi::OctiBotEngine::evaluateBoard(board, perspective, profile);
+    }
+
+    void resetEvalBoardCalls() noexcept
+    {
+        _evalBoardCalls.store(0, std::memory_order_relaxed);
+        _injectedIllegalCount.store(0, std::memory_order_relaxed);
+    }
+
+    std::uint64_t evalBoardCalls() const noexcept
+    {
+        return _evalBoardCalls.load(std::memory_order_relaxed);
+    }
+
+    void setInjectIllegalMove(bool enable) noexcept
+    {
+        _injectIllegalMove = enable;
+    }
+
+    std::uint64_t injectedIllegalCount() const noexcept
+    {
+        return _injectedIllegalCount.load(std::memory_order_relaxed);
+    }
+
+protected:
+    void generateSearchMoves(const octi::OctiGame &game,
+                             octi::OctiPlayer turn,
+                             int ply,
+                             std::vector<octi::OctiMove> &outMoves) const override
+    {
+        octi::OctiBotEngine::generateSearchMoves(game, turn, ply, outMoves);
+        const octi::OctiBoard *b = game.getBoard();
+        if (_injectIllegalMove && b != nullptr && b->squareAt(0, 0).isEmpty()) {
+            outMoves.emplace_back("11+a");
+            _injectedIllegalCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    void appendExtraQuiesceMoves(const octi::OctiBoard &board,
+                                 const octi::OctiGame &game,
+                                 octi::OctiGameMode mode,
+                                 octi::OctiPlayer turn,
+                                 int qDepth,
+                                 std::vector<octi::OctiMove> &tacticalMoves) const override
+    {
+        octi::OctiBotEngine::appendExtraQuiesceMoves(
+            board, game, mode, turn, qDepth, tacticalMoves);
+        if (_injectIllegalMove && qDepth == 0 && board.squareAt(0, 0).isEmpty()) {
+            tacticalMoves.emplace_back("11+a");
+            _injectedIllegalCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    bool hasCustomMoveOrdering() const noexcept override
+    {
+        return _injectIllegalMove;
+    }
+
+    void adjustMoveOrderScores(
+        const octi::OctiBoard &board,
+        const octi::OctiGame &game,
+        octi::OctiPlayer turn,
+        int ply,
+        bool inQuiesce,
+        const std::vector<octi::OctiMove> &moves,
+        std::vector<std::pair<int, std::size_t>> &scored) const override
+    {
+        (void)board;
+        (void)game;
+        (void)turn;
+        (void)ply;
+        (void)inQuiesce;
+        if (!_injectIllegalMove) {
+            return;
+        }
+        for (auto &entry : scored) {
+            if (entry.second < moves.size() &&
+                moves[entry.second].asString() == "11+a") {
+                entry.first += 500000;
+            }
+        }
+    }
+
+private:
+    mutable std::atomic<std::uint64_t> _evalBoardCalls{0};
+    mutable std::atomic<std::uint64_t> _injectedIllegalCount{0};
+    bool _injectIllegalMove = false;
+};
+
+class PlyStackAuditingLeafEvaluator : public octi::OctiLeafEvaluator
+{
+public:
+    struct Summary {
+        std::size_t threadCount = 0;
+        std::uint64_t rootCalls = 0;
+        std::uint64_t beforeMoveCalls = 0;
+        std::uint64_t nullMovePushCalls = 0;
+        std::uint64_t popCalls = 0;
+        std::uint64_t leafAtPlyCalls = 0;
+        std::uint64_t legacyEvaluateLeafCalls = 0;
+        std::uint64_t violations = 0;
+        int maxPlySeen = 0;
+        bool allThreadsBalancedAtRoot = true;
+    };
+
+    PlyStackAuditingLeafEvaluator(bool requireHeuristic,
+                                  const octi::BotTuningProfile &evalProfile,
+                                  int scoreOffset = 0)
+        : _requireHeuristic(requireHeuristic)
+        , _evalProfile(evalProfile)
+        , _scoreOffset(scoreOffset)
+    {
+    }
+
+    bool requiresHeuristicScore() const noexcept override
+    {
+        return _requireHeuristic;
+    }
+
+    void onSearchRoot(const octi::OctiBoard &rootBoard) const override
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        ThreadState &st = _threads[std::this_thread::get_id()];
+        const octi::OctiGame *g = rootBoard.getGame();
+        if (g == nullptr) {
+            ++_violations;
+            return;
+        }
+        if (st.initialized && st.curPly != 0) {
+            ++_violations;
+        }
+        st.initialized = true;
+        st.curPly = 0;
+        ++st.rootCalls;
+        PlyFrame rootFrame;
+        rootFrame.boardHash = octi::OctiBotEngine::computePositionHashStatic(rootBoard);
+        rootFrame.noProgressPlies = g->getNoProgressPlies();
+        rootFrame.hasBoard = true;
+        st.frames.assign(1, rootFrame);
+    }
+
+    void onBeforeMove(const octi::OctiBoard &boardBefore,
+                      const octi::OctiMove &move,
+                      int parentPly) const override
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        ThreadState &st = _threads[std::this_thread::get_id()];
+        const octi::OctiGame *g = boardBefore.getGame();
+        if (!st.initialized || g == nullptr || move.isEmpty() ||
+            parentPly != st.curPly || parentPly < 0 ||
+            static_cast<std::size_t>(parentPly) >= st.frames.size()) {
+            ++_violations;
+            return;
+        }
+        verifyOrRecordBoardLocked(st.frames[static_cast<std::size_t>(parentPly)],
+                                  boardBefore);
+        st.frames.push_back(PlyFrame{});
+        st.curPly = parentPly + 1;
+        if (st.curPly > st.maxPlySeen) {
+            st.maxPlySeen = st.curPly;
+        }
+        ++st.beforeMoveCalls;
+    }
+
+    void onPushNullMove(const octi::OctiBoard &boardAfter,
+                        int childPly) const override
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        ThreadState &st = _threads[std::this_thread::get_id()];
+        const octi::OctiGame *g = boardAfter.getGame();
+        if (!st.initialized || g == nullptr || childPly != st.curPly + 1 ||
+            static_cast<std::size_t>(childPly) != st.frames.size()) {
+            ++_violations;
+            return;
+        }
+        PlyFrame nullFrame;
+        nullFrame.boardHash = octi::OctiBotEngine::computePositionHashStatic(boardAfter);
+        nullFrame.noProgressPlies = g->getNoProgressPlies();
+        nullFrame.hasBoard = true;
+        st.frames.push_back(nullFrame);
+        st.curPly = childPly;
+        if (st.curPly > st.maxPlySeen) {
+            st.maxPlySeen = st.curPly;
+        }
+        ++st.nullMovePushCalls;
+    }
+
+    void onPopPly(int restoredPly) const override
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        ThreadState &st = _threads[std::this_thread::get_id()];
+        if (!st.initialized || restoredPly < 0 ||
+            restoredPly != st.curPly - 1 ||
+            st.frames.size() != static_cast<std::size_t>(st.curPly + 1)) {
+            ++_violations;
+            return;
+        }
+        st.frames.resize(static_cast<std::size_t>(restoredPly + 1));
+        st.curPly = restoredPly;
+        ++st.popCalls;
+    }
+
+    int evaluateLeaf(const octi::OctiBoard &board,
+                     octi::OctiPlayer perspective,
+                     int heuristicScore) const override
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        ++_legacyEvaluateLeafCalls;
+        int base = _requireHeuristic
+            ? heuristicScore
+            : octi::OctiBotEngine::evaluatePosition(board, perspective, _evalProfile);
+        return base + _scoreOffset;
+    }
+
+    int evaluateLeafAtPly(const octi::OctiBoard &board,
+                          octi::OctiPlayer perspective,
+                          int heuristicScore,
+                          int ply) const override
+    {
+        const int expectedScore =
+            octi::OctiBotEngine::evaluatePosition(board, perspective, _evalProfile);
+        {
+            std::lock_guard<std::mutex> lock(_mtx);
+            ThreadState &st = _threads[std::this_thread::get_id()];
+            const octi::OctiGame *g = board.getGame();
+            if (!st.initialized || g == nullptr || ply != st.curPly || ply < 0 ||
+                static_cast<std::size_t>(ply) >= st.frames.size()) {
+                ++_violations;
+            } else {
+                verifyOrRecordBoardLocked(st.frames[static_cast<std::size_t>(ply)],
+                                          board);
+            }
+            if (_requireHeuristic) {
+                if (heuristicScore != expectedScore) {
+                    ++_violations;
+                }
+            } else if (heuristicScore != 0) {
+                ++_violations;
+            }
+            ++st.leafAtPlyCalls;
+        }
+        return (_requireHeuristic ? heuristicScore : expectedScore) + _scoreOffset;
+    }
+
+    Summary summary() const
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        Summary out;
+        out.threadCount = _threads.size();
+        out.legacyEvaluateLeafCalls = _legacyEvaluateLeafCalls;
+        out.violations = _violations;
+        for (const auto &kv : _threads) {
+            const ThreadState &st = kv.second;
+            out.rootCalls += st.rootCalls;
+            out.beforeMoveCalls += st.beforeMoveCalls;
+            out.nullMovePushCalls += st.nullMovePushCalls;
+            out.popCalls += st.popCalls;
+            out.leafAtPlyCalls += st.leafAtPlyCalls;
+            if (st.maxPlySeen > out.maxPlySeen) {
+                out.maxPlySeen = st.maxPlySeen;
+            }
+            if (!st.initialized || st.curPly != 0 || st.frames.size() != 1u ||
+                (st.beforeMoveCalls + st.nullMovePushCalls) != st.popCalls) {
+                out.allThreadsBalancedAtRoot = false;
+            }
+        }
+        return out;
+    }
+
+private:
+    struct PlyFrame {
+        std::uint64_t boardHash = 0ULL;
+        int noProgressPlies = 0;
+        bool hasBoard = false;
+    };
+
+    struct ThreadState {
+        bool initialized = false;
+        int curPly = 0;
+        int maxPlySeen = 0;
+        std::uint64_t rootCalls = 0;
+        std::uint64_t beforeMoveCalls = 0;
+        std::uint64_t nullMovePushCalls = 0;
+        std::uint64_t popCalls = 0;
+        std::uint64_t leafAtPlyCalls = 0;
+        std::vector<PlyFrame> frames;
+    };
+
+    void verifyOrRecordBoardLocked(PlyFrame &frame,
+                                   const octi::OctiBoard &board) const
+    {
+        const octi::OctiGame *g = board.getGame();
+        if (g == nullptr) {
+            ++_violations;
+            return;
+        }
+        const std::uint64_t h = octi::OctiBotEngine::computePositionHashStatic(board);
+        const int npp = g->getNoProgressPlies();
+        if (!frame.hasBoard) {
+            frame.boardHash = h;
+            frame.noProgressPlies = npp;
+            frame.hasBoard = true;
+        } else if (frame.boardHash != h || frame.noProgressPlies != npp) {
+            ++_violations;
+        }
+    }
+
+    bool _requireHeuristic;
+    octi::BotTuningProfile _evalProfile;
+    int _scoreOffset;
+    mutable std::mutex _mtx;
+    mutable std::map<std::thread::id, ThreadState> _threads;
+    mutable std::uint64_t _legacyEvaluateLeafCalls = 0;
+    mutable std::uint64_t _violations = 0;
+};
+
+} // namespace
+
+TEST_GROUP(OctiLeafEvaluatorVirtualHooksTest)
+{
+};
+
+TEST(OctiLeafEvaluatorVirtualHooksTest,
+     RequiresHeuristicFalseSkipsEvaluateBoardAndPreservesExactSearchParity)
+{
+    const char *fens[] = {
+        "2:3:0:0:P:B:-:0:2,0,14,0:2,0,14,0:"
+        "B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37",
+        "OFK:1:0:0:P:A:-:0:0,1,8,0:0,0,9,0:A22,A32,A42,B44cef,B26d,B56,B47bde",
+        "2:3:1:0:P:A:-:0:2,0,12,1:2,0,12,1:A33ab,A53a,B37ef,B57e",
+        "2:3:0:0:P:A:-:0:0,0,6,0:0,0,6,0:A35abce,A54ac,B46defg,B66ef:24"
+    };
+
+    octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 1;
+    prof.maxSearchDepth = 4;
+    prof.maxQuiesceDepth = 2;
+    prof.quiesceBranchCap = 6;
+    prof.rootBranchCap = 16;
+    prof.treeBranchCap = 12;
+    prof.usePvs = true;
+    prof.aspirationWindowCp = 250;
+    prof.useKillers = true;
+    prof.useHistory = true;
+    prof.lmrMinDepth = 3;
+    prof.lmrMinMoveIndex = 2;
+    prof.nullMoveMinDepth = 2;
+    prof.nullMoveReduction = 2;
+    prof.qsearchUseTt = true;
+    prof.timeBudgetMs = 300000;
+
+    bool sawNullMovePush = false;
+    bool sawQuiesceExtensionPly = false;
+
+    for (const char *fen : fens) {
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(fen);
+
+        // Verify polymorphic dispatch of virtual OctiBotEngine::evaluateBoard
+        EvalBoardCountingEngine polyCheck(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+        polyCheck.setTuningProfile(prof);
+        const octi::OctiBotEngine &baseRef = polyCheck;
+        const int directVal = baseRef.evaluateBoard(board, octi::PLAYER_A);
+        CHECK_EQUAL(1u, polyCheck.evalBoardCalls());
+        CHECK_EQUAL(octi::OctiBotEngine::evaluatePosition(board, octi::PLAYER_A, prof),
+                    directVal);
+
+        // 1. Baseline: _leafEvaluator == nullptr
+        EvalBoardCountingEngine engNull(octi::BotDifficulty::MASTER, 0x20261118ULL);
+        engNull.setTuningProfile(prof);
+        octi::BotSearchStats statsNull;
+        const std::string mvNull = engNull.chooseMove(board, &statsNull);
+        CHECK_FALSE(mvNull.empty());
+        CHECK_EQUAL(4, statsNull.depthReached);
+        CHECK_TRUE(engNull.evalBoardCalls() > 0);
+
+        // 2. Legacy evaluateLeaf-only subclass (default requiresHeuristicScore == true)
+        ConstantOffsetLeafEvaluator legacyZero(0);
+        CHECK_TRUE(legacyZero.requiresHeuristicScore());
+        EvalBoardCountingEngine engLegacy(octi::BotDifficulty::MASTER, 0x20261118ULL);
+        engLegacy.setTuningProfile(prof);
+        engLegacy.setLeafEvaluator(&legacyZero);
+        octi::BotSearchStats statsLegacy;
+        const std::string mvLegacy = engLegacy.chooseMove(board, &statsLegacy);
+        STRCMP_EQUAL(mvNull.c_str(), mvLegacy.c_str());
+        CHECK_EQUAL(statsNull.depthReached, statsLegacy.depthReached);
+        CHECK_EQUAL(statsNull.bestScore, statsLegacy.bestScore);
+        CHECK_EQUAL(statsNull.nodesVisited, statsLegacy.nodesVisited);
+        CHECK_EQUAL(engNull.evalBoardCalls(), engLegacy.evalBoardCalls());
+        CHECK_EQUAL(engNull.evalBoardCalls(),
+                    static_cast<std::uint64_t>(legacyZero.calls()));
+
+        // 3. Virtual ply-hook evaluator with requiresHeuristicScore() == true
+        PlyStackAuditingLeafEvaluator evalWithHeur(true, prof);
+        EvalBoardCountingEngine engWithHeur(octi::BotDifficulty::MASTER, 0x20261118ULL);
+        engWithHeur.setTuningProfile(prof);
+        engWithHeur.setLeafEvaluator(&evalWithHeur);
+        octi::BotSearchStats statsWithHeur;
+        const std::string mvWithHeur = engWithHeur.chooseMove(board, &statsWithHeur);
+        const auto sumWithHeur = evalWithHeur.summary();
+        STRCMP_EQUAL(mvNull.c_str(), mvWithHeur.c_str());
+        CHECK_EQUAL(statsNull.depthReached, statsWithHeur.depthReached);
+        CHECK_EQUAL(statsNull.bestScore, statsWithHeur.bestScore);
+        CHECK_EQUAL(statsNull.nodesVisited, statsWithHeur.nodesVisited);
+        CHECK_EQUAL(engNull.evalBoardCalls(), engWithHeur.evalBoardCalls());
+        CHECK_EQUAL(0u, sumWithHeur.violations);
+        CHECK_EQUAL(0u, sumWithHeur.legacyEvaluateLeafCalls);
+        CHECK_TRUE(sumWithHeur.allThreadsBalancedAtRoot);
+        CHECK_EQUAL(1u, sumWithHeur.rootCalls);
+        CHECK_EQUAL(sumWithHeur.beforeMoveCalls + sumWithHeur.nullMovePushCalls,
+                    sumWithHeur.popCalls);
+
+        // 4. Pure leaf evaluator with requiresHeuristicScore() == false -> 0 evaluateBoard calls
+        PlyStackAuditingLeafEvaluator evalPure(false, prof);
+        EvalBoardCountingEngine engPure(octi::BotDifficulty::MASTER, 0x20261118ULL);
+        engPure.setTuningProfile(prof);
+        engPure.setLeafEvaluator(&evalPure);
+        octi::BotSearchStats statsPure;
+        const std::string mvPure = engPure.chooseMove(board, &statsPure);
+        const auto sumPure = evalPure.summary();
+        CHECK_EQUAL(0u, engPure.evalBoardCalls());
+        STRCMP_EQUAL(mvNull.c_str(), mvPure.c_str());
+        CHECK_EQUAL(statsNull.depthReached, statsPure.depthReached);
+        CHECK_EQUAL(statsNull.bestScore, statsPure.bestScore);
+        CHECK_EQUAL(statsNull.nodesVisited, statsPure.nodesVisited);
+        CHECK_EQUAL(0u, sumPure.violations);
+        CHECK_TRUE(sumPure.allThreadsBalancedAtRoot);
+        CHECK_EQUAL(1u, sumPure.rootCalls);
+        CHECK_EQUAL(engNull.evalBoardCalls(), sumPure.leafAtPlyCalls);
+        CHECK_EQUAL(sumPure.beforeMoveCalls + sumPure.nullMovePushCalls,
+                    sumPure.popCalls);
+        if (sumPure.nullMovePushCalls > 0) {
+            sawNullMovePush = true;
+        }
+        if (sumPure.maxPlySeen > prof.maxSearchDepth) {
+            sawQuiesceExtensionPly = true;
+        }
+    }
+
+    CHECK_TRUE(sawNullMovePush);
+    CHECK_TRUE(sawQuiesceExtensionPly);
+}
+
+TEST(OctiLeafEvaluatorVirtualHooksTest,
+     LazySmpOneAndFourThreadsAndBookSearchMaintainBalancedPlyStacks)
+{
+    octi::OctiBoard board;
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:B:-:0:2,0,14,0:2,0,14,0:"
+        "B51def,B33,A53,A54abegh,A64abfh,A55afh,B46de,B37");
+
+    for (int threads : {1, 4}) {
+        for (bool diversify : {false, true}) {
+            octi::BotTuningProfile prof =
+                octi::OctiBotEngine::defaultProfileForDifficulty(
+                    octi::BotDifficulty::MASTER);
+            prof.useOpeningBook = false;
+            prof.rootScoreJitter = 0;
+            prof.lazySmpThreads = threads;
+            prof.lazySmpDiversifyHelpers = diversify;
+            prof.maxSearchDepth = 5;
+            prof.maxQuiesceDepth = 2;
+            prof.rootBranchCap = 14;
+            prof.treeBranchCap = 12;
+            prof.usePvs = true;
+            prof.useKillers = true;
+            prof.useHistory = true;
+            prof.lmrMinDepth = 3;
+            prof.lmrMinMoveIndex = 2;
+            prof.nullMoveMinDepth = 2;
+            prof.qsearchUseTt = true;
+            prof.timeBudgetMs = 650;
+
+            PlyStackAuditingLeafEvaluator evalPure(false, prof);
+            EvalBoardCountingEngine eng(octi::BotDifficulty::MASTER, 0x5EED2026ULL);
+            eng.setTuningProfile(prof);
+            eng.setLeafEvaluator(&evalPure);
+
+            octi::BotSearchStats stats;
+            const std::string mv = eng.chooseMove(board, &stats);
+            CHECK_FALSE(mv.empty());
+            CHECK_EQUAL(0u, eng.evalBoardCalls());
+
+            const auto sum = evalPure.summary();
+            CHECK_EQUAL(0u, sum.violations);
+            CHECK_TRUE(sum.allThreadsBalancedAtRoot);
+            CHECK_TRUE(sum.leafAtPlyCalls > 0);
+            CHECK_EQUAL(sum.beforeMoveCalls + sum.nullMovePushCalls, sum.popCalls);
+            if (threads == 4 && std::thread::hardware_concurrency() >= 2) {
+                CHECK_TRUE(sum.threadCount >= 2u);
+            }
+
+            // Re-search on the same engine + evaluator to verify root re-entry at ply 0
+            const auto topBook = eng.searchTopMovesForBook(board, 3, 400, 3);
+            CHECK_FALSE(topBook.empty());
+            CHECK_EQUAL(0u, eng.evalBoardCalls());
+            const auto sumAfterBook = evalPure.summary();
+            CHECK_EQUAL(0u, sumAfterBook.violations);
+            CHECK_TRUE(sumAfterBook.allThreadsBalancedAtRoot);
+            CHECK_EQUAL(sumAfterBook.beforeMoveCalls + sumAfterBook.nullMovePushCalls,
+                        sumAfterBook.popCalls);
+        }
+    }
+}
+
+TEST(OctiLeafEvaluatorVirtualHooksTest,
+     ThrowingMoveAndMidSearchTimeoutUnwindPlyStacksCleanlyViaRaii)
+{
+    octi::OctiBoard board;
+    board.suppressBoardUpdateNotification(true);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:2,0,14,0:2,0,14,0:"
+        "A33abc,A54bc,B45efg,B57ef,B77g");
+    CHECK_TRUE(board.squareAt(0, 0).isEmpty());
+
+    // 1. Throwing move() edge across 1T, 4T diversified/non-diversified, and book search
+    for (int threads : {1, 4}) {
+        for (bool diversify : {false, true}) {
+            octi::BotTuningProfile prof =
+                octi::OctiBotEngine::defaultProfileForDifficulty(
+                    octi::BotDifficulty::TACTICAL);
+            prof.useOpeningBook = false;
+            prof.rootScoreJitter = 0;
+            prof.lazySmpThreads = threads;
+            prof.lazySmpDiversifyHelpers = diversify;
+            prof.maxSearchDepth = 3;
+            prof.maxQuiesceDepth = 2;
+            prof.rootBranchCap = 10;
+            prof.treeBranchCap = 8;
+            prof.nullMoveMinDepth = 2;
+            prof.timeBudgetMs = 800;
+
+            PlyStackAuditingLeafEvaluator evalPure(false, prof);
+            EvalBoardCountingEngine eng(octi::BotDifficulty::TACTICAL, 0x99887766ULL);
+            eng.setTuningProfile(prof);
+            eng.setInjectIllegalMove(true);
+            eng.setLeafEvaluator(&evalPure);
+
+            octi::BotSearchStats stats;
+            const std::string chosen = eng.chooseMove(board, &stats);
+            CHECK_FALSE(chosen.empty());
+            CHECK_TRUE(chosen != "11+a");
+            CHECK_TRUE(eng.injectedIllegalCount() > 0);
+            CHECK_EQUAL(0u, eng.evalBoardCalls());
+
+            const auto topBook = eng.searchTopMovesForBook(board, 2, 350, 2);
+            CHECK_FALSE(topBook.empty());
+            CHECK_TRUE(topBook[0].move != "11+a");
+            CHECK_EQUAL(0u, eng.evalBoardCalls());
+
+            const auto sum = evalPure.summary();
+            CHECK_EQUAL(0u, sum.violations);
+            CHECK_TRUE(sum.allThreadsBalancedAtRoot);
+            CHECK_EQUAL(sum.beforeMoveCalls + sum.nullMovePushCalls, sum.popCalls);
+        }
+    }
+
+    // 2. Mid-search wall-clock timeout edge (1T tight 15ms & 4T 520ms deep horizon)
+    for (int threads : {1, 4}) {
+        octi::BotTuningProfile prof =
+            octi::OctiBotEngine::defaultProfileForDifficulty(
+                octi::BotDifficulty::GRANDMASTER);
+        prof.useOpeningBook = false;
+        prof.rootScoreJitter = 0;
+        prof.lazySmpThreads = threads;
+        prof.lazySmpDiversifyHelpers = true;
+        prof.maxSearchDepth = 32;
+        prof.maxQuiesceDepth = 4;
+        prof.nullMoveMinDepth = 2;
+        prof.usePvs = true;
+        prof.timeBudgetMs = (threads == 1) ? 15 : 520;
+
+        PlyStackAuditingLeafEvaluator evalPure(false, prof);
+        EvalBoardCountingEngine eng(octi::BotDifficulty::GRANDMASTER, 0xABCD2026ULL);
+        eng.setTuningProfile(prof);
+        eng.setLeafEvaluator(&evalPure);
+
+        octi::BotSearchStats stats;
+        const std::string chosen = eng.chooseMove(board, &stats);
+        CHECK_FALSE(chosen.empty());
+        CHECK_TRUE(stats.depthReached < 32);
+        CHECK_EQUAL(0u, eng.evalBoardCalls());
+
+        const auto sum = evalPure.summary();
+        CHECK_EQUAL(0u, sum.violations);
+        CHECK_TRUE(sum.allThreadsBalancedAtRoot);
+        CHECK_TRUE(sum.popCalls > 0);
+        CHECK_EQUAL(sum.beforeMoveCalls + sum.nullMovePushCalls, sum.popCalls);
+    }
+}
+
+namespace {
+
 std::string resolveSharedSoundAssetPath(const std::string &fileName)
 {
     const char *prefixes[] = {
@@ -11920,6 +12608,217 @@ TEST(R7NoProgressDrawTests, OctiBotEngineSeeksDrawWhenLosingAndAvoidsDrawWhenWin
             CHECK_EQUAL(0, smpStats.bestScore);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Envelope 2: OctiNetworkClient Ply-0 Abort & leaveTable(abortIfPly0) Tests
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiNetworkClientPly0AbortTest)
+{
+};
+
+TEST(OctiNetworkClientPly0AbortTest,
+     AbortGameParsesStoodUpPly0DetailAndHandles409And400FailClosed)
+{
+    std::mutex reqMutex;
+    std::vector<std::string> seenActions;
+
+    httplib::Server svr;
+    auto recordAction = [&](const httplib::Request &req) -> std::string {
+        nlohmann::json parsed = nlohmann::json::parse(req.body, nullptr, false);
+        std::string act = parsed.is_object() ? parsed.value("action", "") : "";
+        std::lock_guard<std::mutex> lock(reqMutex);
+        seenActions.push_back(act);
+        return act;
+    };
+
+    svr.Post("/api/v1/games/g-ply0-ok/action",
+             [&](const httplib::Request &req, httplib::Response &res) {
+                 std::string act = recordAction(req);
+                 const nlohmann::json body = {
+                     {"ok", true},
+                     {"action", act},
+                     {"room_id", "g-ply0-ok"},
+                     {"game_over", false},
+                     {"stood_up_ply0", true},
+                     {"detail", "ply0_standup"},
+                     {"seq", 42}
+                 };
+                 res.status = 200;
+                 res.set_content(body.dump(), "application/json");
+             });
+
+    svr.Post("/api/v1/games/g-ply1-conflict/action",
+             [&](const httplib::Request &req, httplib::Response &res) {
+                 (void)recordAction(req);
+                 const nlohmann::json body = {
+                     {"error", "INVALID_STATE"},
+                     {"message", "cannot stand up or abort without resigning after moves have been played"}
+                 };
+                 res.status = 409;
+                 res.set_content(body.dump(), "application/json");
+             });
+
+    svr.Post("/api/v1/games/g-old-server/action",
+             [&](const httplib::Request &req, httplib::Response &res) {
+                 (void)recordAction(req);
+                 const nlohmann::json body = {
+                     {"error", "INVALID_ARGUMENT"},
+                     {"message", "unknown action"}
+                 };
+                 res.status = 400;
+                 res.set_content(body.dump(), "application/json");
+             });
+
+    int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread serverThread([&svr]() { svr.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    CHECK_TRUE(client != nullptr);
+
+    /* 1. Nominal Ply-0 abort succeeds with stoodUpPly0=true and detail="ply0_standup" */
+    octi::ApiResult<octi::GameActionData> okRes = client->abortGame("g-ply0-ok");
+    CHECK_TRUE(okRes.ok);
+    CHECK_EQUAL(200, okRes.httpStatus);
+    STRCMP_EQUAL("abort", okRes.data.action.c_str());
+    STRCMP_EQUAL("g-ply0-ok", okRes.data.roomId.c_str());
+    CHECK_FALSE(okRes.data.gameOver);
+    CHECK_TRUE(okRes.data.stoodUpPly0);
+    STRCMP_EQUAL("ply0_standup", okRes.data.detail.c_str());
+    CHECK_EQUAL(42, static_cast<int>(okRes.data.seq));
+
+    /* 2. Ply > 0 rejection returns 409 INVALID_STATE with stoodUpPly0=false */
+    octi::ApiResult<octi::GameActionData> conflictRes =
+        client->abortGame("g-ply1-conflict");
+    CHECK_FALSE(conflictRes.ok);
+    CHECK_EQUAL(409, conflictRes.httpStatus);
+    STRCMP_EQUAL("INVALID_STATE", conflictRes.errorCode.c_str());
+    CHECK_FALSE(conflictRes.data.stoodUpPly0);
+
+    /* 3. Un-upgraded server rejection returns 400 INVALID_ARGUMENT (fail-closed) */
+    octi::ApiResult<octi::GameActionData> oldSrvRes =
+        client->abortGame("g-old-server");
+    CHECK_FALSE(oldSrvRes.ok);
+    CHECK_EQUAL(400, oldSrvRes.httpStatus);
+    STRCMP_EQUAL("INVALID_ARGUMENT", oldSrvRes.errorCode.c_str());
+    STRCMP_EQUAL("unknown action", oldSrvRes.errorMessage.c_str());
+    CHECK_FALSE(oldSrvRes.data.stoodUpPly0);
+
+    svr.stop();
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
+
+    std::lock_guard<std::mutex> lock(reqMutex);
+    CHECK_EQUAL(static_cast<std::size_t>(3), seenActions.size());
+    STRCMP_EQUAL("abort", seenActions[0].c_str());
+    STRCMP_EQUAL("abort", seenActions[1].c_str());
+    STRCMP_EQUAL("abort", seenActions[2].c_str());
+}
+
+TEST(OctiNetworkClientPly0AbortTest,
+     LeaveTableDefaultEmptyPayloadVsAbortIfPly0TrueAnd409Rejection)
+{
+    std::mutex reqMutex;
+    std::vector<std::string> rawBodies;
+
+    httplib::Server svr;
+    svr.Post("/api/v1/tables/g-leave-payload/leave",
+             [&](const httplib::Request &req, httplib::Response &res) {
+                 {
+                     std::lock_guard<std::mutex> lock(reqMutex);
+                     rawBodies.push_back(req.body);
+                 }
+                 nlohmann::json parsed =
+                     nlohmann::json::parse(req.body, nullptr, false);
+                 bool abortPly0 = parsed.is_object() &&
+                                  parsed.value("abort_if_ply0", false);
+                 const nlohmann::json resp = {
+                     {"ok", true},
+                     {"stood_up_ply0", abortPly0},
+                     {"detail", abortPly0 ? "ply0_standup" : "in_progress_disconnected"},
+                     {"seq", 19}
+                 };
+                 res.status = 200;
+                 res.set_content(resp.dump(), "application/json");
+             });
+
+    svr.Post("/api/v1/tables/g-leave-ply1/leave",
+             [&](const httplib::Request &req, httplib::Response &res) {
+                 {
+                     std::lock_guard<std::mutex> lock(reqMutex);
+                     rawBodies.push_back(req.body);
+                 }
+                 const nlohmann::json resp = {
+                     {"error", "INVALID_STATE"},
+                     {"message", "cannot stand up or abort without resigning after moves have been played"}
+                 };
+                 res.status = 409;
+                 res.set_content(resp.dump(), "application/json");
+             });
+
+    int port = svr.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread serverThread([&svr]() { svr.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    CHECK_TRUE(client != nullptr);
+
+    /* 1. Default leaveTable(roomId) sends wire-identical empty JSON object {} */
+    octi::ApiResult<bool> defRes = client->leaveTable("g-leave-payload");
+    CHECK_TRUE(defRes.ok);
+    CHECK_EQUAL(200, defRes.httpStatus);
+    CHECK_TRUE(defRes.data);
+
+    /* 2. Explicit leaveTable(roomId, false) also sends empty JSON object {} */
+    octi::ApiResult<bool> falseRes = client->leaveTable("g-leave-payload", false);
+    CHECK_TRUE(falseRes.ok);
+    CHECK_EQUAL(200, falseRes.httpStatus);
+    CHECK_TRUE(falseRes.data);
+
+    /* 3. Explicit leaveTable(roomId, true) sends {"abort_if_ply0":true} */
+    octi::ApiResult<bool> trueRes = client->leaveTable("g-leave-payload", true);
+    CHECK_TRUE(trueRes.ok);
+    CHECK_EQUAL(200, trueRes.httpStatus);
+    CHECK_TRUE(trueRes.data);
+
+    /* 4. leaveTable(roomId, true) at Ply > 0 surfaces 409 INVALID_STATE */
+    octi::ApiResult<bool> conflictRes = client->leaveTable("g-leave-ply1", true);
+    CHECK_FALSE(conflictRes.ok);
+    CHECK_EQUAL(409, conflictRes.httpStatus);
+    STRCMP_EQUAL("INVALID_STATE", conflictRes.errorCode.c_str());
+
+    svr.stop();
+    if (serverThread.joinable()) {
+        serverThread.join();
+    }
+
+    std::lock_guard<std::mutex> lock(reqMutex);
+    CHECK_EQUAL(static_cast<std::size_t>(4), rawBodies.size());
+
+    nlohmann::json j0 = nlohmann::json::parse(rawBodies[0], nullptr, false);
+    CHECK_TRUE(j0.is_object());
+    CHECK_TRUE(j0.empty());
+    CHECK_FALSE(j0.contains("abort_if_ply0"));
+
+    nlohmann::json j1 = nlohmann::json::parse(rawBodies[1], nullptr, false);
+    CHECK_TRUE(j1.is_object());
+    CHECK_TRUE(j1.empty());
+    CHECK_FALSE(j1.contains("abort_if_ply0"));
+
+    nlohmann::json j2 = nlohmann::json::parse(rawBodies[2], nullptr, false);
+    CHECK_TRUE(j2.is_object());
+    CHECK_TRUE(j2.contains("abort_if_ply0"));
+    CHECK_TRUE(j2["abort_if_ply0"].is_boolean());
+    CHECK_TRUE(j2["abort_if_ply0"].get<bool>());
+
+    nlohmann::json j3 = nlohmann::json::parse(rawBodies[3], nullptr, false);
+    CHECK_TRUE(j3.is_object());
+    CHECK_TRUE(j3.value("abort_if_ply0", false));
 }
 
 int main(int argc, char **argv)

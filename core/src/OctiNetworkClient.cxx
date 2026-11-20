@@ -313,7 +313,16 @@ TableSummaryInfo parseTableSummary(const Json &j)
             }
         }
     }
-    t.observerCount = j.value("observer_count", 0);
+    if (j.contains("observer_handles") && j["observer_handles"].is_array()) {
+        for (std::size_t i = 0; i < j["observer_handles"].size(); ++i) {
+            t.observerHandles.push_back(
+                j["observer_handles"][i].is_string()
+                    ? j["observer_handles"][i].get<std::string>()
+                    : std::string());
+        }
+    }
+    t.observerCount = j.value(
+        "observer_count", static_cast<int>(t.observerHandles.size()));
     return t;
 }
 
@@ -396,13 +405,23 @@ GameViewData parseGameView(const Json &j)
     }
     if (j.contains("observers") && j["observers"].is_array()) {
         for (std::size_t i = 0; i < j["observers"].size(); ++i) {
-            if (j["observers"][i].is_string()) {
-                v.observers.push_back(j["observers"][i].get<std::string>());
-            }
+            v.observers.push_back(
+                j["observers"][i].is_string()
+                    ? j["observers"][i].get<std::string>()
+                    : std::string());
         }
     }
-    v.observerCount =
-        j.value("observer_count", static_cast<int>(v.observers.size()));
+    if (j.contains("observer_handles") && j["observer_handles"].is_array()) {
+        for (std::size_t i = 0; i < j["observer_handles"].size(); ++i) {
+            v.observerHandles.push_back(
+                j["observer_handles"][i].is_string()
+                    ? j["observer_handles"][i].get<std::string>()
+                    : std::string());
+        }
+    }
+    v.observerCount = j.value(
+        "observer_count",
+        static_cast<int>(std::max(v.observers.size(), v.observerHandles.size())));
     v.fen = j.value("fen", "");
     v.turnSeat = j.value("turn_seat", 0);
     v.plyCount = j.value("ply_count", 0);
@@ -745,6 +764,7 @@ struct OctiNetworkClient::Impl {
         int port = 0;
         std::string sessionToken;
         std::string installId;
+        std::string installDeleteToken;
         std::string clientType{"desktop"};
         bool explicitClientType = false;
         std::string robotLeaseId;
@@ -786,6 +806,18 @@ struct OctiNetworkClient::Impl {
             installId = id;
         }
 
+        std::string currentInstallDeleteToken() const
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            return installDeleteToken;
+        }
+
+        void setInstallDeleteToken(const std::string &tok)
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            installDeleteToken = tok;
+        }
+
         std::string currentClientType() const
         {
             std::lock_guard<std::mutex> lock(mutex);
@@ -815,6 +847,10 @@ struct OctiNetworkClient::Impl {
             std::string inst = currentInstallId();
             if (!inst.empty()) {
                 h.emplace("X-Octi-Install-Id", inst);
+            }
+            std::string instTok = currentInstallDeleteToken();
+            if (!instTok.empty() && h.find("X-Octi-Install-Token") == h.end()) {
+                h.emplace("X-Octi-Install-Token", instTok);
             }
             std::string lease = currentRobotLeaseId();
             if (!lease.empty()) {
@@ -913,6 +949,7 @@ struct OctiNetworkClient::Impl {
     std::string sessionToken;
     PlayerProfileInfo cachedProfile;
     std::string installId;
+    std::string installDeleteToken;
     std::string clientType;
     bool explicitClientType = false;
     std::string robotLeaseId;
@@ -959,6 +996,7 @@ struct OctiNetworkClient::Impl {
         auth->port = port;
         auth->sessionToken = sessionToken;
         auth->installId = installId;
+        auth->installDeleteToken = installDeleteToken;
         auth->clientType = clientType;
         auth->explicitClientType = explicitClientType;
         auth->robotLeaseId = robotLeaseId;
@@ -980,6 +1018,19 @@ struct OctiNetworkClient::Impl {
     {
         std::lock_guard<std::mutex> lock(tokenMutex);
         installId = id;
+        syncAuthStateLocked();
+    }
+
+    std::string currentInstallDeleteToken() const
+    {
+        std::lock_guard<std::mutex> lock(tokenMutex);
+        return installDeleteToken;
+    }
+
+    void setInstallDeleteToken(const std::string &tok)
+    {
+        std::lock_guard<std::mutex> lock(tokenMutex);
+        installDeleteToken = tok;
         syncAuthStateLocked();
     }
 
@@ -1459,9 +1510,11 @@ struct OctiNetworkClient::Impl {
         return executeWithRetry("GET", path, authHeaders(extra));
     }
 
-    RawResponse doPost(const std::string &path, const Json &body) const
+    RawResponse doPost(const std::string &path,
+                       const Json &body,
+                       const httplib::Headers &extra = httplib::Headers()) const
     {
-        return executeWithRetry("POST", path, authHeaders(), body.dump(), "application/json");
+        return executeWithRetry("POST", path, authHeaders(extra), body.dump(), "application/json");
     }
 
     RawResponse doPatch(const std::string &path, const Json &body) const
@@ -1469,9 +1522,10 @@ struct OctiNetworkClient::Impl {
         return executeWithRetry("PATCH", path, authHeaders(), body.dump(), "application/json");
     }
 
-    RawResponse doDelete(const std::string &path) const
+    RawResponse doDelete(const std::string &path,
+                         const httplib::Headers &extra = httplib::Headers()) const
     {
-        return executeWithRetry("DELETE", path, authHeaders());
+        return executeWithRetry("DELETE", path, authHeaders(extra));
     }
 
     template <typename T>
@@ -1486,10 +1540,29 @@ struct OctiNetworkClient::Impl {
             return;
         }
         if (raw.json.is_object()) {
-            out.errorCode = raw.json.value("error", "HTTP_ERROR");
-            std::string msg = raw.json.value("message", "");
-            if (msg.empty()) {
-                msg = raw.json.value("error", "");
+            if (raw.json.contains("error") && raw.json["error"].is_string()) {
+                out.errorCode = raw.json["error"].get<std::string>();
+            } else if (raw.json.contains("error") &&
+                       raw.json["error"].is_object() &&
+                       raw.json["error"].contains("code") &&
+                       raw.json["error"]["code"].is_string()) {
+                out.errorCode = raw.json["error"]["code"].get<std::string>();
+            } else {
+                out.errorCode = "HTTP_ERROR";
+            }
+            std::string msg;
+            if (raw.json.contains("message") &&
+                raw.json["message"].is_string()) {
+                msg = raw.json["message"].get<std::string>();
+            } else if (raw.json.contains("error") &&
+                       raw.json["error"].is_object() &&
+                       raw.json["error"].contains("message") &&
+                       raw.json["error"]["message"].is_string()) {
+                msg = raw.json["error"]["message"].get<std::string>();
+            }
+            if (msg.empty() && raw.json.contains("error") &&
+                raw.json["error"].is_string()) {
+                msg = raw.json["error"].get<std::string>();
             }
             if (msg.empty()) {
                 msg = raw.body;
@@ -2086,6 +2159,16 @@ std::string OctiNetworkClient::installId() const
     return _impl->currentInstallId();
 }
 
+void OctiNetworkClient::setInstallDeleteToken(const std::string &token)
+{
+    _impl->setInstallDeleteToken(token);
+}
+
+std::string OctiNetworkClient::installDeleteToken() const
+{
+    return _impl->currentInstallDeleteToken();
+}
+
 /* ---- 1..10: Health, Auth, Profile & Leaderboard ---- */
 
 ApiResult<HealthInfo> OctiNetworkClient::fetchHealth()
@@ -2671,11 +2754,13 @@ ApiResult<JoinTableResponse> OctiNetworkClient::joinTable(
     return res;
 }
 
-ApiResult<bool> OctiNetworkClient::leaveTable(const std::string &roomId)
+ApiResult<bool> OctiNetworkClient::leaveTable(const std::string &roomId,
+                                              bool abortIfPly0)
 {
     ApiResult<bool> res;
+    Json body = abortIfPly0 ? Json{{"abort_if_ply0", true}} : Json::object();
     Impl::RawResponse raw = _impl->doPost(
-        "/api/v1/tables/" + urlEncode(roomId) + "/leave", Json::object());
+        "/api/v1/tables/" + urlEncode(roomId) + "/leave", body);
     if (!raw.transportOk || raw.status != 200) {
         Impl::populateError(raw, res);
         return res;
@@ -2937,6 +3022,12 @@ ApiResult<bool> OctiNetworkClient::resignGame(const std::string &roomId)
     return res;
 }
 
+ApiResult<GameActionData> OctiNetworkClient::abortGame(
+    const std::string &roomId)
+{
+    return submitGameAction(roomId, "abort");
+}
+
 ApiResult<GameActionData> OctiNetworkClient::submitGameAction(
     const std::string &roomId,
     const std::string &action)
@@ -2955,6 +3046,8 @@ ApiResult<GameActionData> OctiNetworkClient::submitGameAction(
     res.data.action = raw.json.value("action", action);
     res.data.roomId = raw.json.value("room_id", roomId);
     res.data.gameOver = raw.json.value("game_over", false);
+    res.data.stoodUpPly0 = raw.json.value("stood_up_ply0", false);
+    res.data.detail = raw.json.value("detail", "");
     res.data.seq = raw.json.value("seq", static_cast<std::int64_t>(0));
     return res;
 }
@@ -3181,7 +3274,12 @@ ApiResult<UploadTranscriptResponse> OctiNetworkClient::uploadTrainingTranscript(
         body["clientId"] = req.clientId;
     }
 
-    Impl::RawResponse raw = _impl->doPost("/api/v1/archive/upload", body);
+    httplib::Headers extra;
+    if (!req.installDeleteToken.empty()) {
+        extra.emplace("X-Octi-Install-Token", req.installDeleteToken);
+    }
+
+    Impl::RawResponse raw = _impl->doPost("/api/v1/archive/upload", body, extra);
     if (!raw.transportOk || raw.status != 200) {
         Impl::populateError(raw, res);
         return res;
@@ -3236,7 +3334,12 @@ CrashReportResponse OctiNetworkClient::uploadCrashReport(
         body["install_id"] = req.installId;
     }
 
-    Impl::RawResponse raw = _impl->doPost("/api/v1/telemetry/crash", body);
+    httplib::Headers extra;
+    if (!req.installDeleteToken.empty()) {
+        extra.emplace("X-Octi-Install-Token", req.installDeleteToken);
+    }
+
+    Impl::RawResponse raw = _impl->doPost("/api/v1/telemetry/crash", body, extra);
     res.httpStatus = raw.status;
 
     if (raw.transportOk && (raw.status == 200 || raw.status == 201)) {
@@ -3259,11 +3362,16 @@ CrashReportResponse OctiNetworkClient::uploadCrashReport(
 }
 
 ApiResult<int> OctiNetworkClient::deleteInstallArchiveData(
-    const std::string &installId)
+    const std::string &installId,
+    const std::string &installDeleteToken)
 {
     ApiResult<int> res;
+    httplib::Headers extra;
+    if (!installDeleteToken.empty()) {
+        extra.emplace("X-Octi-Install-Token", installDeleteToken);
+    }
     Impl::RawResponse raw =
-        _impl->doDelete("/api/v1/archive/install/" + urlEncode(installId));
+        _impl->doDelete("/api/v1/archive/install/" + urlEncode(installId), extra);
     if (!raw.transportOk || raw.status != 200) {
         Impl::populateError(raw, res);
         return res;

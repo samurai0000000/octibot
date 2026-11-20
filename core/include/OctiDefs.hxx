@@ -25,6 +25,7 @@ constexpr int OCTI_SERVER_FALLBACK_PORT = 6874;
 constexpr int OCTI_SERVER_DAEMON_PORT = 6874;
 constexpr int OCTI_PROTOCOL_VERSION = 1;
 constexpr int OCTI_MIN_PROTOCOL_VERSION = 1;
+constexpr const char *OCTI_DATA_ATTRIBUTION = "octi.selfso.com";
 
 constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_2P = 30;
 constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_4P = 60;

@@ -3050,7 +3050,7 @@ OctiEvalBreakdown OctiBotEngine::evaluateBoardBreakdown(
 int OctiBotEngine::evaluateBoard(const OctiBoard &board,
                                  OctiPlayer perspective) const
 {
-    return evaluatePositionBreakdownImpl(board, perspective, _profile, this).totalScore;
+    return evaluateBoard(board, perspective, _profile);
 }
 
 int OctiBotEngine::evaluateBoard(const OctiBoard &board,
@@ -3067,7 +3067,7 @@ int OctiBotEngine::evaluateBoard(const OctiGame &game,
     if (!board) {
         return 0;
     }
-    return evaluatePositionBreakdownImpl(*board, perspective, _profile, this).totalScore;
+    return evaluateBoard(*board, perspective);
 }
 
 int OctiBotEngine::evaluateBoard(const OctiGame &game,
@@ -3078,7 +3078,7 @@ int OctiBotEngine::evaluateBoard(const OctiGame &game,
     if (!board) {
         return 0;
     }
-    return evaluatePositionBreakdownImpl(*board, perspective, profile, this).totalScore;
+    return evaluateBoard(*board, perspective, profile);
 }
 
 OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdown(
@@ -3857,6 +3857,92 @@ inline std::uint64_t unbatchedNodeRemainder(std::uint64_t nodesVisited)
     return nodesVisited & 4095ULL;
 }
 
+class ScopedPlyHook
+{
+public:
+    ScopedPlyHook(const OctiLeafEvaluator *evaluator,
+                  OctiGame *game,
+                  const OctiGameSnapshot *snap,
+                  int restoredPly) noexcept
+        : _evaluator(evaluator)
+        , _game(game)
+        , _snap(snap)
+        , _nullHash(nullptr)
+        , _restoredPly(restoredPly)
+        , _boardMutated(false)
+        , _hookPushed(false)
+    {
+    }
+
+    ScopedPlyHook(const OctiLeafEvaluator *evaluator,
+                  OctiGame *game,
+                  std::uint64_t *nullHash,
+                  int restoredPly) noexcept
+        : _evaluator(evaluator)
+        , _game(game)
+        , _snap(nullptr)
+        , _nullHash(nullHash)
+        , _restoredPly(restoredPly)
+        , _boardMutated(true)
+        , _hookPushed(false)
+    {
+    }
+
+    ScopedPlyHook(const ScopedPlyHook &) = delete;
+    ScopedPlyHook &operator=(const ScopedPlyHook &) = delete;
+
+    ~ScopedPlyHook()
+    {
+        pop();
+    }
+
+    void beforeMove(const OctiBoard &boardBefore, const OctiMove &move)
+    {
+        if (_evaluator != nullptr) {
+            _evaluator->onBeforeMove(boardBefore, move, _restoredPly);
+        }
+        _hookPushed = true;
+        _boardMutated = true;
+    }
+
+    void afterPushNullMove(const OctiBoard &boardAfter, int childPly)
+    {
+        if (_evaluator != nullptr) {
+            _evaluator->onPushNullMove(boardAfter, childPly);
+        }
+        _hookPushed = true;
+    }
+
+    void pop()
+    {
+        if (_boardMutated) {
+            _boardMutated = false;
+            if (_game != nullptr) {
+                if (_snap != nullptr) {
+                    _game->restoreSnapshot(*_snap);
+                } else if (_nullHash != nullptr) {
+                    _game->unmakeNullMove(_nullHash);
+                }
+            }
+        }
+        if (_hookPushed) {
+            _hookPushed = false;
+            if (_evaluator != nullptr) {
+                _evaluator->onPopPly(_restoredPly);
+            }
+        }
+    }
+
+private:
+    const OctiLeafEvaluator *_evaluator;
+    OctiGame *_game;
+    const OctiGameSnapshot *_snap;
+    std::uint64_t *_nullHash;
+    int _restoredPly;
+    bool _boardMutated;
+    bool _hookPushed;
+};
+
 } // namespace
 
 int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
@@ -3877,7 +3963,7 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
             (deadlineMs < std::numeric_limits<long>::max() &&
              steadyClockMs() >= deadlineMs)) {
             timedOut = true;
-            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective, ply);
         }
     }
 
@@ -3968,7 +4054,7 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
         }
     }
 
-    int standPat = evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+    int standPat = evaluateLeafOrHeuristic(scratchBoard, currentPerspective, ply);
     if (standPat >= beta) {
         if (useQsearchTt) {
             storeQuiesceTt(0, standPat, 1, 0ULL);
@@ -4007,10 +4093,11 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
     OctiGameSnapshot snap = game->captureSnapshot();
 
     for (const auto &mv : ordered) {
+        ScopedPlyHook plyHook(_leafEvaluator, game, &snap, ply);
         try {
+            plyHook.beforeMove(scratchBoard, mv);
             game->move(mv);
         } catch (...) {
-            game->restoreSnapshot(snap);
             continue;
         }
 
@@ -4037,7 +4124,7 @@ int OctiBotEngine::quiesce(OctiBoard &scratchBoard,
             }
         }
 
-        game->restoreSnapshot(snap);
+        plyHook.pop();
 
         if (timedOut) {
             break;
@@ -4088,7 +4175,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             (deadlineMs < std::numeric_limits<long>::max() &&
              steadyClockMs() >= deadlineMs)) {
             timedOut = true;
-            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+            return evaluateLeafOrHeuristic(scratchBoard, currentPerspective, ply);
         }
     }
 
@@ -4109,7 +4196,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             return quiesce(scratchBoard, 0, ply, alpha, beta, currentPerspective,
                            nodesVisited, deadlineMs, timedOut, state);
         }
-        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective, ply);
     }
 
     const bool useTtLock = (_profile.lazySmpThreads > 1);
@@ -4203,19 +4290,22 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         }
 
         if (canNullMoveMaterial) {
-            int staticEval = evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+            int staticEval = evaluateLeafOrHeuristic(
+                scratchBoard, currentPerspective, ply);
             if (staticEval >= beta) {
                 int r = std::max(1, _profile.nullMoveReduction);
                 int nullDepth = std::max(0, depth - 1 - r);
                 std::uint64_t nullHash = hashKey;
                 if (game->makeNullMove(&nullHash)) {
+                    ScopedPlyHook nullHook(_leafEvaluator, game, &nullHash, ply);
+                    nullHook.afterPushNullMove(scratchBoard, ply + 1);
                     ++state.diag.nullMoveTries;
                     OctiPlayer oppTurn = game->getTurn();
                     int nullVal = -negamax(scratchBoard, nullDepth, ply + 1,
                                            -beta, -beta + 1, oppTurn,
                                            nodesVisited, deadlineMs, timedOut,
                                            state, false);
-                    game->unmakeNullMove(&nullHash);
+                    nullHook.pop();
                     if (timedOut) {
                         return staticEval;
                     }
@@ -4241,7 +4331,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
     std::vector<OctiMove> rawMoves;
     this->generateSearchMoves(*game, turn, ply, rawMoves);
     if (rawMoves.empty()) {
-        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective);
+        return evaluateLeafOrHeuristic(scratchBoard, currentPerspective, ply);
     }
 
     std::size_t maxBranch = (_profile.treeBranchCap > 0)
@@ -4281,10 +4371,11 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
         const bool mvIsKiller = (_profile.useKillers && mvKey != 0ULL &&
                                  (mvKey == killer0 || mvKey == killer1));
 
+        ScopedPlyHook plyHook(_leafEvaluator, game, &snap, ply);
         try {
+            plyHook.beforeMove(scratchBoard, mv);
             game->move(mv);
         } catch (...) {
-            game->restoreSnapshot(snap);
             continue;
         }
 
@@ -4381,7 +4472,7 @@ int OctiBotEngine::negamax(OctiBoard &scratchBoard,
             }
         }
 
-        game->restoreSnapshot(snap);
+        plyHook.pop();
 
         if (timedOut) {
             break;
@@ -4602,6 +4693,9 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                         if (!tGame) return;
                         tGame->setNoProgressPlies(rootNoProgressPlies);
                         tGame->setSearchMode(true);
+                        if (_leafEvaluator != nullptr) {
+                            _leafEvaluator->onSearchRoot(threadBoard);
+                        }
                         std::uint64_t tNodes = 0;
 
                         for (int d = 1 + depthOffset;
@@ -4629,6 +4723,9 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                         if (!tGame || initialCandidates.empty()) return;
                         tGame->setNoProgressPlies(rootNoProgressPlies);
                         tGame->setSearchMode(true);
+                        if (_leafEvaluator != nullptr) {
+                            _leafEvaluator->onSearchRoot(threadBoard);
+                        }
                         OctiGameSnapshot tRootSnap = tGame->captureSnapshot();
                         std::uint64_t tNodes = 0;
 
@@ -4654,10 +4751,11 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                                 const OctiMove &mv =
                                     initialCandidates[(static_cast<std::size_t>(t) + s) %
                                                       initialCandidates.size()];
+                                ScopedPlyHook rootPlyHook(_leafEvaluator, tGame, &tRootSnap, 0);
                                 try {
+                                    rootPlyHook.beforeMove(threadBoard, mv);
                                     tGame->move(mv);
                                 } catch (...) {
-                                    tGame->restoreSnapshot(tRootSnap);
                                     continue;
                                 }
 
@@ -4710,7 +4808,7 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                                     }
                                 }
 
-                                tGame->restoreSnapshot(tRootSnap);
+                                rootPlyHook.pop();
                                 if (tTimedOut) break;
                                 if (score > tAlpha) {
                                     tAlpha = score;
@@ -4733,10 +4831,11 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
                                     int beta,
                                     bool &timedOut,
                                     int &outScore) -> bool {
+        ScopedPlyHook rootPlyHook(_leafEvaluator, game, &rootSnap, 0);
         try {
+            rootPlyHook.beforeMove(scratchBoard, mv);
             game->move(mv);
         } catch (...) {
-            game->restoreSnapshot(rootSnap);
             return false;
         }
 
@@ -4792,10 +4891,14 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
             }
         }
 
-        game->restoreSnapshot(rootSnap);
+        rootPlyHook.pop();
         outScore = score;
         return true;
     };
+
+    if (_leafEvaluator != nullptr) {
+        _leafEvaluator->onSearchRoot(scratchBoard);
+    }
 
     for (int d = 1; d <= maxTargetDepth; ++d) {
         bool timedOut = false;
@@ -5108,6 +5211,9 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                     if (!tGame) return;
                     tGame->setNoProgressPlies(rootNoProgressPlies);
                     tGame->setSearchMode(true);
+                    if (_leafEvaluator != nullptr) {
+                        _leafEvaluator->onSearchRoot(threadBoard);
+                    }
                     OctiGameSnapshot tRootSnap = tGame->captureSnapshot();
                     std::uint64_t tNodes = 0;
 
@@ -5129,10 +5235,11 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                             const OctiMove &mv =
                                 initialCandidates[(static_cast<std::size_t>(t) + s) %
                                                   initialCandidates.size()];
+                            ScopedPlyHook rootPlyHook(_leafEvaluator, tGame, &tRootSnap, 0);
                             try {
+                                rootPlyHook.beforeMove(threadBoard, mv);
                                 tGame->move(mv);
                             } catch (...) {
-                                tGame->restoreSnapshot(tRootSnap);
                                 continue;
                             }
                             bool tTimedOut = false;
@@ -5152,7 +5259,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                                         persp, tNodes, deadlineMs, tTimedOut,
                                         *hState, true);
                             }
-                            tGame->restoreSnapshot(tRootSnap);
+                            rootPlyHook.pop();
                             if (tTimedOut) break;
                         }
                     }
@@ -5161,6 +5268,10 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                 });
             }
         }
+    }
+
+    if (_leafEvaluator != nullptr) {
+        _leafEvaluator->onSearchRoot(scratchBoard);
     }
 
     for (int d = 1; d <= maxTargetDepth; ++d) {
@@ -5179,10 +5290,11 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
         topScoresSoFar.reserve(targetCount + 1);
 
         for (const auto &mv : rootCandidates) {
+            ScopedPlyHook rootPlyHook(_leafEvaluator, game, &rootSnap, 0);
             try {
+                rootPlyHook.beforeMove(scratchBoard, mv);
                 game->move(mv);
             } catch (...) {
-                game->restoreSnapshot(rootSnap);
                 continue;
             }
 
@@ -5241,7 +5353,7 @@ std::vector<BookMoveScore> OctiBotEngine::searchTopMovesForBook(
                 }
             }
 
-            game->restoreSnapshot(rootSnap);
+            rootPlyHook.pop();
 
             if (timedOut) {
                 break;

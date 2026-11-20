@@ -235,9 +235,56 @@ class OctiLeafEvaluator
 {
 public:
     virtual ~OctiLeafEvaluator() = default;
+
+    // When false, OctiBotEngine skips evaluateBoard() heuristic computation at
+    // search leaves and passes heuristicScore = 0 to evaluateLeafAtPly().
+    virtual bool requiresHeuristicScore() const noexcept { return true; }
+
+    // Invoked on the calling worker thread once when scratchBoard/threadBoard
+    // is initialized at root (ply == 0) before root move search begins.
+    virtual void onSearchRoot(const OctiBoard &rootBoard) const
+    {
+        (void)rootBoard;
+    }
+
+    // Invoked on the calling worker thread immediately before game->move(move)
+    // transitions from parentPly to (parentPly + 1).
+    virtual void onBeforeMove(const OctiBoard &boardBefore,
+                              const OctiMove &move,
+                              int parentPly) const
+    {
+        (void)boardBefore;
+        (void)move;
+        (void)parentPly;
+    }
+
+    // Invoked immediately after game->makeNullMove() transitions to childPly.
+    virtual void onPushNullMove(const OctiBoard &boardAfter,
+                                int childPly) const
+    {
+        (void)boardAfter;
+        (void)childPly;
+    }
+
+    // Invoked immediately after restoreSnapshot() or unmakeNullMove() restores
+    // the board back to restoredPly (also invoked via RAII if move() throws).
+    virtual void onPopPly(int restoredPly) const
+    {
+        (void)restoredPly;
+    }
+
     virtual int evaluateLeaf(const OctiBoard &board,
                              OctiPlayer perspective,
                              int heuristicScore) const = 0;
+
+    virtual int evaluateLeafAtPly(const OctiBoard &board,
+                                  OctiPlayer perspective,
+                                  int heuristicScore,
+                                  int ply) const
+    {
+        (void)ply;
+        return evaluateLeaf(board, perspective, heuristicScore);
+    }
 };
 
 class OctiBotEngine {
@@ -332,11 +379,11 @@ public:
     OctiEvalBreakdown evaluateBoardBreakdown(const OctiGame &game,
                                              OctiPlayer perspective,
                                              const BotTuningProfile &profile) const;
-    int evaluateBoard(const OctiBoard &board,
-                      OctiPlayer perspective) const;
-    int evaluateBoard(const OctiBoard &board,
-                      OctiPlayer perspective,
-                      const BotTuningProfile &profile) const;
+    virtual int evaluateBoard(const OctiBoard &board,
+                              OctiPlayer perspective) const;
+    virtual int evaluateBoard(const OctiBoard &board,
+                              OctiPlayer perspective,
+                              const BotTuningProfile &profile) const;
     int evaluateBoard(const OctiGame &game,
                       OctiPlayer perspective) const;
     int evaluateBoard(const OctiGame &game,
@@ -505,12 +552,16 @@ private:
     std::uint64_t computePositionHash(const OctiBoard &board) const;
 
     int evaluateLeafOrHeuristic(const OctiBoard &board,
-                                OctiPlayer perspective) const
+                                OctiPlayer perspective,
+                                int ply = 0) const
     {
-        int h = evaluateBoard(board, perspective, _profile);
-        return _leafEvaluator
-            ? _leafEvaluator->evaluateLeaf(board, perspective, h)
-            : h;
+        if (_leafEvaluator != nullptr) {
+            const int h = _leafEvaluator->requiresHeuristicScore()
+                ? evaluateBoard(board, perspective, _profile)
+                : 0;
+            return _leafEvaluator->evaluateLeafAtPly(board, perspective, h, ply);
+        }
+        return evaluateBoard(board, perspective, _profile);
     }
 
     int quiesce(OctiBoard &scratchBoard,
