@@ -79,7 +79,7 @@ struct ZobristTables {
     std::uint64_t baseCaptured[81][5];
     std::uint64_t freePods[5][8];
     std::uint64_t capturedPods[5][8];
-    std::uint64_t freeProngs[5][33];
+    std::uint64_t freeProngs[5][51];
     std::uint64_t freeSuperProngs[5][9];
     std::uint64_t turn[5];
     std::uint64_t mode[4];
@@ -136,6 +136,13 @@ struct ZobristTables {
         }
         for (int s = 0; s < 2; ++s) {
             superProngs[s] = splitmix64();
+        }
+        // Populate extended freeProngs indices 33..50 after existing tables so
+        // precomputed opening-book keys (where freeProngs <= 32) remain identical.
+        for (int pl = 0; pl < 5; ++pl) {
+            for (int i = 33; i < 51; ++i) {
+                freeProngs[pl][i] = splitmix64();
+            }
         }
     }
 };
@@ -2688,7 +2695,7 @@ std::uint64_t computePositionHashInternal(const OctiBoard &board,
         OctiPlayer p = static_cast<OctiPlayer>(pl);
         int fp = std::min(7, std::max(0, game->getFreePods(p)));
         int cp = std::min(7, std::max(0, game->getCapturedPods(p)));
-        int fpr = std::min(32, std::max(0, game->getFreeProngs(p)));
+        int fpr = std::min(50, std::max(0, game->getFreeProngs(p)));
         int fspr = std::min(8, std::max(0, game->getFreeSuperProngs(p)));
         h ^= g_zobrist.freePods[pl][fp];
         h ^= g_zobrist.capturedPods[pl][cp];

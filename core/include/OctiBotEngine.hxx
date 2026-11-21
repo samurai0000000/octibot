@@ -316,14 +316,14 @@ public:
     void setTimeBudgetMs(int maxTimeMs);
     int timeBudgetMs() const;
 
-    int liveDepthReached() const;
-    std::uint64_t liveNodesVisited() const;
-    int liveBestScore() const;
+    virtual int liveDepthReached() const;
+    virtual std::uint64_t liveNodesVisited() const;
+    virtual int liveBestScore() const;
 
-    std::string chooseMove(const OctiBoard &board,
-                           BotSearchStats *outStats = nullptr);
+    virtual std::string chooseMove(const OctiBoard &board,
+                                   BotSearchStats *outStats = nullptr);
 
-    std::vector<BookMoveScore> searchTopMovesForBook(
+    virtual std::vector<BookMoveScore> searchTopMovesForBook(
         const OctiBoard &board,
         int searchDepth,
         int timeBudgetMs = 0,

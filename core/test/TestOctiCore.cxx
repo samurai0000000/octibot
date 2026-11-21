@@ -12821,6 +12821,187 @@ TEST(OctiNetworkClientPly0AbortTest,
     CHECK_TRUE(j3.value("abort_if_ply0", false));
 }
 
+// ---------------------------------------------------------------------------
+// Envelope 1: Core Virtual Dispatch Hooks & Zobrist freeProngs[5][51] Fix
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class MockPolymorphicOctiBotEngine : public octi::OctiBotEngine {
+public:
+    explicit MockPolymorphicOctiBotEngine(bool *destroyedFlag = nullptr)
+        : octi::OctiBotEngine(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL)
+        , _destroyedFlag(destroyedFlag)
+    {
+    }
+
+    ~MockPolymorphicOctiBotEngine() override
+    {
+        if (_destroyedFlag != nullptr) {
+            *_destroyedFlag = true;
+        }
+    }
+
+    int liveDepthReached() const override
+    {
+        return 17;
+    }
+
+    std::uint64_t liveNodesVisited() const override
+    {
+        return 987654ULL;
+    }
+
+    int liveBestScore() const override
+    {
+        return 4321;
+    }
+
+    std::string chooseMove(const octi::OctiBoard &board,
+                           octi::BotSearchStats *outStats = nullptr) override
+    {
+        (void)board;
+        if (outStats != nullptr) {
+            outStats->depthReached = 17;
+            outStats->nodesVisited = 987654ULL;
+            outStats->bestScore = 4321;
+            outStats->elapsedMs = 12;
+        }
+        return "33+a";
+    }
+
+    std::vector<octi::BookMoveScore> searchTopMovesForBook(
+        const octi::OctiBoard &board,
+        int searchDepth,
+        int timeBudgetMs = 0,
+        std::size_t topK = 3,
+        octi::BotSearchStats *outStats = nullptr) override
+    {
+        (void)board;
+        if (outStats != nullptr) {
+            outStats->depthReached = searchDepth;
+            outStats->nodesVisited = 654321ULL;
+            outStats->bestScore = 4321;
+            outStats->elapsedMs = timeBudgetMs;
+        }
+        std::vector<octi::BookMoveScore> res = {
+            { "33+a", 4321 },
+            { "53+a", 4100 },
+            { "73+a", 3900 }
+        };
+        if (res.size() > topK) {
+            res.resize(topK);
+        }
+        return res;
+    }
+
+private:
+    bool *_destroyedFlag = nullptr;
+};
+
+} // namespace
+
+TEST_GROUP(OctiEnvelope1CoreHooksAndZobristTest)
+{
+};
+
+TEST(OctiEnvelope1CoreHooksAndZobristTest,
+     ZobristDistinguishesFreeProngsAbove32UpTo50)
+{
+    octi::OctiBoard b32(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    octi::OctiBoard b40(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    octi::OctiBoard b50(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+
+    b32.fromPositionString("2:3:0:0:P:A:-:0:0,0,32,0:0,0,25,0:A33ae,B37ae");
+    b40.fromPositionString("2:3:0:0:P:A:-:0:0,0,40,0:0,0,25,0:A33ae,B37ae");
+    b50.fromPositionString("2:3:0:0:P:A:-:0:0,0,50,0:0,0,25,0:A33ae,B37ae");
+
+    CHECK_EQUAL(32, b32.getGame()->getFreeProngs(octi::PLAYER_A));
+    CHECK_EQUAL(40, b40.getGame()->getFreeProngs(octi::PLAYER_A));
+    CHECK_EQUAL(50, b50.getGame()->getFreeProngs(octi::PLAYER_A));
+
+    const std::uint64_t h32 = octi::OctiBotEngine::computePositionHashStatic(b32);
+    const std::uint64_t h40 = octi::OctiBotEngine::computePositionHashStatic(b40);
+    const std::uint64_t h50 = octi::OctiBotEngine::computePositionHashStatic(b50);
+
+    CHECK_TRUE(h32 != h40);
+    CHECK_TRUE(h40 != h50);
+    CHECK_TRUE(h32 != h50);
+
+    const std::uint64_t c32 = octi::OctiBotEngine::computeCanonicalOpeningHash(b32);
+    const std::uint64_t c40 = octi::OctiBotEngine::computeCanonicalOpeningHash(b40);
+    const std::uint64_t c50 = octi::OctiBotEngine::computeCanonicalOpeningHash(b50);
+
+    CHECK_TRUE(c32 != c40);
+    CHECK_TRUE(c40 != c50);
+    CHECK_TRUE(c32 != c50);
+
+    std::set<std::uint64_t> distinctHashesA;
+    std::set<std::uint64_t> distinctHashesB;
+    for (int fpr = 0; fpr <= 50; ++fpr) {
+        octi::OctiBoard ba(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        ba.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0," + std::to_string(fpr) + ",0:0,0,10,0:A33ae,B37ae");
+        distinctHashesA.insert(octi::OctiBotEngine::computePositionHashStatic(ba));
+
+        octi::OctiBoard bb(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        bb.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0,10,0:0,0," + std::to_string(fpr) + ",0:A33ae,B37ae");
+        distinctHashesB.insert(octi::OctiBotEngine::computePositionHashStatic(bb));
+    }
+    CHECK_EQUAL(static_cast<std::size_t>(51), distinctHashesA.size());
+    CHECK_EQUAL(static_cast<std::size_t>(51), distinctHashesB.size());
+
+    // Values above 50 clamp safely to 50 without out-of-bounds access
+    octi::OctiBoard b55(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    b55.fromPositionString("2:3:0:0:P:A:-:0:0,0,55,0:0,0,25,0:A33ae,B37ae");
+    CHECK_EQUAL(h50, octi::OctiBotEngine::computePositionHashStatic(b55));
+}
+
+TEST(OctiEnvelope1CoreHooksAndZobristTest,
+     PolymorphicOverrideOfChooseMoveBookSearchAndLiveTelemetry)
+{
+    octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+    board.getGame()->start(octi::PLAYER_A);
+
+    bool destroyed = false;
+    std::unique_ptr<octi::OctiBotEngine> ownedPtr =
+        std::make_unique<MockPolymorphicOctiBotEngine>(&destroyed);
+    octi::OctiBotEngine *basePtr = ownedPtr.get();
+    octi::OctiBotEngine &baseRef = *ownedPtr;
+
+    CHECK_EQUAL(17, basePtr->liveDepthReached());
+    CHECK_EQUAL(static_cast<std::uint64_t>(987654ULL), basePtr->liveNodesVisited());
+    CHECK_EQUAL(4321, basePtr->liveBestScore());
+
+    CHECK_EQUAL(17, baseRef.liveDepthReached());
+    CHECK_EQUAL(static_cast<std::uint64_t>(987654ULL), baseRef.liveNodesVisited());
+    CHECK_EQUAL(4321, baseRef.liveBestScore());
+
+    octi::BotSearchStats chooseStats{};
+    std::string chosen = basePtr->chooseMove(board, &chooseStats);
+    STRCMP_EQUAL("33+a", chosen.c_str());
+    CHECK_EQUAL(17, chooseStats.depthReached);
+    CHECK_EQUAL(static_cast<std::uint64_t>(987654ULL), chooseStats.nodesVisited);
+    CHECK_EQUAL(4321, chooseStats.bestScore);
+    LONGS_EQUAL(12, chooseStats.elapsedMs);
+
+    octi::BotSearchStats bookStats{};
+    std::vector<octi::BookMoveScore> top =
+        baseRef.searchTopMovesForBook(board, 9, 250, 2, &bookStats);
+    CHECK_EQUAL(static_cast<std::size_t>(2), top.size());
+    STRCMP_EQUAL("33+a", top[0].move.c_str());
+    CHECK_EQUAL(4321, top[0].score);
+    STRCMP_EQUAL("53+a", top[1].move.c_str());
+    CHECK_EQUAL(4100, top[1].score);
+    CHECK_EQUAL(9, bookStats.depthReached);
+    CHECK_EQUAL(static_cast<std::uint64_t>(654321ULL), bookStats.nodesVisited);
+    LONGS_EQUAL(250, bookStats.elapsedMs);
+
+    ownedPtr.reset();
+    CHECK_TRUE(destroyed);
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
