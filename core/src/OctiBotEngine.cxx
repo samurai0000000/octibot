@@ -681,9 +681,7 @@ bool isDistOneBaseThreatProngTarget(const OctiBoard &board,
         baseSq.isCapturedByTeamOf(turn)) {
         return false;
     }
-    bool canStepToBase = (mode == GAME_MODE_OFK)
-        ? baseSq.isEmpty()
-        : !baseSq.hasEnemyOf(turn);
+    bool canStepToBase = baseSq.canEnterByStep(turn);
     if (canStepToBase) {
         return true;
     }
@@ -3367,7 +3365,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdownImpl(
 
                     if (board.isValidCoord(nx, ny)) {
                         const OctiSquare &nsq = board.squareAt(nx, ny);
-                        canStep = (mode == GAME_MODE_OFK) ? nsq.isEmpty() : !nsq.hasEnemyOf(owner);
+                        canStep = nsq.canEnterByStep(owner);
                         if (!nsq.isEmpty() && board.isValidCoord(jx, jy)) {
                             const OctiSquare &destSq = board.squareAt(jx, jy);
                             if (destSq.isEmpty()) {
@@ -3383,7 +3381,7 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdownImpl(
                         if (ndist < dist && (canStep || canJump)) {
                             bd.prongDirectionality += sign * 140;
                         }
-                        bool canStepBase = (mode == GAME_MODE_OFK) ? nsq.isEmpty() : !nsq.hasEnemyOf(owner);
+                        bool canStepBase = nsq.canEnterByStep(owner);
                         if (ndist == 0 && canStepBase) {
                             hasOneStepBaseThreat = true;
                         }
@@ -3391,8 +3389,8 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdownImpl(
                         if (squareHasAllyOf(nsq, mode, owner)) {
                             if (board.isValidCoord(jx, jy)) {
                                 const OctiSquare &destSq = board.squareAt(jx, jy);
-                                bool canJumpBase = (mode == GAME_MODE_OFK) ? destSq.isEmpty() : !destSq.hasEnemyOf(owner);
-                                if (destSq.isEmpty() || canJumpBase) {
+                                bool canJumpBase = destSq.isEmpty();
+                                if (canJumpBase) {
                                     int jdist = minChebyshevToTargets(jx, jy, targets, w, h, edgeless);
                                     if (jdist < dist) {
                                         bd.leapfrogBattery += sign * (profile.leapfrogBatteryWeight + profile.leapfrogForwardBonus);
@@ -3780,6 +3778,23 @@ OctiEvalBreakdown OctiBotEngine::evaluatePositionBreakdownImpl(
             resMat -= profile.fourPlayerEliminatedPenalty;
         }
         bd.reserveAndCapturedMaterial += sign * resMat;
+
+        if (mode == GAME_MODE_4 && !game->isPlayerEliminated(p) && freePods > 0) {
+            static const int kHomeXY[5][2] = {
+                {-1, -1}, {2, 2}, {2, 6}, {6, 6}, {6, 2}
+            };
+            OctiPlayer partner = (p == PLAYER_A) ? PLAYER_C
+                               : (p == PLAYER_C) ? PLAYER_A
+                               : (p == PLAYER_B) ? PLAYER_D : PLAYER_B;
+            int hx = kHomeXY[pIdx][0];
+            int hy = kHomeXY[pIdx][1];
+            if (board.isValidCoord(hx, hy) && board.squareAt(hx, hy).isOccupiedBy(partner)) {
+                int partnerHomeBlockPenalty = (playerBoardPods[pIdx] > 0)
+                    ? profile.fourPlayerPartnerHomeBlockPenalty
+                    : profile.fourPlayerPartnerHomeBlockZeroPodsPenalty;
+                bd.structuralPositional -= sign * partnerHomeBlockPenalty;
+            }
+        }
 
         if (profile.fixStackAndHomeEvalMirage) {
             int unarmedHome = isAlly ? allyUnarmedHomePods : enemyUnarmedHomePods;
@@ -4645,6 +4660,24 @@ std::string OctiBotEngine::chooseMove(const OctiBoard &board,
         } catch (...) {
         }
         game->restoreSnapshot(rootSnap);
+    }
+
+    // 1b. Immediate return when strictly one legal move exists (avoids wasting
+    //     full thinking budget or spawning Lazy SMP threads on forced turns).
+    if (legalMoves.size() == 1u) {
+        _liveNodesVisited.fetch_add(unbatchedNodeRemainder(nodesVisited),
+                                    std::memory_order_relaxed);
+        std::uint64_t totalNodes =
+            _liveNodesVisited.load(std::memory_order_relaxed);
+        _liveDepthReached.store(1, std::memory_order_relaxed);
+        _liveBestScore.store(0, std::memory_order_relaxed);
+        if (outStats) {
+            outStats->depthReached = 1;
+            outStats->nodesVisited = totalNodes;
+            outStats->bestScore = 0;
+            outStats->elapsedMs = std::max(0L, steadyClockMs() - startMs);
+        }
+        return legalMoves[0].asString();
     }
 
     // 2. Probe precomputed Zobrist opening playbook if enabled

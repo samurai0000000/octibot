@@ -146,6 +146,13 @@ const std::uint8_t *rulebookImageBytes(const std::string &fileName,
     return nullptr;
 }
 
+/*
+ * Default English rulebook sections and desktop HTML generator.
+ * Language-parameterized overloads rulebookSections(lang) and
+ * buildDesktopRulebookHtml(lightSurface, lang) across all 16 LTR locales
+ * are implemented in OctiRulebookI18n.cxx and fall back to these functions
+ * when lang normalizes to "en".
+ */
 const std::vector<RulebookSection> &rulebookSections()
 {
     static const std::vector<RulebookSection> kSections = {
@@ -189,7 +196,7 @@ const std::vector<RulebookSection> &rulebookSections()
             "ch7",
             "Chapter 7",
             "Dual-Pool Elo & Arena Rules",
-            "Human-Only Pool 1 vs Open Bot & Human Arena Pool 2 safeguards"
+            "Human-Only Pool 1 vs Open Robot & Human Arena Pool 2 safeguards"
         },
     };
     return kSections;
@@ -274,7 +281,7 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
                       "Figure 1: Standard 9x9 2-Player setup (2P_3B) with home rows 33/53/73 vs. 37/57/77.",
                       figBg, lineHex, dimHex);
     appendFigureTable(os, "rule_02_2p_1b_setup.png",
-                      "Figure 2: 2P_1B (1-Base Blitz) uses the identical setup, but infiltrating any 1 enemy base (55ab-57x) wins immediately.",
+                      "Figure 2: 2P_1B (1-Base Blitz) uses the identical setup, but infiltrating any 1 enemy base (55ab-57x) is enough to win.",
                       figBg, lineHex, dimHex);
     appendFigureTable(os, "rule_03_prongs_8dir.png",
                       "Figure 3: The 8 compass sockets a-h around pod A55acg and supply prong insertion (55acg+b) into an empty perimeter socket.",
@@ -295,12 +302,12 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "empty socket on one of your pods on the board (e.g., <code>55acg+b</code>; or <code>33+b!</code> for a gold SuperProng). "
        << "Once inserted, prongs are permanent on that pod&mdash;repositioning an installed prong to another socket is never allowed in any variant.</li>"
        << "<li><b>1-Square Step (<code>xy&lt;cfg&gt;-x'y'</code>):</b> Move a pod 1 square along one of its installed prong directions "
-       << "onto an empty square or a friendly/allied stack (e.g., <code>44ab-45</code>). Steps never capture and cannot enter an enemy square.</li>"
+       << "onto an empty square or a stack of your own pods (e.g., <code>44ab-45</code>). A 1-square step <b>never captures</b> and cannot enter a square occupied by another player's pod (including your diagonal partner in <code>4P</code>).</li>"
        << "<li><b>2-Square Jump &amp; Multi-Hop Chain (<code>xy&lt;cfg&gt;-x1y1[x]-x2y2[x]...</code>):</b> Jump 2 squares along an "
        << "installed prong direction over an adjacent occupied square (friendly or enemy) onto an empty square beyond it. You may chain "
        << "additional jumps with that same pod along any of its installed prongs (pivoting mid-chain) and stop early after any legal hop.</li>"
-       << "<li><b>Deploy Reserve Pod (<code>xy</code>) or Liberate Captured Pod (<code>xy*</code>):</b> Place 1 reserve pod onto a "
-       << "non-enemy-occupied own home base (or an enemy base you already occupy), or&mdash;in 3-Base (<code>2P_3B*</code>) and "
+       << "<li><b>Deploy Reserve Pod (<code>xy</code>) or Liberate Captured Pod (<code>xy*</code>):</b> Place 1 reserve pod onto your "
+       << "own home base when empty or occupied only by your own pods (or onto an enemy base you already occupy), or&mdash;in 3-Base (<code>2P_3B*</code>) and "
        << "4-Player (<code>4P*</code>) games&mdash;liberate 1 of your own captured pods (<code>xy*</code>) onto an OCTI square you already "
        << "occupy when eligible (liberation does not apply to 1-Base sudden-death variants or <code>OFK</code>).</li>"
        << "</ol>"
@@ -330,8 +337,8 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << ";background-color:" << cardBg << ";\"><tr><td>"
        << "<h2>Chapter 3 &mdash; Stacking, Composite Moves &amp; Appendix A Edge Cases</h2>"
        << "<ul>"
-       << "<li><b>Friendly Stacking &amp; Composite Multi-Pod Moves (<code>,</code>):</b> Multiple friendly pods (and diagonal-partner pods "
-       << "in <code>4P</code>) may stack on the same square (forbidden in <code>OFK</code>). Any subset of your own pods that <b>start the turn "
+       << "<li><b>Friendly Stacking &amp; Composite Multi-Pod Moves (<code>,</code>):</b> Multiple pods of your own color "
+       << "may stack on the same square (forbidden in <code>OFK</code>; in <code>4P</code>, stacking with another color&mdash;including your diagonal partner&mdash;is never allowed). Any subset of your own pods that <b>start the turn "
        << "on the same square</b> may move together or split along separate step/jump paths in one turn, joined by commas "
        << "(e.g., <code>44a-45,44beg-34</code>). Pod placement and prong insertion never combine with movement.</li>"
        << "<li><b>Whole-Stack Capture &amp; End-of-Turn Removal:</b> Jumping over an occupied square with <code>x</code> captures "
@@ -386,14 +393,16 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "<li><b><code>2P_3B</code> Family (3-Base Standard):</b> Win at the completion of your full turn if your pods simultaneously occupy "
        << "<b>all 3</b> enemy home bases (<code>37</code>, <code>57</code>, <code>77</code> for A; <code>33</code>, <code>53</code>, <code>73</code> for B).</li>"
        << "<li><b><code>2P_1B</code> Family (1-Base Blitz):</b> Win at the completion of your full turn when your pod occupies <b>any 1</b> of the 3 enemy home bases.</li>"
-       << "<li><b><code>OFK</code> (OCTI for Kids, 6&times;7):</b> Win immediately when your pod occupies <b>any 1</b> of the 4 enemy home bases "
+       << "<li><b><code>OFK</code> (OCTI for Kids, 6&times;7):</b> Win at the completion of your full turn when your pod occupies <b>any 1</b> of the 4 enemy home bases "
        << "(<code>26, 36, 46, 56</code> for A; <code>22, 32, 42, 52</code> for B).</li>"
        << "<li><b><code>4P</code> Partnership Family (Team A&amp;C vs. Team B&amp;D):</b> Diagonal partners win together at the completion of a full turn when allied pods "
        << "simultaneously occupy <b>both enemy corner bases</b> (<code>37</code> &amp; <code>73</code> for A&amp;C; <code>33</code> &amp; <code>77</code> for B&amp;D).</li>"
-       << "<li><b>4-Player Permanent Base-Capture Elimination:</b> In <code>4P</code>, if an enemy pod ends its full turn on your corner home "
-       << "base (or you have zero board pods and zero legal placements), you are <b>permanently eliminated</b> for the remainder of the game: "
+       << "<li><b>4-Player Permanent Base-Capture Elimination &amp; Safe Partner Base:</b> In <code>4P</code>, if an <b>enemy</b> pod ends its full turn on your corner home "
+       << "base (or all of your pods are captured with zero reserve pods remaining), you are <b>permanently eliminated</b> for the remainder of the game: "
        << "all of your remaining board pods are swept into your <code>capturedPods</code> pool, and <b>all prongs (normal and SuperProngs) from your "
-       << "swept board pods transfer to the capturing enemy player</b>. Eliminated seats are skipped in turn rotation while a surviving partner plays on.</li>"
+       << "swept board pods transfer to the capturing enemy player</b>. Eliminated seats are skipped in turn rotation while a surviving partner plays on. "
+       << "Conversely, <b>stepping or jumping onto your diagonal partner's empty (or self-occupied) starting base is legal and has no consequences&mdash;it never knocks your partner out of the game</b> "
+       << "(if your partner temporarily occupies your starting base while you have zero pods on the board, your turn is simply skipped until they vacate it).</li>"
        << "<li><b>Total Wipeout / Stalemate:</b> Because prong repositioning is forbidden, a player with zero reserve pods and zero reserve prongs whose "
        << "board pods are completely boxed in has <b>zero legal moves</b>. If the next player in <code>2P</code> / <code>OFK</code> (or both enemy seats in "
        << "<code>4P</code>) has zero legal moves, the player/team who just moved wins immediately (in <code>4P</code>, a stalemated player whose partner "
@@ -407,7 +416,7 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << "zero-legal-move stalemate checks (so winning on ply <code>30</code>/<code>60</code> still wins).</li>"
        << "</ul>";
     appendFigureTable(os, "rule_10_4p_partnership.png",
-                      "Figure 10: 4-Player Partnership (4P): diagonal allies A(33)&C(77) vs. B(37)&D(73), allied stack [A55ab, C55cf], and neutral 53/57.",
+                      "Figure 10: 4-Player Partnership (4P): diagonal allies A(33)&C(77) vs. B(37)&D(73), own-color stack [A55ab, A55f], partner pod C65cf, safe partner-base entry, and neutral 53/57.",
                       figBg, lineHex, dimHex);
     appendFigureTable(os, "rule_11_ofk_6x7.png",
                       "Figure 11: OCTI for Kids (OFK) on the 6x7 grid: 4 bases per side, 0 reserve pods, permanent prongs, no stacking, 1-base victory (34a-36x).",
@@ -493,18 +502,18 @@ std::string buildDesktopRulebookHtml(bool lightSurface)
        << subHex << ";background-color:" << altBg << ";\"><tr><td>"
        << "<b>Pool 1 &mdash; Human-Only Ladders (Leaderboard &amp; Players Roster):</b><br>"
        << "Tracks exclusively online rated Human-vs-Human matches using standard Elo factor <code>K = 32</code>. "
-       << "Human-Only ratings are completely insulated from bot matches."
+       << "Human-Only ratings are completely insulated from robot matches."
        << "</td></tr></table>"
        << "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"9\" style=\"border-left:4px solid "
        << headHex << ";background-color:" << altBg << ";\"><tr><td>"
-       << "<b>Pool 2 &mdash; Open Bot &amp; Human Arena (Leaderboard &amp; Robots Directory):</b><br>"
+       << "<b>Pool 2 &mdash; Open Robot &amp; Human Arena (Leaderboard &amp; Robots Directory):</b><br>"
        << "Tracks rated online matches involving at least one registered AI robot (Human-vs-Robot and Robot-vs-Robot) "
        << "with three anti-farming safeguards:"
        << "<ul>"
        << "<li><b>Human-vs-Robot Matches:</b> Unlimited rated play at standard <code>K = 32</code> (including against your own robots).</li>"
-       << "<li><b>Bot-vs-Bot K-Factors:</b> Cross-owner matches use standard <code>K = 32</code>; same-owner self-testing uses reduced <code>K = 16</code>.</li>"
-       << "<li><b>Bot-vs-Bot Pair Cap &amp; Early-Resign Guard:</b> Bot-vs-Bot matches are capped at <b>4 rated games per rolling 24-hour window</b> per unordered bot pair "
-       << "(5th+ auto-downgrades to casual; no daily cap across distinct opponent bots), and resignations before <b>8 plies</b> record 0 Elo delta.</li>"
+       << "<li><b>Robot-vs-Robot K-Factors:</b> Cross-owner matches use standard <code>K = 32</code>; same-owner self-testing uses reduced <code>K = 16</code>.</li>"
+       << "<li><b>Robot-vs-Robot Pair Cap &amp; Early-Resign Guard:</b> Robot-vs-Robot matches are capped at <b>4 rated games per rolling 24-hour window</b> per unordered robot pair "
+       << "(5th+ auto-downgrades to casual; no daily cap across distinct opponent robots), and resignations before <b>8 plies</b> record 0 Elo delta.</li>"
        << "</ul></td></tr></table>"
        << "</td></tr></table>\n";
 

@@ -45,6 +45,8 @@ public:
     bool isCapturedBy(OctiPlayer player) const;
     bool isCapturedByTeamOf(OctiPlayer player) const;
     bool isOccupiedBy(OctiPlayer player) const;
+    bool hasOtherOwnerThan(OctiPlayer player) const;
+    bool canEnterByStep(OctiPlayer mover) const;
     bool hasEnemyOf(OctiPlayer player) const;
     bool isEnemyOf(OctiPlayer player) const;
     bool hasSameMaterialsAs(const OctiSquare &other) const;

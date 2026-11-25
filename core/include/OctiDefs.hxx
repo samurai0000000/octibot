@@ -7,25 +7,37 @@
 #ifndef OCTI_DEFS_HXX
 #define OCTI_DEFS_HXX
 
-#include "Version.hxx"
+#include "OctiCore.hxx"
 
 #include <string>
 #include <vector>
 
 #ifndef OCTI_APP_VERSION
-#define OCTI_APP_VERSION OCTI_VERSION_STRING
+#define OCTI_APP_VERSION (::octi::OctiCore::versionString())
+#endif
+
+#ifndef OCTI_SERVER_HOST_DEFAULT
+#define OCTI_SERVER_HOST_DEFAULT "octi.selfso.com"
+#endif
+
+#ifndef OCTI_SERVER_FALLBACK_HOST_DEFAULT
+#define OCTI_SERVER_FALLBACK_HOST_DEFAULT "trumpet.selfso.com"
+#endif
+
+#ifndef OCTI_DATA_ATTRIBUTION_DEFAULT
+#define OCTI_DATA_ATTRIBUTION_DEFAULT OCTI_SERVER_HOST_DEFAULT
 #endif
 
 namespace octi {
 
-constexpr const char *OCTI_SERVER_HOST = "octi.selfso.com";
+constexpr const char *OCTI_SERVER_HOST = OCTI_SERVER_HOST_DEFAULT;
 constexpr int OCTI_SERVER_PORT = 443;
-constexpr const char *OCTI_SERVER_FALLBACK_HOST = "trumpet.selfso.com";
+constexpr const char *OCTI_SERVER_FALLBACK_HOST = OCTI_SERVER_FALLBACK_HOST_DEFAULT;
 constexpr int OCTI_SERVER_FALLBACK_PORT = 6874;
 constexpr int OCTI_SERVER_DAEMON_PORT = 6874;
 constexpr int OCTI_PROTOCOL_VERSION = 1;
 constexpr int OCTI_MIN_PROTOCOL_VERSION = 1;
-constexpr const char *OCTI_DATA_ATTRIBUTION = "octi.selfso.com";
+constexpr const char *OCTI_DATA_ATTRIBUTION = OCTI_DATA_ATTRIBUTION_DEFAULT;
 
 constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_2P = 30;
 constexpr int OCTI_NO_PROGRESS_DRAW_PLIES_4P = 60;

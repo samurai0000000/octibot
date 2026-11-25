@@ -841,7 +841,8 @@ bool updateJsFileWithMarkers(
         return true;
     }
     if (!std::filesystem::exists(path)) {
-        if (path.find("www/") != std::string::npos) {
+        if (path.find("www/") != std::string::npos ||
+            path.find("web/") != std::string::npos) {
             std::cout << "Note: Skipping non-existent optional web path: "
                       << path << "\n";
             return true;

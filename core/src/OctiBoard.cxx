@@ -539,6 +539,9 @@ void OctiBoard::fromPositionString(const std::string &pos)
             if (mode == GAME_MODE_OFK && !squareAt(x, y).isEmpty()) {
                 throw IllegalMoveSyntaxException("pod stacking not allowed in OCTI for Kids");
             }
+            if (squareAt(x, y).hasOtherOwnerThan(owner)) {
+                throw IllegalMoveSyntaxException("mixed-owner pod stacking is not allowed");
+            }
 
             squareAt(x, y).addPod(pod);
             snap.squares[x][y].push_back(pod);

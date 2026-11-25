@@ -778,8 +778,8 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPrelud
                     }
                     opSuperDir = dir;
                     OctiSquare &destSq = _board->squareAt(hop.x, hop.y);
-                    if (destSq.hasEnemyOf(_turn)) {
-                        throw IllegalMoveException("cannot move onto enemy square in bonus move");
+                    if (!destSq.canEnterByStep(_turn)) {
+                        throw IllegalMoveException("cannot move onto enemy or partner square in bonus move");
                     }
                     cx = hop.x;
                     cy = hop.y;
@@ -921,8 +921,8 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPrelud
         }
 
         if (isFriendlyHome) {
-            if (sq.hasEnemyOf(_turn)) {
-                throw IllegalMoveException("pod placement square occupied by enemy pod");
+            if (sq.hasOtherOwnerThan(_turn)) {
+                throw IllegalMoveException("pod placement square occupied by another player's pod");
             }
         } else {
             if (!sq.isOccupiedBy(_turn)) {
@@ -1184,8 +1184,8 @@ void OctiGame::applyMoveOps(const std::vector<OctiMoveOp> &ops, bool allowPrelud
             if (_mode == GAME_MODE_OFK && !destSq.isEmpty()) {
                 throw IllegalMoveException("pod stacking forbidden in OCTI for Kids");
             }
-            if (_mode != GAME_MODE_OFK && destSq.hasEnemyOf(_turn)) {
-                throw IllegalMoveException("cannot move onto enemy square");
+            if (_mode != GAME_MODE_OFK && !destSq.canEnterByStep(_turn)) {
+                throw IllegalMoveException("cannot move onto enemy or partner square");
             }
             landedPods.push_back({pod, op.hops[0].x, op.hops[0].y});
         } else {
@@ -1779,7 +1779,7 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                 }
 
                 if (isFriendlyHome) {
-                    if (sq.hasEnemyOf(_turn)) {
+                    if (sq.hasOtherOwnerThan(_turn)) {
                         continue;
                     }
                 } else {
@@ -1945,10 +1945,8 @@ static void generateZeroPreludeMoves(const OctiBoard *_board,
                             }
 
                             const OctiSquare &destSq = _board->squareAt(nx, ny);
-                            if (_mode == GAME_MODE_OFK) {
-                                if (!destSq.isEmpty()) continue;
-                            } else {
-                                if (destSq.hasEnemyOf(_turn)) continue;
+                            if (!destSq.canEnterByStep(_turn)) {
+                                continue;
                             }
 
                             OctiHop hop;
@@ -2749,7 +2747,7 @@ static void generateZeroPreludeMoveOpsForSp(const OctiBoard *board,
                 }
 
                 if (isFriendlyHome) {
-                    if (sq.hasEnemyOf(turn)) {
+                    if (sq.hasOtherOwnerThan(turn)) {
                         continue;
                     }
                 } else {
@@ -2908,10 +2906,8 @@ static void generateZeroPreludeMoveOpsForSp(const OctiBoard *board,
                             }
 
                             const OctiSquare &destSq = board->squareAt(nx, ny);
-                            if (mode == GAME_MODE_OFK) {
-                                if (!destSq.isEmpty()) continue;
-                            } else {
-                                if (destSq.hasEnemyOf(turn)) continue;
+                            if (!destSq.canEnterByStep(turn)) {
+                                continue;
                             }
 
                             OctiHop hop;
@@ -3115,11 +3111,10 @@ static void generateZeroPreludeCaptureOrBaseMoves(
                     if (!testSqBit9x9(uncapturedEnemyHomeMask, nx, ny)) {
                         continue;
                     }
+                    (void)mode;
                     const OctiSquare &destSq = board->squareAt(nx, ny);
-                    if (mode == GAME_MODE_OFK) {
-                        if (!destSq.isEmpty()) continue;
-                    } else {
-                        if (destSq.hasEnemyOf(turn)) continue;
+                    if (!destSq.canEnterByStep(turn)) {
+                        continue;
                     }
 
                     OctiHop hop;
@@ -3403,7 +3398,7 @@ static void enumerateSuperProngPreludes(const OctiBoard *board,
                         int ny = edgeless ? (((y + dy) % h + h) % h) : (y + dy);
 
                         bool inBounds = edgeless || (nx >= 0 && nx < w && ny >= 0 && ny < h);
-                        if (inBounds && !board->squareAt(nx, ny).hasEnemyOf(turn)) {
+                        if (inBounds && board->squareAt(nx, ny).canEnterByStep(turn)) {
                             PreludeCandidate cand;
                             cand.op.x0 = x;
                             cand.op.y0 = y;
@@ -3602,7 +3597,7 @@ bool OctiGame::hasAnyLegalMove() const
                 }
 
                 if (isFriendlyHome) {
-                    if (sq.hasEnemyOf(_turn)) {
+                    if (sq.hasOtherOwnerThan(_turn)) {
                         continue;
                     }
                 } else {
@@ -3712,14 +3707,8 @@ bool OctiGame::hasAnyLegalMove() const
                     }
 
                     const OctiSquare &adjSq = _board->squareAt(nx, ny);
-                    if (_mode == GAME_MODE_OFK) {
-                        if (adjSq.isEmpty()) {
-                            return true;
-                        }
-                    } else {
-                        if (!adjSq.hasEnemyOf(_turn)) {
-                            return true;
-                        }
+                    if (adjSq.canEnterByStep(_turn)) {
+                        return true;
                     }
 
                     // Adjacent square in prong direction is non-empty if it blocked
@@ -4199,10 +4188,8 @@ void OctiGame::generateTacticalMoves(std::vector<OctiMove> &outMoves) const
                     }
 
                     const OctiSquare &destSq = _board->squareAt(nx, ny);
-                    if (_mode == GAME_MODE_OFK) {
-                        if (!destSq.isEmpty()) continue;
-                    } else {
-                        if (destSq.hasEnemyOf(_turn)) continue;
+                    if (!destSq.canEnterByStep(_turn)) {
+                        continue;
                     }
 
                     if (!isEnemyHomeSquareForTactical(destSq.getType(), _mode, _turn) ||

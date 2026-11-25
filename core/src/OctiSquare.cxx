@@ -246,6 +246,31 @@ bool OctiSquare::isOccupiedBy(OctiPlayer player) const
     return false;
 }
 
+bool OctiSquare::hasOtherOwnerThan(OctiPlayer player) const
+{
+    if (player == PLAYER_UNDEF) {
+        return !_pods.empty();
+    }
+
+    for (const auto &p : _pods) {
+        OctiPlayer podOwner = podTypeToPlayer(p.getType());
+        if (podOwner != player) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool OctiSquare::canEnterByStep(OctiPlayer mover) const
+{
+    if (mover == PLAYER_UNDEF) {
+        return false;
+    }
+
+    return (_mode == GAME_MODE_OFK) ? isEmpty() : !hasOtherOwnerThan(mover);
+}
+
 bool OctiSquare::hasEnemyOf(OctiPlayer player) const
 {
     if (player == PLAYER_UNDEF) {

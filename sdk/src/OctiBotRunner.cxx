@@ -5430,7 +5430,7 @@ int runFleetCli(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i] ? argv[i] : "";
         if (arg == "--help" || arg == "-h") {
-            std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << "\n"
+            std::cout << "OCTIBOT v" << OCTI_APP_VERSION << "\n"
                       << "Usage: octibot [options]\n\n"
                       << "Options:\n"
                       << "  --profile <name>         Run single bot profile\n"
@@ -5448,7 +5448,7 @@ int runFleetCli(int argc, char **argv) {
                       << "  -h, --help               Show this help message and exit\n";
             return 0;
         } else if (arg == "--version" || arg == "-V") {
-            std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << std::endl;
+            std::cout << "OCTIBOT v" << OCTI_APP_VERSION << std::endl;
             return 0;
         } else if (arg == "--supersede") {
             cliAllowSupersede = 1;
@@ -5557,7 +5557,7 @@ int runFleetCli(int argc, char **argv) {
     }
 
     if (config.getVerbosityLevel(3) >= 2) {
-        std::cout << "OCTIBOT v" << OCTI_VERSION_STRING << " (config=" << configPath
+        std::cout << "OCTIBOT v" << OCTI_APP_VERSION << " (config=" << configPath
                   << ", tokens=" << tokensPath << ")" << std::endl;
     }
 

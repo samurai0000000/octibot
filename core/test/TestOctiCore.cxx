@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -1262,11 +1263,304 @@ TEST(Octi4PlayerGameTest, AlliedStacking)
     octi::OctiGame *game = board.getGame();
     game->start(octi::PLAYER_A);
 
-    // Allied pod stacking: Player A and Player C are partners
-    board.squareAt(2, 2).addPod(octi::OctiPod(octi::C_POD));
-    CHECK_EQUAL(2, board.squareAt(2, 2).getNumPods());
-    CHECK_FALSE(board.squareAt(2, 2).hasEnemyOf(octi::PLAYER_A));
+    // Players A and C remain diagonal partners for base safety & hasEnemyOf(),
+    // while same-owner pod stacking ([A, A]) is legal and partner stacking ([A, C]) is forbidden.
+    CHECK_TRUE(octi::areAlliedPlayers(octi::GAME_MODE_4, octi::PLAYER_A, octi::PLAYER_C));
+    CHECK_FALSE(board.squareAt(6, 6).hasEnemyOf(octi::PLAYER_A));
     CHECK_FALSE(board.squareAt(2, 2).hasEnemyOf(octi::PLAYER_C));
+    CHECK_TRUE(board.squareAt(6, 6).hasOtherOwnerThan(octi::PLAYER_A));
+    CHECK_FALSE(board.squareAt(6, 6).canEnterByStep(octi::PLAYER_A));
+    CHECK_FALSE(board.squareAt(2, 2).hasOtherOwnerThan(octi::PLAYER_A));
+    CHECK_TRUE(board.squareAt(2, 2).canEnterByStep(octi::PLAYER_A));
+    CHECK_TRUE(board.squareAt(4, 4).canEnterByStep(octi::PLAYER_A));
+
+    octi::OctiBoard ofkBoard(octi::GAME_MODE_OFK);
+    ofkBoard.getGame()->start(octi::PLAYER_A);
+    CHECK_FALSE(ofkBoard.squareAt(1, 1).hasOtherOwnerThan(octi::PLAYER_A));
+    CHECK_FALSE(ofkBoard.squareAt(1, 1).canEnterByStep(octi::PLAYER_A));
+    CHECK_TRUE(ofkBoard.squareAt(1, 2).canEnterByStep(octi::PLAYER_A));
+
+    // Same-owner reserve stacking on own home base (33) is legal
+    game->move("33");
+    CHECK_EQUAL(2, board.squareAt(2, 2).getNumPods());
+
+    // Partner 1-step onto diagonal partner pod must be rejected
+    octi::OctiBoard stepBoard(octi::GAME_MODE_4);
+    stepBoard.fromPositionString(
+        "4:3:0:0:P:A:-:0:3,0,11,0:3,0,12,0:3,0,12,0:3,0,12,0:A44c,C54,B37,D73");
+    CHECK_THROWS(octi::IllegalMoveException, stepBoard.getGame()->move("44c-54"));
+}
+
+TEST(Octi4PlayerGameTest, PartnerOneStepAndSuperProngPreludeStepRejected)
+{
+    // 1. Regular 1-step onto partner pod rejected in both move() and generateLegalMoves()
+    {
+        octi::OctiBoard board(octi::GAME_MODE_4);
+        board.fromPositionString(
+            "4:3:0:0:P:A:-:0:3,0,11,0:3,0,12,0:3,0,12,0:3,0,12,0:A44c,C54,B37,D73");
+        octi::OctiGame *game = board.getGame();
+        CHECK_THROWS(octi::IllegalMoveException, game->move("44c-54"));
+
+        std::vector<octi::OctiMove> legal = game->generateLegalMoves();
+        bool foundPartnerStep = false;
+        bool foundVaultOverPartner = false;
+        for (const auto &m : legal) {
+            if (m.asString() == "44c-54") {
+                foundPartnerStep = true;
+            }
+            if (m.asString() == "44c-64") {
+                foundVaultOverPartner = true;
+            }
+        }
+        CHECK_FALSE(foundPartnerStep);
+        CHECK_TRUE(foundVaultOverPartner);
+
+        // Vaulting over partner C54 onto empty 64 succeeds without capturing C54
+        game->move("44c-64");
+        CHECK_EQUAL(1, board.squareAt(4, 3).getNumPods());
+        CHECK_TRUE(board.squareAt(4, 3).isOccupiedBy(octi::PLAYER_C));
+        CHECK_EQUAL(1, board.squareAt(5, 3).getNumPods());
+        CHECK_TRUE(board.squareAt(5, 3).isOccupiedBy(octi::PLAYER_A));
+    }
+
+    // 2. Composite move where a second pod 1-steps onto a partner pod is rejected
+    {
+        octi::OctiBoard compBoard(octi::GAME_MODE_4);
+        compBoard.fromPositionString(
+            "4:3:0:0:P:A:-:0:2,0,10,0:3,0,12,0:3,0,12,0:3,0,12,0:A44a,A44c,C54,B37,D73");
+        CHECK_THROWS(octi::IllegalMoveException, compBoard.getGame()->move("44a-45,44c-54"));
+    }
+
+    // 3. SuperProng bonus prelude 1-step onto partner pod rejected in move() & move-gen
+    {
+        octi::OctiBoard spBoard(octi::GAME_MODE_4, true, false, octi::GAME_BASES_3);
+        spBoard.fromPositionString(
+            "4:3:1:0:P:A:-:0:3,0,11,0:3,0,11,1:3,0,11,1:3,0,11,1:A44c!,C54a,B37,D73");
+        octi::OctiGame *spGame = spBoard.getGame();
+        CHECK_THROWS(octi::IllegalMoveException, spGame->move("44c!-54;33"));
+
+        std::vector<octi::OctiMove> spLegal = spGame->generateLegalMoves();
+        bool foundSpPartnerStep = false;
+        bool foundSpVault = false;
+        for (const auto &m : spLegal) {
+            const std::string s = m.asString();
+            if (s.rfind("44c!-54;", 0) == 0) {
+                foundSpPartnerStep = true;
+            }
+            if (s.rfind("44c!-64;", 0) == 0) {
+                foundSpVault = true;
+            }
+        }
+        CHECK_FALSE(foundSpPartnerStep);
+        CHECK_TRUE(foundSpVault);
+    }
+
+    // 4. hasAnyLegalMove() returns false when only pod is blocked from stepping onto partner
+    //    and jump landing is also blocked, with 0 free pods and 0 free prongs
+    {
+        octi::OctiBoard blockedBoard(octi::GAME_MODE_4);
+        blockedBoard.fromPositionString(
+            "4:3:0:0:P:A:-:0:0,0,0,0:3,0,12,0:2,0,12,0:3,0,12,0:A11abcdefgh,C21,C12,C22,B31,B13,B33,D73");
+        CHECK_FALSE(blockedBoard.getGame()->hasAnyLegalMove());
+    }
+}
+
+TEST(Octi4PlayerGameTest, OwnHomeReserveDropRejectedWhenPartnerOccupiesBase)
+{
+    octi::OctiBoard board(octi::GAME_MODE_4);
+    board.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,0,11,0:3,0,12,0:3,0,11,0:3,0,12,0:C33e,A44a,B37,D73");
+    octi::OctiGame *game = board.getGame();
+
+    // Partner C occupies A's home square 33 -> A cannot deploy reserve pod "33"
+    CHECK_THROWS(octi::IllegalMoveException, game->move("33"));
+    for (const auto &m : game->generateLegalMoves()) {
+        CHECK_TRUE(m.asString() != "33");
+    }
+
+    // Same check in 4P_SP move generation
+    octi::OctiBoard spBoard(octi::GAME_MODE_4, true, false, octi::GAME_BASES_3);
+    spBoard.fromPositionString(
+        "4:3:1:0:P:A:-:0:2,0,11,0:3,0,11,1:3,0,10,1:3,0,11,1:C33e,A44a!,B37,D73");
+    for (const auto &m : spBoard.getGame()->generateLegalMoves()) {
+        const std::string s = m.asString();
+        CHECK_TRUE(s != "33");
+    }
+}
+
+TEST(Octi4PlayerGameTest, ZeroBoardPodTurnSkippedWithoutEliminationWhilePartnerOnHomeAndResumesAfterVacate)
+{
+    // Player A has 0 pods on the board and 2 reserve freePods; C is at 34 with a/e prongs;
+    // A's home square 33 is currently empty. It is C's turn.
+    octi::OctiBoard board(octi::GAME_MODE_4);
+    board.fromPositionString(
+        "4:3:0:0:P:C:-:0:2,1,12,0:3,0,12,0:3,0,10,0:3,0,12,0:C34ae,B37,D73");
+    octi::OctiGame *game = board.getGame();
+
+    // 1. Partner C steps onto A's empty home base 33 -> zero elimination of A!
+    game->move("34ae-33");
+    CHECK_FALSE(game->isPlayerEliminated(octi::PLAYER_A));
+    CHECK_FALSE(board.squareAt(2, 2).isCaptured());
+    CHECK_EQUAL(octi::PLAYER_D, game->getTurn());
+
+    // 2. D plays "73+a" -> A has 0 board pods and C occupies 33, so A has 0 legal moves:
+    //    A's turn is temporarily skipped to B WITHOUT marking A eliminated!
+    game->move("73+a");
+    CHECK_FALSE(game->isPlayerEliminated(octi::PLAYER_A));
+    CHECK_FALSE(game->isGameOver());
+    CHECK_EQUAL(octi::PLAYER_B, game->getTurn());
+
+    // 3. B plays "37+e", then C vacates 33 ("33ae-34"), then D plays "73a-74":
+    //    Now 33 is empty again, so A's turn resumes normally and A deploys "33"!
+    game->move("37+e");
+    CHECK_EQUAL(octi::PLAYER_C, game->getTurn());
+    game->move("33ae-34");
+    CHECK_EQUAL(octi::PLAYER_D, game->getTurn());
+    game->move("73a-74");
+    CHECK_FALSE(game->isPlayerEliminated(octi::PLAYER_A));
+    CHECK_EQUAL(octi::PLAYER_A, game->getTurn());
+
+    game->move("33");
+    CHECK_EQUAL(1, game->getFreePods(octi::PLAYER_A));
+    CHECK_TRUE(board.squareAt(2, 2).isOccupiedBy(octi::PLAYER_A));
+}
+
+TEST(Octi4PlayerGameTest, EmptyAndSelfOccupiedPartnerBaseEntryCausesZeroElimination)
+{
+    // 1. A steps onto C's empty corner base 77 -> legal, C is NOT eliminated, elimMask == 0
+    octi::OctiBoard board(octi::GAME_MODE_4);
+    board.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,0,10,0:3,0,12,0:3,0,11,0:3,0,12,0:A57c,A67c,B37,C66a,D73");
+    octi::OctiGame *game = board.getGame();
+
+    game->move("67c-77");
+    CHECK_FALSE(game->isPlayerEliminated(octi::PLAYER_C));
+    CHECK_FALSE(board.squareAt(6, 6).isCaptured());
+    CHECK_TRUE(board.squareAt(6, 6).isOccupiedBy(octi::PLAYER_A));
+
+    game->move("37+e");
+    game->move("66a-67");
+    game->move("73+a");
+
+    // 2. Partner C at 67 CANNOT 1-step onto A-occupied own base 77, while A at 57 CAN jump over C67?
+    //    Wait: 77 is occupied by A, so jump cannot land on 77, while if C steps 67->68, a second A pod
+    //    can step onto A-occupied 77 ([A, A] same-owner stack on partner's base) with zero elimination!
+    octi::OctiBoard selfStackBoard(octi::GAME_MODE_4);
+    selfStackBoard.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,0,10,0:3,0,12,0:3,0,11,0:3,0,12,0:A67c,A77,B37,C66a,D73");
+    selfStackBoard.getGame()->move("67c-77");
+    CHECK_EQUAL(2, selfStackBoard.squareAt(6, 6).getNumPods());
+    CHECK_FALSE(selfStackBoard.getGame()->isPlayerEliminated(octi::PLAYER_C));
+    CHECK_FALSE(selfStackBoard.squareAt(6, 6).isCaptured());
+
+    // 3. Jumping onto empty partner base 77 causes zero elimination
+    octi::OctiBoard jumpBoard(octi::GAME_MODE_4);
+    jumpBoard.fromPositionString(
+        "4:3:0:0:P:A:-:0:3,0,11,0:3,0,12,0:3,0,12,0:3,0,12,0:A57c,C67,B37,D73");
+    jumpBoard.getGame()->move("57c-77");
+    CHECK_EQUAL(1, jumpBoard.squareAt(6, 6).getNumPods());
+    CHECK_FALSE(jumpBoard.getGame()->isPlayerEliminated(octi::PLAYER_C));
+    CHECK_FALSE(jumpBoard.squareAt(6, 6).isCaptured());
+}
+
+TEST(Octi4PlayerGameTest, MixedOwnerFenRejectedIn2PAnd4P)
+{
+    octi::OctiBoard b4p(octi::GAME_MODE_4);
+    // Partner mixed stack in 4P
+    CHECK_THROWS(
+        octi::IllegalMoveSyntaxException,
+        b4p.fromPositionString(
+            "4:3:0:0:P:A:-:0:2,0,12,0:3,0,12,0:2,0,12,0:3,0,12,0:A55,C55,B37,D73"));
+    // Enemy mixed stack in 4P
+    CHECK_THROWS(
+        octi::IllegalMoveSyntaxException,
+        b4p.fromPositionString(
+            "4:3:0:0:P:A:-:0:2,0,12,0:2,0,12,0:3,0,12,0:3,0,12,0:A44,B44,C77,D73"));
+    // Enemy mixed stack in 2P
+    octi::OctiBoard b2p(octi::GAME_MODE_2);
+    CHECK_THROWS(
+        octi::IllegalMoveSyntaxException,
+        b2p.fromPositionString(
+            "2:3:0:0:P:A:-:0:3,0,25,0:3,0,25,0:A44,B44,A33,B37"));
+
+    // Same-owner stacks remain valid in both 4P and 2P
+    b4p.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,0,11,0:3,0,12,0:3,0,12,0:3,0,12,0:A55a,A55,B37,C77,D73");
+    CHECK_EQUAL(2, b4p.squareAt(4, 4).getNumPods());
+    b2p.fromPositionString(
+        "2:3:0:0:P:A:-:0:3,0,24,0:4,0,25,0:A44a,A44,A33,B37");
+    CHECK_EQUAL(2, b2p.squareAt(3, 3).getNumPods());
+}
+
+TEST(Octi4PlayerGameTest, BotEvalJumpLandingEmptyAndPartnerHomeCongestionPenalty)
+{
+    const octi::BotTuningProfile prof =
+        octi::OctiBotEngine::defaultProfileForDifficulty(octi::BotDifficulty::MASTER);
+
+    // 1. Bucket (B) leapfrogBattery jump landing must require destSq.isEmpty()
+    octi::OctiBoard leapEmpty(octi::GAME_MODE_4);
+    leapEmpty.fromPositionString(
+        "4:3:0:0:P:A:-:0:3,0,11,0:3,0,12,0:3,0,12,0:3,0,12,0:A33a,C34,B37,D73");
+    octi::OctiBoard leapBlockedByPartner(octi::GAME_MODE_4);
+    leapBlockedByPartner.fromPositionString(
+        "4:3:0:0:P:A:-:0:3,0,11,0:3,0,12,0:2,0,12,0:3,0,12,0:A33a,C34,C35,B37,D73");
+
+    const octi::OctiEvalBreakdown bdLeapEmpty =
+        octi::OctiBotEngine::evaluatePositionBreakdown(leapEmpty, octi::PLAYER_A, prof);
+    const octi::OctiEvalBreakdown bdLeapBlocked =
+        octi::OctiBotEngine::evaluatePositionBreakdown(leapBlockedByPartner, octi::PLAYER_A, prof);
+    CHECK_TRUE(bdLeapEmpty.leapfrogBattery > 0);
+    CHECK_EQUAL(0, bdLeapBlocked.leapfrogBattery);
+
+    // 2. 4P partner-home spawn-blocking congestion penalty:
+    //    C occupies A's home square 33 while A is non-eliminated:
+    //    - freePods(A) == 0 -> 0 congestion penalty
+    //    - freePods(A) == 2 && boardPods(A) > 0 -> -900 penalty
+    //    - freePods(A) == 2 && boardPods(A) == 0 -> -4500 penalty
+    octi::OctiBoard cOnAHomeNoFree(octi::GAME_MODE_4);
+    cOnAHomeNoFree.fromPositionString(
+        "4:3:0:0:P:A:-:0:0,3,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C33,A44,B37,D73");
+    octi::OctiBoard cAdjNoBlockNoFree(octi::GAME_MODE_4);
+    cAdjNoBlockNoFree.fromPositionString(
+        "4:3:0:0:P:A:-:0:0,3,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C34,A44,B37,D73");
+
+    octi::OctiBoard cOnAHomeWithBoardPod(octi::GAME_MODE_4);
+    cOnAHomeWithBoardPod.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,1,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C33,A44,B37,D73");
+    octi::OctiBoard cAdjNoBlockWithBoardPod(octi::GAME_MODE_4);
+    cAdjNoBlockWithBoardPod.fromPositionString(
+        "4:3:0:0:P:A:-:0:2,1,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C34,A44,B37,D73");
+
+    octi::OctiBoard cOnAHomeZeroBoardPods(octi::GAME_MODE_4);
+    cOnAHomeZeroBoardPods.fromPositionString(
+        "4:3:0:0:P:B:-:0:2,2,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C33,B37,D73");
+    octi::OctiBoard cAdjNoBlockZeroBoardPods(octi::GAME_MODE_4);
+    cAdjNoBlockZeroBoardPods.fromPositionString(
+        "4:3:0:0:P:B:-:0:2,2,12,0:3,0,12,0:3,0,12,0:3,0,12,0:C34,B37,D73");
+
+    const octi::OctiEvalBreakdown bdBlock0 =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cOnAHomeNoFree, octi::PLAYER_A, prof);
+    const octi::OctiEvalBreakdown bdFree0 =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cAdjNoBlockNoFree, octi::PLAYER_A, prof);
+    CHECK_EQUAL(bdFree0.structuralPositional, bdBlock0.structuralPositional);
+
+    const octi::OctiEvalBreakdown bdBlockHasPod =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cOnAHomeWithBoardPod, octi::PLAYER_A, prof);
+    const octi::OctiEvalBreakdown bdFreeHasPod =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cAdjNoBlockWithBoardPod, octi::PLAYER_A, prof);
+    CHECK_EQUAL(-900, bdBlockHasPod.structuralPositional - bdFreeHasPod.structuralPositional);
+    CHECK_EQUAL(bdBlockHasPod.sumTerms(), bdBlockHasPod.totalScore);
+
+    const octi::OctiEvalBreakdown bdBlockZeroPods =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cOnAHomeZeroBoardPods, octi::PLAYER_A, prof);
+    const octi::OctiEvalBreakdown bdFreeZeroPods =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cAdjNoBlockZeroBoardPods, octi::PLAYER_A, prof);
+    CHECK_EQUAL(-4500, bdBlockZeroPods.structuralPositional - bdFreeZeroPods.structuralPositional);
+    CHECK_EQUAL(bdBlockZeroPods.sumTerms(), bdBlockZeroPods.totalScore);
+
+    const octi::OctiEvalBreakdown bdBlockZeroPodsB =
+        octi::OctiBotEngine::evaluatePositionBreakdown(cOnAHomeZeroBoardPods, octi::PLAYER_B, prof);
+    CHECK_EQUAL(-bdBlockZeroPods.totalScore, bdBlockZeroPodsB.totalScore);
 }
 
 TEST(Octi4PlayerGameTest, HomeBaseEliminationAndTurnSkipping)
@@ -1642,32 +1936,97 @@ TEST(RapidCheckStateProperties, RandomLegalMoveWalk2P)
 TEST(RapidCheckStateProperties, RandomLegalMoveWalk4P)
 {
     IGNORE_ALL_LEAKS_IN_TEST();
-    bool passed = rc::check("OctiGame 4P random legal move walk", []() {
-        octi::OctiBoard board(octi::GAME_MODE_4);
+    bool passed = rc::check("OctiGame 4P/4P_SP/4P_ED/4P_SPED single-owner & generator/validator parity walk", []() {
+        const bool useSp = *rc::gen::arbitrary<bool>();
+        const bool useEd = *rc::gen::arbitrary<bool>();
+        octi::OctiBoard board(octi::GAME_MODE_4, useSp, useEd, octi::GAME_BASES_3);
         octi::OctiGame *game = board.getGame();
         RC_ASSERT(game != nullptr);
         game->start(octi::PLAYER_A);
 
+        auto assertSingleOwnerGrid = [](const octi::OctiBoard &b) {
+            for (int x = 0; x < b.getBoardWidth(); ++x) {
+                for (int y = 0; y < b.getBoardHeight(); ++y) {
+                    const octi::OctiSquare &sq = b.squareAt(x, y);
+                    octi::OctiPlayer firstOwner = octi::PLAYER_UNDEF;
+                    for (int i = 0; i < sq.getNumPods(); ++i) {
+                        octi::OctiPlayer owner = octi::podTypeToPlayer(sq.getPodAt(i).getType());
+                        RC_ASSERT(owner != octi::PLAYER_UNDEF);
+                        if (firstOwner == octi::PLAYER_UNDEF) {
+                            firstOwner = owner;
+                        } else {
+                            RC_ASSERT(owner == firstOwner);
+                        }
+                    }
+                }
+            }
+        };
+
+        assertSingleOwnerGrid(board);
         std::string initialFen = board.toPositionString();
-        int numSteps = *rc::gen::inRange(4, 12);
+        int numSteps = *rc::gen::inRange(6, 16);
 
         for (int step = 0; step < numSteps; step++) {
             if (game->isGameOver()) {
                 break;
             }
             std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+            RC_ASSERT(game->hasAnyLegalMove() == !legalMoves.empty());
             if (legalMoves.empty()) {
                 break;
             }
+
+            // Sample up to 6 generated moves on an isolated scratch board (preserving _history/_undoStack)
+            const std::string stepFen = board.toPositionString();
+            int sampleCount = std::min<int>(6, static_cast<int>(legalMoves.size()));
+            for (int s = 0; s < sampleCount; ++s) {
+                int sIdx = (s == 0)
+                    ? *rc::gen::inRange(0, static_cast<int>(legalMoves.size()))
+                    : ((s * 7) % static_cast<int>(legalMoves.size()));
+                octi::OctiBoard sampleBoard;
+                sampleBoard.suppressBoardUpdateNotification(true);
+                sampleBoard.fromPositionString(stepFen);
+                sampleBoard.getGame()->setSearchMode(true);
+                sampleBoard.getGame()->move(legalMoves[sIdx]);
+                assertSingleOwnerGrid(sampleBoard);
+            }
+
+            // Also verify validator rejects own-home reserve drop if another player occupies own home
+            const octi::OctiPlayer curTurn = game->getTurn();
+            static const int kHomeCoords[5][2] = {
+                {-1, -1}, {2, 2}, {2, 6}, {6, 6}, {6, 2}
+            };
+            const int hx = kHomeCoords[static_cast<int>(curTurn)][0];
+            const int hy = kHomeCoords[static_cast<int>(curTurn)][1];
+            const octi::OctiSquare &ownHomeSq = board.squareAt(hx, hy);
+            if (!ownHomeSq.isEmpty() && ownHomeSq.hasOtherOwnerThan(curTurn)) {
+                std::string homeDrop = std::to_string(hx + 1) + std::to_string(hy + 1);
+                for (const auto &lm : legalMoves) {
+                    RC_ASSERT(lm.asString() != homeDrop);
+                }
+                octi::OctiBoard rejectBoard;
+                rejectBoard.suppressBoardUpdateNotification(true);
+                rejectBoard.fromPositionString(stepFen);
+                bool threw = false;
+                try {
+                    rejectBoard.getGame()->move(homeDrop);
+                } catch (const octi::IllegalMoveException &) {
+                    threw = true;
+                }
+                RC_ASSERT(threw);
+            }
+
             int moveIdx = *rc::gen::inRange(0, static_cast<int>(legalMoves.size()));
             const octi::OctiMove &selected = legalMoves[moveIdx];
 
             game->move(selected);
+            assertSingleOwnerGrid(board);
 
             std::string fenAfter = board.toPositionString();
             octi::OctiBoard checkBoard;
             checkBoard.fromPositionString(fenAfter);
             RC_ASSERT(checkBoard.toPositionString() == fenAfter);
+            assertSingleOwnerGrid(checkBoard);
         }
 
         std::string transcript = board.serializeGame();
@@ -2762,7 +3121,7 @@ TEST(OctiBotEngineCoreTest, BookMoveScorePreservesUnclamped32BitMateAndLeadScore
     // 2. Non-mate large-lead position (> 32000 but < 900000) must not collide with mateScore or clamp to 32000
     octi::OctiBoard leadBoard(octi::GAME_MODE_2);
     leadBoard.fromPositionString(
-        "2:3:0:0:P:A:-:0:3,1,23,0:0,5,10,0:B53defgh,B53e,A53aeh,A37,A77");
+        "2:3:0:0:P:A:-:0:3,1,23,0:0,5,10,0:B53defgh,B53e,A33aeh,A37,A77");
     octi::BotSearchStats leadStats;
     std::vector<octi::BookMoveScore> topLead =
         bot.searchTopMovesForBook(leadBoard, 2, 0, 3, &leadStats);
@@ -3064,6 +3423,97 @@ TEST(OctiBotEngineCoreTest, AllOpeningBookEntriesAndCandidatesExecuteLegally)
 
     CHECK_EQUAL(13337u, prefixMovesExecuted);
     CHECK_EQUAL(11142u, candidateMovesExecuted);
+}
+
+TEST(OctiBotEngineCoreTest, AllOpeningBookJsonPositionsAndCandidatesExecuteLegally)
+{
+    std::filesystem::path repoRoot =
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    std::filesystem::path jsonPath = repoRoot / ".book" / "opening_book.json";
+    CHECK_TRUE(std::filesystem::exists(jsonPath));
+
+    std::ifstream in(jsonPath);
+    CHECK_TRUE(in.is_open());
+    nlohmann::json root = nlohmann::json::parse(in);
+    CHECK_TRUE(root.contains("entries") && root["entries"].is_array());
+
+    const auto &entries = root["entries"];
+    CHECK_EQUAL(octi::g_openingBookEntryCount, entries.size());
+
+    std::size_t totalEntries = 0;
+    std::size_t fourPlayerEntries = 0;
+    std::size_t candidatesExecuted = 0;
+
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const auto &e = entries[i];
+        const std::string posStr = e.at("position").get<std::string>();
+        const std::string variant = e.value("variant", std::string());
+        const std::string keyHex = e.at("canonicalKey").get<std::string>();
+        const std::uint64_t expectedKey = std::stoull(keyHex, nullptr, 16);
+
+        octi::OctiBoard board;
+        board.suppressBoardUpdateNotification(true);
+        board.fromPositionString(posStr);
+        octi::OctiGame *game = board.getGame();
+        CHECK_TRUE(game != nullptr);
+        game->setSearchMode(true);
+
+        if (board.getGameMode() == octi::GAME_MODE_4 || variant.rfind("4P", 0) == 0) {
+            ++fourPlayerEntries;
+        }
+
+        bool mirrored = false;
+        std::uint64_t canonHash =
+            octi::OctiBotEngine::computeCanonicalOpeningHash(board, &mirrored);
+        CHECK_EQUAL(expectedKey, canonHash);
+
+        std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+        CHECK_FALSE(legalMoves.empty());
+        std::unordered_set<std::string> legalStrs;
+        legalStrs.reserve(legalMoves.size());
+        for (const octi::OctiMove &lm : legalMoves) {
+            legalStrs.insert(lm.asString());
+        }
+
+        const int w = board.getBoardWidth();
+        const auto &cands = e.at("candidates");
+        CHECK_TRUE(cands.is_array() && !cands.empty());
+        for (const auto &cand : cands) {
+            const std::string rawMove = cand.at("move").get<std::string>();
+            CHECK_FALSE(rawMove.empty());
+            const std::string actualMove = mirrored
+                ? octi::OctiBotEngine::mirrorMoveNotation(rawMove, w)
+                : rawMove;
+            octi::OctiMove parsed(actualMove);
+            if (parsed.getOps().size() == 1 ||
+                board.getGameMode() == octi::GAME_MODE_OFK) {
+                CHECK_TRUE_TEXT(
+                    legalStrs.count(parsed.asString()) > 0,
+                    ("JSON book candidate not in generateLegalMoves at entry " +
+                     std::to_string(i) + ": " + parsed.asString()).c_str());
+            }
+
+            octi::OctiBoard stepBoard;
+            stepBoard.suppressBoardUpdateNotification(true);
+            stepBoard.fromPositionString(posStr);
+            stepBoard.getGame()->setSearchMode(true);
+            stepBoard.getGame()->move(parsed);
+            ++candidatesExecuted;
+        }
+        ++totalEntries;
+    }
+
+    CHECK_EQUAL(3714u, totalEntries);
+    CHECK_TRUE(fourPlayerEntries > 0u);
+    CHECK_EQUAL(11142u, candidatesExecuted);
+
+    if (const char *printEnv = std::getenv("OCTI_PRINT_BOOK_AUDIT");
+        printEnv != nullptr && std::strcmp(printEnv, "1") == 0) {
+        std::printf(
+            "OPENING_BOOK_JSON_AUDIT: entries=%zu four_player_entries=%zu candidates_executed=%zu failures=0\n",
+            totalEntries, fourPlayerEntries, candidatesExecuted);
+        std::fflush(stdout);
+    }
 }
 
 TEST(OctiBotEngineCoreTest, DepthOneDeadlineFallbackAndPartialRootGuard)
@@ -8690,7 +9140,12 @@ TEST(OctiEnvelope3bSpMoveGenTest, GoldenMoveListOrderOpsAndStringsAcrossRef24And
         verifyPositionAgainstGolden(board, true);
     }
 
-    // 2. 1,000 positions from seeded random superprong playouts across the 8 superprong variants (125 each)
+    // 2. 1,000 positions from seeded random superprong playouts across the 8 superprong variants (125 each):
+    //    - 2P variants (v = 0..3, 500 positions) verify bit-for-bit against sp_movegen_golden.tsv[24..523];
+    //    - 4P variants (v = 4..7, 500 positions) run under single-owner 4P stacking rules (where pre-O6c
+    //      golden[524..1023] allowed partner stacking) and verify single-owner invariants, tactical subset
+    //      inclusion, and OctiMove string/ops/validator parity.
+    std::size_t fourPlayerPlayoutVerified = 0;
     for (int v = 0; v < 8; ++v) {
         const E3bSpVariantSpec &cfg = kE3bSpVariants8[v];
         std::mt19937_64 rng(0xE3B502026ULL + static_cast<std::uint64_t>(v) * 0x9E3779B97F4A7C15ULL);
@@ -8710,7 +9165,46 @@ TEST(OctiEnvelope3bSpMoveGenTest, GoldenMoveListOrderOpsAndStringsAcrossRef24And
                     break;
                 }
                 if (ply >= 4 && ((ply - 4) % 3 == 0)) {
-                    verifyPositionAgainstGolden(board, (collected % 25 == 0));
+                    if (cfg.mode == octi::GAME_MODE_2) {
+                        verifyPositionAgainstGolden(board, (collected % 25 == 0));
+                    } else {
+                        for (int bx = 0; bx < board.getBoardWidth(); ++bx) {
+                            for (int by = 0; by < board.getBoardHeight(); ++by) {
+                                const octi::OctiSquare &sq = board.squareAt(bx, by);
+                                if (!sq.isEmpty()) {
+                                    octi::OctiPlayer sqOwn =
+                                        octi::podTypeToPlayer(sq.getPodAt(0).getType());
+                                    CHECK_FALSE(sq.hasOtherOwnerThan(sqOwn));
+                                }
+                            }
+                        }
+                        std::unordered_set<std::string> legalSet;
+                        legalSet.reserve(legal.size());
+                        for (const auto &lm : legal) {
+                            legalSet.insert(lm.asString());
+                        }
+                        std::vector<octi::OctiMove> tactical;
+                        game->generateTacticalMoves(tactical);
+                        for (const auto &tm : tactical) {
+                            CHECK_TRUE(legalSet.count(tm.asString()) > 0);
+                        }
+                        if (collected % 25 == 0) {
+                            const std::string curFen = board.toPositionString();
+                            for (std::size_t mi = 0; mi < legal.size(); ++mi) {
+                                octi::OctiMove parsed(legal[mi].asString());
+                                CHECK_EQUAL(legal[mi].structuralKey(), parsed.structuralKey());
+                                CHECK_EQUAL(legal[mi].getOps().size(), parsed.getOps().size());
+                                if (mi < 8) {
+                                    octi::OctiBoard stepB;
+                                    stepB.suppressBoardUpdateNotification(true);
+                                    stepB.fromPositionString(curFen);
+                                    stepB.getGame()->setSearchMode(true);
+                                    stepB.getGame()->move(parsed);
+                                }
+                            }
+                        }
+                        ++fourPlayerPlayoutVerified;
+                    }
                     ++collected;
                     if (collected >= 125) {
                         break;
@@ -8739,7 +9233,8 @@ TEST(OctiEnvelope3bSpMoveGenTest, GoldenMoveListOrderOpsAndStringsAcrossRef24And
         }
     }
 
-    CHECK_EQUAL(1024u, cursor);
+    CHECK_EQUAL(524u, cursor);
+    CHECK_EQUAL(500u, fourPlayerPlayoutVerified);
 }
 
 // ---------------------------------------------------------------------------
@@ -11245,6 +11740,127 @@ TEST(OctiRulebookTest, EmbeddedPngAssetsSectionsAndDesktopHtml)
     }
 }
 
+TEST(OctiRulebookTest, SupportedLanguagesNormalizationFallbackAndLocalizedHtml)
+{
+    const std::vector<std::string> &langs = octi::rulebookSupportedLanguages();
+    LONGS_EQUAL(16, static_cast<long>(langs.size()));
+    STRCMP_EQUAL("en", langs[0].c_str());
+    STRCMP_EQUAL("zh-TW", langs[1].c_str());
+    STRCMP_EQUAL("zh-CN", langs[2].c_str());
+    STRCMP_EQUAL("fr", langs[3].c_str());
+    STRCMP_EQUAL("ro", langs[4].c_str());
+    STRCMP_EQUAL("ru", langs[5].c_str());
+    STRCMP_EQUAL("es", langs[6].c_str());
+    STRCMP_EQUAL("de", langs[7].c_str());
+    STRCMP_EQUAL("ja", langs[8].c_str());
+    STRCMP_EQUAL("tr", langs[9].c_str());
+    STRCMP_EQUAL("pt-BR", langs[10].c_str());
+    STRCMP_EQUAL("ko", langs[11].c_str());
+    STRCMP_EQUAL("pl", langs[12].c_str());
+    STRCMP_EQUAL("it", langs[13].c_str());
+    STRCMP_EQUAL("id", langs[14].c_str());
+    STRCMP_EQUAL("vi", langs[15].c_str());
+
+    /* Normalization of case/underscore variants and legacy Indonesian 'in' */
+    STRCMP_EQUAL("zh-TW", octi::normalizeRulebookLanguage("zh_tw").c_str());
+    STRCMP_EQUAL("zh-TW", octi::normalizeRulebookLanguage("ZH-TW").c_str());
+    STRCMP_EQUAL("zh-CN", octi::normalizeRulebookLanguage("zh_CN").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("pt").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("pt_br").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("PT_BR").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("pt-PT").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("pt_PT").c_str());
+    STRCMP_EQUAL("pt-BR", octi::normalizeRulebookLanguage("pt-AO").c_str());
+    STRCMP_EQUAL("id", octi::normalizeRulebookLanguage("in").c_str());
+    STRCMP_EQUAL("id", octi::normalizeRulebookLanguage("IN").c_str());
+    STRCMP_EQUAL("id", octi::normalizeRulebookLanguage("id").c_str());
+
+    /* Fallback to 'en' on empty, unknown, or path-traversal inputs */
+    for (const char *bad : { "", "   ", "xx", "ar", "zh", "pt-12", "pt-pt-extra", "pt-../", "../en", "en/../../etc", "fr-CA" }) {
+        STRCMP_EQUAL("en", octi::normalizeRulebookLanguage(bad).c_str());
+        CHECK_TRUE(&octi::rulebookSections(bad) == &octi::rulebookSections());
+        CHECK_TRUE(octi::buildDesktopRulebookHtml(false, bad) ==
+                   octi::buildDesktopRulebookHtml(false));
+        CHECK_TRUE(octi::buildDesktopRulebookHtml(true, bad) ==
+                   octi::buildDesktopRulebookHtml(true));
+    }
+
+    const std::vector<std::string> files = octi::rulebookImageFileNames();
+    const std::string enDark = octi::buildDesktopRulebookHtml(false, "en");
+    const std::string enLight = octi::buildDesktopRulebookHtml(true, "en");
+    CHECK_TRUE(enDark == octi::buildDesktopRulebookHtml(false));
+    CHECK_TRUE(enLight == octi::buildDesktopRulebookHtml(true));
+
+    for (const std::string &code : langs) {
+        STRCMP_EQUAL(code.c_str(), octi::normalizeRulebookLanguage(code).c_str());
+        const auto &secs = octi::rulebookSections(code);
+        LONGS_EQUAL(static_cast<long>(octi::OCTI_RULEBOOK_CHAPTER_COUNT),
+                    static_cast<long>(secs.size()));
+        for (std::size_t i = 0; i < secs.size(); ++i) {
+            std::string expectedId = "ch" + std::to_string(i + 1);
+            STRCMP_EQUAL(expectedId.c_str(), secs[i].id);
+            CHECK_TRUE(secs[i].number != nullptr && std::strlen(secs[i].number) > 0u);
+            CHECK_TRUE(secs[i].title != nullptr && std::strlen(secs[i].title) > 0u);
+            CHECK_TRUE(secs[i].summary != nullptr && std::strlen(secs[i].summary) > 0u);
+        }
+
+        const std::string darkHtml = octi::buildDesktopRulebookHtml(false, code);
+        const std::string lightHtml = octi::buildDesktopRulebookHtml(true, code);
+        CHECK_TRUE(darkHtml != lightHtml);
+        CHECK_TRUE(darkHtml.find("<table") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("display:grid") == std::string::npos);
+        CHECK_TRUE(darkHtml.find("display:flex") == std::string::npos);
+        CHECK_TRUE(darkHtml.find("Pod") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("Prong") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("SuperProng") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("Elo") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("44a-45,44beg-66x-64x-44") != std::string::npos);
+        CHECK_TRUE(darkHtml.find("44bcd-66-86-16-34-54") != std::string::npos);
+
+        for (int ch = 1; ch <= 7; ++ch) {
+            CHECK_TRUE(darkHtml.find("<a name=\"ch" + std::to_string(ch) + "\"></a>") !=
+                       std::string::npos);
+        }
+        for (const std::string &fn : files) {
+            CHECK_TRUE(darkHtml.find("octi://rulebook/" + fn) != std::string::npos);
+            CHECK_TRUE(lightHtml.find("octi://rulebook/" + fn) != std::string::npos);
+        }
+        for (const std::string &vCode : octi::allOctiVariantCodes()) {
+            CHECK_TRUE(darkHtml.find(vCode) != std::string::npos);
+        }
+        if (code != "en") {
+            CHECK_TRUE(darkHtml != enDark);
+            CHECK_TRUE(darkHtml.find("<html lang=\"" + code + "\">") !=
+                       std::string::npos);
+            CHECK_TRUE(darkHtml.find("toPositionString()") != std::string::npos);
+            CHECK_TRUE(darkHtml.find("elimMask") != std::string::npos);
+            CHECK_TRUE(darkHtml.find("<td>1-step</td>") == std::string::npos);
+            CHECK_TRUE(darkHtml.find("<td>Composite</td>") == std::string::npos);
+            CHECK_TRUE(darkHtml.find("(4. Victory &amp; 4P Elimination)") ==
+                       std::string::npos);
+            CHECK_TRUE(std::string(secs[0].title) !=
+                       std::string(octi::rulebookSections("en")[0].title));
+        }
+    }
+
+    /* Regional Chinese style separation: zh-TW vs zh-CN */
+    const std::string twHtml = octi::buildDesktopRulebookHtml(false, "zh-TW");
+    const std::string cnHtml = octi::buildDesktopRulebookHtml(false, "zh-CN");
+    CHECK_TRUE(twHtml != cnHtml);
+    CHECK_TRUE(twHtml.find("棋盤") != std::string::npos);
+    CHECK_TRUE(twHtml.find("對局") != std::string::npos);
+    CHECK_TRUE(twHtml.find("設定") != std::string::npos);
+    for (const char *badTw : { "设置", "服务器", "连接", "默认", "保存", "加载", "对局", "棋盘" }) {
+        CHECK_TRUE_TEXT(twHtml.find(badTw) == std::string::npos, badTw);
+    }
+    CHECK_TRUE(cnHtml.find("棋盘") != std::string::npos);
+    CHECK_TRUE(cnHtml.find("对局") != std::string::npos);
+    CHECK_TRUE(cnHtml.find("设置") != std::string::npos);
+    for (const char *badCn : { "設定", "帳號", "伺服器", "連線", "預設", "儲存", "載入", "對局", "棋盤" }) {
+        CHECK_TRUE_TEXT(cnHtml.find(badCn) == std::string::npos, badCn);
+    }
+}
+
 namespace {
 
 bool isSingleOpRepositionMove(const octi::OctiMove &m)
@@ -11980,8 +12596,10 @@ TEST(OctiDonGreenRuleRevisionsTest, RapidCheckFourSuperProngAndEliminationStateI
                 sqPart << tok;
             };
 
+            bool usedByA[9][9] = {};
             int anchorX = kCoords[*rc::gen::inRange(0, kNumCoords)][0];
             int anchorY = kCoords[*rc::gen::inRange(0, kNumCoords)][1];
+            usedByA[anchorX][anchorY] = true;
             if (*rc::gen::arbitrary<bool>()) {
                 // Stationary stack-mate on anchor square to stress R4
                 appendTok(std::string("A") + static_cast<char>('1' + anchorX) +
@@ -11991,6 +12609,7 @@ TEST(OctiDonGreenRuleRevisionsTest, RapidCheckFourSuperProngAndEliminationStateI
             for (int i = 0; i < numAPods; ++i) {
                 int px = (i == 0) ? anchorX : kCoords[*rc::gen::inRange(0, kNumCoords)][0];
                 int py = (i == 0) ? anchorY : kCoords[*rc::gen::inRange(0, kNumCoords)][1];
+                usedByA[px][py] = true;
                 int wantSp = (i + 1 == numAPods) ? spRemaining : *rc::gen::inRange(0, spRemaining + 1);
                 spRemaining -= wantSp;
                 int normDir = *rc::gen::inRange(0, 8);
@@ -12015,8 +12634,16 @@ TEST(OctiDonGreenRuleRevisionsTest, RapidCheckFourSuperProngAndEliminationStateI
                           static_cast<char>('1' + py) + cfg);
             }
 
-            // Place a pivot/enemy pod and D73e so game is active
-            int pivotIdx = *rc::gen::inRange(0, kNumCoords);
+            // Place a pivot/enemy pod on an unoccupied square and D73a so game is active
+            int pivotSeed = *rc::gen::inRange(0, kNumCoords);
+            int pivotIdx = pivotSeed;
+            for (int step = 0; step < kNumCoords; ++step) {
+                int cand = (pivotSeed + step) % kNumCoords;
+                if (!usedByA[kCoords[cand][0]][kCoords[cand][1]]) {
+                    pivotIdx = cand;
+                    break;
+                }
+            }
             appendTok(std::string("D") + static_cast<char>('1' + kCoords[pivotIdx][0]) +
                       static_cast<char>('1' + kCoords[pivotIdx][1]) + "e");
             if (!elimB) {
@@ -13000,6 +13627,344 @@ TEST(OctiEnvelope1CoreHooksAndZobristTest,
 
     ownedPtr.reset();
     CHECK_TRUE(destroyed);
+}
+
+// ---------------------------------------------------------------------------
+// Single Legal Move Fast Path (4P 0-Pod Forced Reserve Placement & 1-Ply Win)
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiSingleLegalMoveFastPathTest)
+{
+};
+
+TEST(OctiSingleLegalMoveFastPathTest,
+     NominalFourPlayerZeroPodSingleReservePlacementReturnsImmediately)
+{
+    // Reproduces Don Green's 4P match 951d15cc... (plies 60 & 68):
+    // Player D has 0 pods on the board, freePods >= 1, and home square 73 empty,
+    // leaving strictly 1 legal move ("73").
+    octi::OctiBoard board(octi::GAME_MODE_4);
+    board.fromPositionString(
+        "4:2:0:0:P:D:-:0:3,0,10,0:3,0,10,0:3,0,10,0:1,0,10,0:A33a,B37e,C77e");
+
+    octi::OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+    std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+    CHECK_EQUAL(static_cast<std::size_t>(1), legalMoves.size());
+    STRCMP_EQUAL("73", legalMoves[0].asString().c_str());
+
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL);
+    octi::BotTuningProfile prof = bot.tuningProfile();
+    prof.timeBudgetMs = 5000;
+    prof.lazySmpThreads = 4;
+    prof.useOpeningBook = false;
+    bot.setTuningProfile(prof);
+    bot.setTimeBudgetMs(5000);
+
+    octi::BotSearchStats stats{};
+    std::string chosen = bot.chooseMove(board, &stats);
+    STRCMP_EQUAL("73", chosen.c_str());
+    CHECK_EQUAL(1, stats.depthReached);
+    CHECK_EQUAL(static_cast<std::uint64_t>(1ULL), stats.nodesVisited);
+    CHECK_EQUAL(0, stats.bestScore);
+    CHECK_TRUE(stats.elapsedMs < 500);
+    CHECK_EQUAL(1, bot.liveDepthReached());
+    CHECK_EQUAL(static_cast<std::uint64_t>(1ULL), bot.liveNodesVisited());
+    CHECK_EQUAL(0, bot.liveBestScore());
+}
+
+TEST(OctiSingleLegalMoveFastPathTest,
+     BoundarySingleLegalMoveOnePlyVictoryPreservesWinScore)
+{
+    // Boundary 1: Strictly 1 legal move ("36a-37") which immediately captures
+    // enemy base 37 in a 1-base game (1-ply victory). Must preserve WIN_SCORE (1000000).
+    octi::OctiBoard board(octi::GAME_MODE_2, false, false, octi::GAME_BASES_1);
+    board.fromPositionString(
+        "2:1:0:0:P:A:-:0:0,0,0,0:0,0,0,0:A36a,B57");
+
+    octi::OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+    std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+    CHECK_EQUAL(static_cast<std::size_t>(1), legalMoves.size());
+    STRCMP_EQUAL("36a-37", legalMoves[0].asString().c_str());
+
+    octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL);
+    octi::BotTuningProfile prof = bot.tuningProfile();
+    prof.timeBudgetMs = 5000;
+    prof.lazySmpThreads = 4;
+    prof.useOpeningBook = false;
+    bot.setTuningProfile(prof);
+    bot.setTimeBudgetMs(5000);
+
+    octi::BotSearchStats stats{};
+    std::string chosen = bot.chooseMove(board, &stats);
+    STRCMP_EQUAL("36a-37", chosen.c_str());
+    CHECK_EQUAL(1, stats.depthReached);
+    CHECK_EQUAL(static_cast<std::uint64_t>(1ULL), stats.nodesVisited);
+    CHECK_EQUAL(1000000, stats.bestScore);
+    CHECK_TRUE(stats.elapsedMs < 500);
+    CHECK_EQUAL(1, bot.liveDepthReached());
+    CHECK_EQUAL(static_cast<std::uint64_t>(1ULL), bot.liveNodesVisited());
+    CHECK_EQUAL(1000000, bot.liveBestScore());
+}
+
+TEST(OctiSingleLegalMoveFastPathTest,
+     BoundaryMultiMovePositionAndDegenerateZeroMovePosition)
+{
+    // Boundary 2: Position with >= 2 legal moves still runs full iterative deepening
+    {
+        octi::OctiBoard multiBoard(octi::GAME_MODE_4);
+        multiBoard.fromPositionString(
+            "4:2:0:0:P:D:-:0:3,0,10,0:3,0,10,0:3,0,10,0:1,0,10,0:A33a,B37e,C77e,D73");
+
+        octi::OctiGame *game = multiBoard.getGame();
+        CHECK_TRUE(game != nullptr);
+        std::vector<octi::OctiMove> legalMoves = game->generateLegalMoves();
+        CHECK_TRUE(legalMoves.size() >= 2);
+
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        octi::BotTuningProfile prof = bot.tuningProfile();
+        prof.timeBudgetMs = 150;
+        prof.lazySmpThreads = 1;
+        prof.useOpeningBook = false;
+        bot.setTuningProfile(prof);
+        bot.setTimeBudgetMs(150);
+
+        octi::BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(multiBoard, &stats);
+        CHECK_FALSE(chosen.empty());
+        CHECK_TRUE(stats.nodesVisited > 1ULL);
+    }
+
+    // Fault / Degenerate: 0 legal moves (unarmed pod with 0 reserve pods/prongs) and finished board
+    {
+        octi::OctiBoard zeroMoveBoard(octi::GAME_MODE_2, false, false, octi::GAME_BASES_3);
+        zeroMoveBoard.fromPositionString(
+            "2:3:0:0:P:A:-:0:0,0,0,0:0,0,0,0:A33,B37");
+        CHECK_EQUAL(static_cast<std::size_t>(0),
+                    zeroMoveBoard.getGame()->generateLegalMoves().size());
+
+        octi::OctiBotEngine bot(octi::BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        octi::BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(zeroMoveBoard, &stats);
+        STRCMP_EQUAL("", chosen.c_str());
+        CHECK_EQUAL(0, stats.depthReached);
+        CHECK_EQUAL(static_cast<std::uint64_t>(0ULL), stats.nodesVisited);
+
+        octi::OctiBoard unstartedBoard(octi::GAME_MODE_2);
+        octi::BotSearchStats unstartedStats{};
+        STRCMP_EQUAL("", bot.chooseMove(unstartedBoard, &unstartedStats).c_str());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OctiNetworkClient Presence Heartbeat, Leave & Additive Parsing Tests
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiNetworkClientPresenceTest)
+{
+};
+
+TEST(OctiNetworkClientPresenceTest,
+     AdditiveAndLegacyPresenceParsingAndHeartbeatLeaveTransactions)
+{
+    using Json = nlohmann::json;
+
+    /* 1. Verify static parsePresenceSseEvent with additive and legacy payloads */
+    {
+        const std::string richJson = R"({
+            "player_uuid": "u-local-4p",
+            "handle": "AliceLocal",
+            "status": "IN_LOBBY",
+            "room_id": "",
+            "activity": "PLAYING_LOCAL",
+            "activity_detail": "lvl3",
+            "local_mode": "4P",
+            "local_opponent": "vs_ai",
+            "tab_visible": false,
+            "active_sessions": 2,
+            "clients": ["desktop", "web"],
+            "online_sec": 120,
+            "idle_sec": 3
+        })";
+        octi::LobbyPlayerInfo pRich =
+            octi::OctiNetworkClient::parsePresenceSseEvent(richJson);
+        STRCMP_EQUAL("u-local-4p", pRich.playerUuid.c_str());
+        STRCMP_EQUAL("AliceLocal", pRich.handle.c_str());
+        STRCMP_EQUAL("IN_LOBBY", pRich.status.c_str());
+        STRCMP_EQUAL("PLAYING_LOCAL", pRich.activity.c_str());
+        STRCMP_EQUAL("lvl3", pRich.activityDetail.c_str());
+        STRCMP_EQUAL("4P", pRich.localMode.c_str());
+        STRCMP_EQUAL("vs_ai", pRich.localOpponent.c_str());
+        CHECK_FALSE(pRich.tabVisible);
+        LONGS_EQUAL(2, pRich.activeSessions);
+        LONGS_EQUAL(2, static_cast<long>(pRich.clients.size()));
+
+        const std::string legacyPlayingJson = R"({
+            "player_uuid": "u-legacy-play",
+            "handle": "BobLegacy",
+            "status": "PLAYING",
+            "room_id": "room42"
+        })";
+        octi::LobbyPlayerInfo pLegacy =
+            octi::OctiNetworkClient::parsePresenceSseEvent(legacyPlayingJson);
+        STRCMP_EQUAL("u-legacy-play", pLegacy.playerUuid.c_str());
+        STRCMP_EQUAL("PLAYING", pLegacy.status.c_str());
+        STRCMP_EQUAL("room42", pLegacy.roomId.c_str());
+        STRCMP_EQUAL("PLAYING_ONLINE", pLegacy.activity.c_str());
+        STRCMP_EQUAL("room42", pLegacy.activityDetail.c_str());
+        CHECK_TRUE(pLegacy.tabVisible);
+        LONGS_EQUAL(1, pLegacy.activeSessions);
+
+        octi::LobbyPlayerInfo pMalformed =
+            octi::OctiNetworkClient::parsePresenceSseEvent("{invalid json");
+        CHECK_TRUE(pMalformed.playerUuid.empty());
+    }
+
+    /* 2. Verify X-Octi-Session-Id header, /api/v1/lobby/state, heartbeat & leave */
+    httplib::Server mockSrv;
+    std::mutex capMutex;
+    std::string lastLobbySessionHdr;
+    std::string lastHbSessionHdr;
+    Json lastHbBody;
+    std::string lastLeaveSessionHdr;
+    Json lastLeaveBody;
+
+    mockSrv.Get("/api/v1/lobby/state",
+                [&](const httplib::Request &req, httplib::Response &res) {
+                    {
+                        std::lock_guard<std::mutex> lock(capMutex);
+                        lastLobbySessionHdr =
+                            req.get_header_value("X-Octi-Session-Id");
+                    }
+                    Json p1 = {
+                        {"player_uuid", "u-1"},
+                        {"handle", "DesktopHero"},
+                        {"status", "IN_LOBBY"},
+                        {"room_id", ""},
+                        {"activity", "PLAYING_LOCAL"},
+                        {"activity_detail", "lvl2"},
+                        {"local_mode", "2P_1B!"},
+                        {"local_opponent", "vs_ai"},
+                        {"tab_visible", true},
+                        {"active_sessions", 1},
+                        {"clients", Json::array({"desktop"})},
+                        {"online_sec", 45},
+                        {"idle_sec", 0}
+                    };
+                    Json p2 = {
+                        {"player_uuid", "u-2"},
+                        {"handle", "LegacyObserver"},
+                        {"status", "OBSERVING"},
+                        {"room_id", "tbl777"}
+                    };
+                    Json body = {
+                        {"players", Json::array({p1, p2})},
+                        {"tables", Json::array()},
+                        {"recent_chat", Json::array()},
+                        {"latest_seq", 9}
+                    };
+                    res.status = 200;
+                    res.set_content(body.dump(), "application/json");
+                });
+
+    mockSrv.Post("/api/v1/lobby/presence/heartbeat",
+                 [&](const httplib::Request &req, httplib::Response &res) {
+                     Json parsed = Json::parse(req.body, nullptr, false);
+                     {
+                         std::lock_guard<std::mutex> lock(capMutex);
+                         lastHbSessionHdr =
+                             req.get_header_value("X-Octi-Session-Id");
+                         lastHbBody = parsed;
+                     }
+                     Json resp = {
+                         {"ok", true},
+                         {"status", "IN_LOBBY"},
+                         {"activity", parsed.value("activity", "IN_LOBBY")},
+                         {"activity_detail", parsed.value("activity_detail", "")},
+                         {"local_mode", parsed.value("local_mode", "")},
+                         {"local_opponent", parsed.value("local_opponent", "")},
+                         {"tab_visible", parsed.value("visible", true)},
+                         {"active_sessions", 1}
+                     };
+                     res.status = 200;
+                     res.set_content(resp.dump(), "application/json");
+                 });
+
+    mockSrv.Post("/api/v1/lobby/presence/leave",
+                 [&](const httplib::Request &req, httplib::Response &res) {
+                     Json parsed = Json::parse(req.body, nullptr, false);
+                     {
+                         std::lock_guard<std::mutex> lock(capMutex);
+                         lastLeaveSessionHdr =
+                             req.get_header_value("X-Octi-Session-Id");
+                         lastLeaveBody = parsed;
+                     }
+                     Json resp = {
+                         {"ok", true},
+                         {"online", false},
+                         {"remaining_sessions", 0}
+                     };
+                     res.status = 200;
+                     res.set_content(resp.dump(), "application/json");
+                 });
+
+    int port = mockSrv.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread srvThread([&mockSrv]() { mockSrv.listen_after_bind(); });
+    for (int i = 0; i < 50 && !mockSrv.is_running(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    auto cli = octi::OctiNetworkClient::createForLoopbackTest(port);
+    cli->setSessionToken("tok-core-presence");
+    cli->setPresenceSessionId("desktop-0123456789abcdef");
+    STRCMP_EQUAL("desktop-0123456789abcdef", cli->presenceSessionId().c_str());
+
+    auto stateRes = cli->fetchLobbyState();
+    CHECK_TRUE_TEXT(stateRes.ok, stateRes.errorMessage.c_str());
+    LONGS_EQUAL(2, static_cast<long>(stateRes.data.players.size()));
+    STRCMP_EQUAL("PLAYING_LOCAL", stateRes.data.players[0].activity.c_str());
+    STRCMP_EQUAL("2P_1B!", stateRes.data.players[0].localMode.c_str());
+    STRCMP_EQUAL("vs_ai", stateRes.data.players[0].localOpponent.c_str());
+    STRCMP_EQUAL("OBSERVING", stateRes.data.players[1].activity.c_str());
+    STRCMP_EQUAL("tbl777", stateRes.data.players[1].activityDetail.c_str());
+
+    octi::PresenceHeartbeatRequest hbReq;
+    hbReq.activity = "PLAYING_LOCAL";
+    hbReq.activityDetail = "lvl3";
+    hbReq.localMode = "4P";
+    hbReq.localOpponent = "vs_ai";
+    hbReq.visible = true;
+    hbReq.interactive = true;
+    auto hbRes = cli->sendPresenceHeartbeat(hbReq);
+    CHECK_TRUE_TEXT(hbRes.ok, hbRes.errorMessage.c_str());
+    STRCMP_EQUAL("PLAYING_LOCAL", hbRes.data.activity.c_str());
+    STRCMP_EQUAL("4P", hbRes.data.localMode.c_str());
+    STRCMP_EQUAL("vs_ai", hbRes.data.localOpponent.c_str());
+
+    auto leaveRes = cli->sendPresenceLeave("", "app_close");
+    CHECK_TRUE_TEXT(leaveRes.ok, leaveRes.errorMessage.c_str());
+    CHECK_FALSE(leaveRes.data.online);
+    LONGS_EQUAL(0, leaveRes.data.remainingSessions);
+
+    {
+        std::lock_guard<std::mutex> lock(capMutex);
+        STRCMP_EQUAL("desktop-0123456789abcdef", lastLobbySessionHdr.c_str());
+        STRCMP_EQUAL("desktop-0123456789abcdef", lastHbSessionHdr.c_str());
+        STRCMP_EQUAL("desktop-0123456789abcdef",
+                     lastHbBody.value("session_id", "").c_str());
+        STRCMP_EQUAL("PLAYING_LOCAL",
+                     lastHbBody.value("activity", "").c_str());
+        CHECK_TRUE(lastHbBody.value("interactive", false));
+        STRCMP_EQUAL("desktop-0123456789abcdef", lastLeaveSessionHdr.c_str());
+        STRCMP_EQUAL("app_close", lastLeaveBody.value("reason", "").c_str());
+    }
+
+    mockSrv.stop();
+    if (srvThread.joinable()) {
+        srvThread.join();
+    }
 }
 
 int main(int argc, char **argv)

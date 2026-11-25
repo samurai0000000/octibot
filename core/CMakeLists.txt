@@ -26,6 +26,10 @@ endif()
 option(OCTI_CORE_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
 option(OCTI_CORE_BUILD_TESTS "Build octi_core CppUTest suite" ON)
 
+set(OCTI_SERVER_HOST "octi.selfso.com" CACHE STRING "Canonical OCTI server hostname")
+set(OCTI_SERVER_FALLBACK_HOST "trumpet.selfso.com" CACHE STRING "Fallback OCTI server hostname")
+set(OCTI_DATA_ATTRIBUTION "${OCTI_SERVER_HOST}" CACHE STRING "OCTI CC-BY 4.0 data attribution domain")
+
 if(OCTI_CORE_SANITIZE AND NOT MSVC AND NOT WIN32)
     add_compile_options(-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
                         -fno-sanitize-recover=undefined)
@@ -212,10 +216,17 @@ add_library(octi_core STATIC
     src/OctiMove.cxx
     src/OctiSoundCue.cxx
     src/OctiRulebook.cxx
+    src/OctiRulebookI18n.cxx
     src/OctiBoard.cxx
     src/OctiGame.cxx
     src/OctiBotEngine.cxx
     src/OctiNetworkClient.cxx
+)
+
+target_compile_definitions(octi_core PUBLIC
+    OCTI_SERVER_HOST_DEFAULT="${OCTI_SERVER_HOST}"
+    OCTI_SERVER_FALLBACK_HOST_DEFAULT="${OCTI_SERVER_FALLBACK_HOST}"
+    OCTI_DATA_ATTRIBUTION_DEFAULT="${OCTI_DATA_ATTRIBUTION}"
 )
 
 target_include_directories(octi_core PUBLIC

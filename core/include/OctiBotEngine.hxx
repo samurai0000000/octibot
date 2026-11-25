@@ -159,6 +159,8 @@ struct BotTuningProfile {
     int ofkReserveFreeProngVal             = 180;   // Value per unplaced prong in reserve in OFK
     int fourPlayerEliminatedPenalty        = 20000; // Penalty when an allied/enemy seat is eliminated in 4P
     int fourPlayerWipeoutDangerPct         = 50;    // Scale (%) of wipeoutDangerPenalty for single-seat wipeout risk in 4P
+    int fourPlayerPartnerHomeBlockPenalty  = 900;   // Congestion penalty when partner occupies non-eliminated seat's home with freePods > 0
+    int fourPlayerPartnerHomeBlockZeroPodsPenalty = 4500; // Escalated penalty when partner blocks home of seat with freePods > 0 and 0 board pods
     int reserveFreeSuperProngVal           = 150;   // Value per unplaced superprong in reserve
     int nonEdgelessBackRankPenalty2P       = 850;   // Penalty for pod behind own home rank in 2P non-edgeless
     int moveOrderBackRankRetreatPenalty2P  = 3500;  // Move-ordering penalty for retreating behind own home rank in 2P non-edgeless

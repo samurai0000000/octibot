@@ -210,6 +210,12 @@ struct LobbyPlayerInfo {
     std::string avatarUrl;
     std::string status;
     std::string roomId;
+    std::string activity;
+    std::string activityDetail;
+    std::string localMode;
+    std::string localOpponent;
+    bool tabVisible = true;
+    int activeSessions = 0;
     std::vector<std::string> clients;
     std::int64_t onlineSec = 0;
     std::int64_t idleSec = 0;
@@ -222,6 +228,33 @@ struct LobbyPlayerInfo {
     int robotWins = 0;
     int robotLosses = 0;
     int robotDraws = 0;
+};
+
+struct PresenceHeartbeatRequest {
+    std::string sessionId;
+    std::string activity = "IN_LOBBY";
+    std::string activityDetail;
+    std::string localMode;
+    std::string localOpponent;
+    bool visible = true;
+    bool interactive = false;
+};
+
+struct PresenceHeartbeatData {
+    bool ok = false;
+    std::string status = "IN_LOBBY";
+    std::string activity = "IN_LOBBY";
+    std::string activityDetail;
+    std::string localMode;
+    std::string localOpponent;
+    bool tabVisible = true;
+    int activeSessions = 0;
+};
+
+struct PresenceLeaveData {
+    bool ok = false;
+    bool online = false;
+    int remainingSessions = 0;
 };
 
 struct LobbyChatEntry {
@@ -608,6 +641,9 @@ public:
     void setInstallDeleteToken(const std::string &token);
     std::string installDeleteToken() const;
 
+    void setPresenceSessionId(const std::string &sessionId);
+    std::string presenceSessionId() const;
+
     /* ---- 1..10: Health, Auth, Profile & Leaderboard ---- */
     ApiResult<HealthInfo> fetchHealth();
     ApiResult<std::vector<AuthProviderInfo>> fetchAuthProviders();
@@ -660,6 +696,19 @@ public:
     {
         return fetchLobbyState();
     }
+    ApiResult<PresenceHeartbeatData> sendPresenceHeartbeat(
+        const PresenceHeartbeatRequest &req);
+    ApiResult<PresenceHeartbeatData> sendPresenceHeartbeat(
+        const std::string &activity,
+        const std::string &activityDetail = "",
+        const std::string &localMode = "",
+        const std::string &localOpponent = "",
+        bool visible = true,
+        bool interactive = false);
+    ApiResult<PresenceLeaveData> sendPresenceLeave(
+        const std::string &sessionId = "",
+        const std::string &reason = "app_close");
+    static LobbyPlayerInfo parsePresenceSseEvent(const std::string &dataJson);
     ApiResult<std::int64_t> postLobbyChat(const std::string &text);
     ApiResult<std::vector<TableSummaryInfo>> listTables(
         bool includeFinished = false);

@@ -29,9 +29,18 @@ std::vector<std::string> rulebookImageFileNames();
 const std::uint8_t *rulebookImageBytes(const std::string &fileName,
                                        std::size_t &outSize);
 
+const std::vector<std::string> &rulebookSupportedLanguages();
+
+std::string normalizeRulebookLanguage(const std::string &lang);
+
 const std::vector<RulebookSection> &rulebookSections();
 
+const std::vector<RulebookSection> &rulebookSections(const std::string &lang);
+
 std::string buildDesktopRulebookHtml(bool lightSurface = false);
+
+std::string buildDesktopRulebookHtml(bool lightSurface,
+                                     const std::string &lang);
 
 } // namespace octi
 
