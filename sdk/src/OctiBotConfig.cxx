@@ -658,6 +658,8 @@ void applyConfigToTuningProfile(const OctiBotConfigStore &config,
     profile.reserveFreeProngVal = config.getInt("reserve_free_prong_val", profile.reserveFreeProngVal);
     profile.fixStackAndHomeEvalMirage = config.getBool(
         "fix_stack_and_home_eval_mirage", profile.fixStackAndHomeEvalMirage);
+    profile.fixFourPlayerCoalitionEval = config.getBool(
+        "fix_4p_coalition_eval", profile.fixFourPlayerCoalitionEval);
 
     profile.leapfrogBatteryWeight = config.getInt("leapfrog_battery_weight", profile.leapfrogBatteryWeight);
     profile.leapfrogForwardBonus = config.getInt("leapfrog_forward_bonus", profile.leapfrogForwardBonus);
@@ -766,6 +768,7 @@ void serializeTuningProfileToMap(const BotTuningProfile &prof,
     out["captured_pod_penalty"] = std::to_string(prof.capturedPodPenalty);
     out["reserve_free_prong_val"] = std::to_string(prof.reserveFreeProngVal);
     out["fix_stack_and_home_eval_mirage"] = prof.fixStackAndHomeEvalMirage ? "true" : "false";
+    out["fix_4p_coalition_eval"] = prof.fixFourPlayerCoalitionEval ? "true" : "false";
 
     out["leapfrog_battery_weight"] = std::to_string(prof.leapfrogBatteryWeight);
     out["leapfrog_forward_bonus"] = std::to_string(prof.leapfrogForwardBonus);

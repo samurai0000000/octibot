@@ -6,6 +6,7 @@
 
 #include "OctiBotRunner.hxx"
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <ctime>
@@ -178,6 +179,7 @@ static bool isBooleanConfigKey(const std::string &key) {
         "lazy_smp_diversify_helpers",
         "lazy_smp_stagger_helpers",
         "fix_stack_and_home_eval_mirage",
+        "fix_4p_coalition_eval",
         "friends_only",
         "host_super_prongs",
         "host_edgeless",
@@ -612,6 +614,11 @@ void OctiBotAgentRegistry::registerAgent(const std::string &algorithmName,
                                         AgentFactory factory) {
     std::lock_guard<std::mutex> lock(_mutex);
     _factories[algorithmName] = std::move(factory);
+}
+
+bool OctiBotAgentRegistry::unregisterAgent(const std::string &algorithmName) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _factories.erase(algorithmName) > 0;
 }
 
 bool OctiBotAgentRegistry::hasAgent(const std::string &algorithmName) const {
@@ -1324,6 +1331,25 @@ bool matchesAnyTargetHandle(const std::string &raw, const std::string &candidate
     return false;
 }
 
+bool matchesExplicitOverrideVariant(const OctiVariantSpec &tSpec,
+                                    const BotMatchOverride &ov) {
+    if (!ov.hostMode.empty() && !iequalsStr(tSpec.mode, ov.hostMode)) {
+        return false;
+    }
+    if (ov.hostBases > 0 && tSpec.mode == "2P" && tSpec.bases != ov.hostBases) {
+        return false;
+    }
+    if (ov.hasHostSuperProngs && tSpec.mode != "OFK" &&
+        tSpec.superProngs != ov.hostSuperProngs) {
+        return false;
+    }
+    if (ov.hasHostEdgeless && tSpec.mode != "OFK" &&
+        tSpec.edgeless != ov.hostEdgeless) {
+        return false;
+    }
+    return true;
+}
+
 bool normalizeStrictVariantSpec(const OctiVariantSpec &in,
                                 OctiVariantSpec &out,
                                 std::string &outErr) {
@@ -1795,11 +1821,18 @@ void OctiBotRunner::armMatchOverrideWithGrace(const BotMatchOverride &ov,
                                               const std::string &requesterHandle,
                                               bool requesterIsRobot) {
     const std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
+    const std::string normTargetRoom = normalizeHandleOrId(ov.targetRoomId, '#');
     std::lock_guard<std::mutex> lock(_stateMutex);
     _matchOverride = ov;
+    _matchOverride.targetPlayerHandle = normalizeHandleOrId(ov.targetPlayerHandle, '@');
+    _matchOverride.targetRoomId = normTargetRoom;
     _matchOverrideJoinGraceUntilMs = nowMs() + std::max(0, graceMs);
     _matchOverrideRequesterHandle = requesterHandle;
     _matchOverrideRequesterIsRobot = requesterIsRobot;
+    if (!normTargetRoom.empty() && _excludedRoomId == normTargetRoom) {
+        _excludedRoomId.clear();
+        _excludedRoomUntilMs = 0;
+    }
     if (!curTarget.empty() && iequalsStr(_excludedPlayerHandle, curTarget)) {
         _excludedPlayerHandle.clear();
         _excludedPlayerUntilMs = 0;
@@ -2814,6 +2847,14 @@ bool OctiBotRunner::applyMatchOverrideImpl(const BotMatchOverride &rawOv,
     ov.active = true;
     ov.targetPlayerHandle = normalizeHandleOrId(ov.targetPlayerHandle, '@');
     ov.targetRoomId = normalizeHandleOrId(ov.targetRoomId, '#');
+    const std::string selfHandle = !_identity.handle.empty()
+        ? normalizeHandleOrId(_identity.handle, '@')
+        : normalizeHandleOrId(_config.getString("robot_name", ""), '@');
+    if (!selfHandle.empty() && !ov.targetPlayerHandle.empty() &&
+        matchesAnyTargetHandle(ov.targetPlayerHandle, selfHandle)) {
+        errorOut = "Cannot target self (@" + selfHandle + ") as match opponent";
+        return false;
+    }
     int numTargets = countTargetHandles(ov.targetPlayerHandle);
     if (ov.remainingGames <= 0) {
         ov.remainingGames = 1;
@@ -2947,6 +2988,15 @@ bool OctiBotRunner::applyMatchOverrideImpl(const BotMatchOverride &rawOv,
         }
     };
 
+    if (!ov.targetRoomId.empty() && curRoom == ov.targetRoomId) {
+        if (curPhase != "IN_PROGRESS") {
+            armOverrideState();
+        }
+        wakeLoop(true, true);
+        outSummary = "Already in requested table #" + ov.targetRoomId + ".";
+        return true;
+    }
+
     if (curPhase == "IN_PROGRESS") {
         armOverrideState();
         logMsg(2, "[MatchOverride] Queued override during active game in #" + curRoom);
@@ -3052,6 +3102,12 @@ bool OctiBotRunner::applyMatchOverrideImpl(const BotMatchOverride &rawOv,
                 }
                 if (t.phase == "WAITING_FOR_PLAYERS") {
                     OctiVariantSpec tSpec = OctiVariantSpec::fromTable(t);
+                    if (!matchesExplicitOverrideVariant(tSpec, ov)) {
+                        if (targetWaitingRoomId.empty() && t.roomId != curRoom) {
+                            targetWaitingRoomId = t.roomId;
+                        }
+                        continue;
+                    }
                     std::string tReason;
                     if (!checkAgentSupportsVariant(tSpec, tReason)) {
                         sawUnsupportedTargetWaitingTable = true;
@@ -3561,6 +3617,12 @@ void OctiBotRunner::loopStep() {
                         continue;
                     }
                     OctiVariantSpec tSpec = OctiVariantSpec::fromTable(t);
+                    if (!matchesExplicitOverrideVariant(tSpec, ov)) {
+                        if (targetWaitingRoomId.empty()) {
+                            targetWaitingRoomId = t.roomId;
+                        }
+                        continue;
+                    }
                     std::string tReason;
                     if (!checkAgentSupportsVariant(tSpec, tReason)) {
                         sawUnsupportedTargetTable = true;
@@ -4186,6 +4248,11 @@ void OctiBotRunner::loopStep() {
             }
 
             // Waiting-room resource admission & non-resigning eviction
+            const std::string ovTarget = firstTargetHandle(ov.targetPlayerHandle);
+            const bool overrideTargetsDifferentRoom =
+                ov.active && !hasValidSeatedOpponent &&
+                ((!ov.targetRoomId.empty() && ov.targetRoomId != roomId) ||
+                 (ov.targetRoomId.empty() && !ovTarget.empty()));
             if (shouldStandUpAndUnhostWaitingRoom(roomId)) {
                 if (hasValidSeatedOpponent) {
                     std::string oppH;
@@ -4204,12 +4271,12 @@ void OctiBotRunner::loopStep() {
                 }
                 bool transitionedToInProgress = false;
                 standUpFromWaitingRoomWithoutResign(roomId, transitionedToInProgress);
-                if (!transitionedToInProgress) {
+                if (!transitionedToInProgress && !overrideTargetsDifferentRoom) {
                     clearMatchOverride();
                 }
                 return;
             }
-            if (hasValidSeatedOpponent || ov.active) {
+            if (hasValidSeatedOpponent || (ov.active && !overrideTargetsDifferentRoom)) {
                 std::string commitReason;
                 if (!onBeforeCommitMatch(roomId, commitReason)) {
                     std::string oppH;
@@ -4227,7 +4294,7 @@ void OctiBotRunner::loopStep() {
                     }
                     bool transitionedToInProgress = false;
                     standUpFromWaitingRoomWithoutResign(roomId, transitionedToInProgress);
-                    if (!transitionedToInProgress) {
+                    if (!transitionedToInProgress && !overrideTargetsDifferentRoom) {
                         clearMatchOverride();
                     }
                     return;
@@ -4255,6 +4322,9 @@ void OctiBotRunner::loopStep() {
                                 }
                                 if (hasTarget && (!targetIsRobot || !_activeGameView.allowRobots || roomId > t.roomId)) {
                                     OctiVariantSpec hopSpec = OctiVariantSpec::fromTable(t);
+                                    if (!matchesExplicitOverrideVariant(hopSpec, ov)) {
+                                        continue;
+                                    }
                                     std::string hopReason;
                                     if (!checkAgentSupportsVariant(hopSpec, hopReason)) {
                                         std::string reqH;
@@ -5300,6 +5370,34 @@ void OctiBotFleetRunner::onBeforeRunnerStart(OctiBotRunner &runner,
 void OctiBotFleetRunner::onFleetStarted() {
 }
 
+bool OctiBotFleetRunner::shouldStartProfile(const std::string &profileLabel,
+                                            const OctiBotConfigStore &resolvedConfig,
+                                            const std::string &algorithmName,
+                                            const OctiBotAgent *agent) const {
+    if (agent) {
+        return true;
+    }
+    const std::string rawBeh = resolvedConfig.getString("table_behavior", "auto");
+    std::size_t f = 0;
+    while (f < rawBeh.size() && std::isspace(static_cast<unsigned char>(rawBeh[f]))) {
+        ++f;
+    }
+    std::size_t l = rawBeh.size();
+    while (l > f && std::isspace(static_cast<unsigned char>(rawBeh[l - 1]))) {
+        --l;
+    }
+    std::string beh = rawBeh.substr(f, l - f);
+    for (char &c : beh) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (resolvedConfig.getBool("lobby_only", false) || beh == "lobby_only") {
+        return true;
+    }
+    std::cerr << "[" << profileLabel << "] no agent for algorithm '" << algorithmName
+              << "' in this build; profile not started\n";
+    return false;
+}
+
 bool OctiBotFleetRunner::startProfiles(const OctiBotConfigStore &config,
                                       const std::vector<std::string> &profiles,
                                       const std::string &customEndpoint) {
@@ -5307,7 +5405,13 @@ bool OctiBotFleetRunner::startProfiles(const OctiBotConfigStore &config,
         OctiBotConfigStore profConfig = config.resolveProfile(pName);
         std::string algo = profConfig.getString("algorithm", "alpha_beta");
         auto agent = OctiBotAgentRegistry::instance().createAgent(algo, profConfig);
+        if (!shouldStartProfile(pName, profConfig, algo, agent.get())) {
+            continue;
+        }
         auto runner = createRunner(std::move(agent), profConfig, customEndpoint);
+        if (!runner) {
+            continue;
+        }
 
         std::string err;
         if (!runner->connectAndAuthenticate(err)) {
@@ -5349,7 +5453,14 @@ bool OctiBotFleetRunner::startClones(const OctiBotConfigStore &config,
         OctiBotConfigStore instConfig = baseConfig;
         instConfig.set("bot_token", "auto"); // Claim from pool
         auto agent = OctiBotAgentRegistry::instance().createAgent(algo, instConfig);
+        const std::string instLabel = baseProfile + "#" + std::to_string(i + 1);
+        if (!shouldStartProfile(instLabel, instConfig, algo, agent.get())) {
+            continue;
+        }
         auto runner = createRunner(std::move(agent), instConfig, customEndpoint);
+        if (!runner) {
+            continue;
+        }
 
         std::string err;
         if (!runner->connectAndAuthenticate(err)) {

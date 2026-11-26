@@ -370,6 +370,7 @@ TEST(OctiBotConfigStoreTest, TacticalAndEvalBugFixFlagsRoundTripAndDefaults) {
     CHECK_EQUAL(0, defProf.compositeTacticalOnlyMinPly);
     CHECK_FALSE(defProf.qsearchIncludeBaseThreatProngs);
     CHECK_FALSE(defProf.fixStackAndHomeEvalMirage);
+    CHECK_TRUE(defProf.fixFourPlayerCoalitionEval);
     CHECK_EQUAL(0, defProf.emptyAlliedBasePenalty1B);
 
     auto defAgent = std::make_unique<StockAlphaBetaAgent>(emptyStore);
@@ -378,6 +379,8 @@ TEST(OctiBotConfigStoreTest, TacticalAndEvalBugFixFlagsRoundTripAndDefaults) {
     CHECK_EQUAL("0", defEff.at("composite_tactical_only_min_ply"));
     CHECK_EQUAL("false", defEff.at("qsearch_include_base_threat_prongs"));
     CHECK_EQUAL("false", defEff.at("fix_stack_and_home_eval_mirage"));
+    CHECK_TRUE(defEff.count("fix_4p_coalition_eval") > 0);
+    CHECK_EQUAL("true", defEff.at("fix_4p_coalition_eval"));
     CHECK_EQUAL("0", defEff.at("empty_allied_base_penalty_1b"));
 
     // 2. Round-trip profile resolution + effectiveDefaults export
@@ -386,6 +389,7 @@ composite_move_max_ply = 4
 composite_tactical_only_min_ply = 2
 qsearch_include_base_threat_prongs = true
 fix_stack_and_home_eval_mirage = true
+fix_4p_coalition_eval = false
 empty_allied_base_penalty_1b = 3800
 
 [one_base_bot]
@@ -402,6 +406,7 @@ empty_allied_base_penalty_1b = 4500
     CHECK_EQUAL(2, prof.compositeTacticalOnlyMinPly);
     CHECK_TRUE(prof.qsearchIncludeBaseThreatProngs);
     CHECK_TRUE(prof.fixStackAndHomeEvalMirage);
+    CHECK_FALSE(prof.fixFourPlayerCoalitionEval);
     CHECK_EQUAL(4500, prof.emptyAlliedBasePenalty1B);
 
     auto agent = std::make_unique<StockAlphaBetaAgent>(resolved);
@@ -410,7 +415,186 @@ empty_allied_base_penalty_1b = 4500
     CHECK_EQUAL("2", eff.at("composite_tactical_only_min_ply"));
     CHECK_EQUAL("true", eff.at("qsearch_include_base_threat_prongs"));
     CHECK_EQUAL("true", eff.at("fix_stack_and_home_eval_mirage"));
+    CHECK_TRUE(eff.count("fix_4p_coalition_eval") > 0);
+    CHECK_EQUAL("false", eff.at("fix_4p_coalition_eval"));
     CHECK_EQUAL("4500", eff.at("empty_allied_base_penalty_1b"));
+}
+
+TEST(OctiBotConfigStoreTest, FourPlayerCoalitionEvalConfigAndStockAgentMoveChoice) {
+    // 1. Default true, explicit false override, and malformed boolean token fallback
+    {
+        OctiBotConfigStore store;
+        BotTuningProfile prof;
+        applyConfigToTuningProfile(store, prof);
+        CHECK_TRUE(prof.fixFourPlayerCoalitionEval);
+
+        std::map<std::string, std::string> exported;
+        serializeTuningProfileToMap(prof, exported);
+        CHECK_TRUE(exported.count("fix_4p_coalition_eval") > 0);
+        CHECK_EQUAL("true", exported.at("fix_4p_coalition_eval"));
+
+        store.set("fix_4p_coalition_eval", "false");
+        applyConfigToTuningProfile(store, prof);
+        CHECK_FALSE(prof.fixFourPlayerCoalitionEval);
+        exported.clear();
+        serializeTuningProfileToMap(prof, exported);
+        CHECK_EQUAL("false", exported.at("fix_4p_coalition_eval"));
+
+        // Malformed boolean token falls back cleanly to the profile's existing/default value
+        BotTuningProfile defaultTrueProf;
+        store.set("fix_4p_coalition_eval", "not_a_boolean_token");
+        applyConfigToTuningProfile(store, defaultTrueProf);
+        CHECK_TRUE(defaultTrueProf.fixFourPlayerCoalitionEval);
+
+        BotTuningProfile presetFalseProf;
+        presetFalseProf.fixFourPlayerCoalitionEval = false;
+        applyConfigToTuningProfile(store, presetFalseProf);
+        CHECK_FALSE(presetFalseProf.fixFourPlayerCoalitionEval);
+    }
+
+    // 2. applyConfigUpdates boolean key recognition (equivalent bool tokens vs flip vs malformed)
+    {
+        OctiBotConfigStore store;
+        std::string err;
+        CHECK_TRUE(store.parseString(
+            "server_host = 127.0.0.1\n"
+            "[bot4p]\n"
+            "robot_name = bot4p\n",
+            err));
+        OctiBotConfigStore resolved = store.resolveProfile("bot4p");
+        CHECK_FALSE(resolved.hasProfileKey("bot4p", "fix_4p_coalition_eval"));
+
+        auto agentUPtr = std::make_unique<StockAlphaBetaAgent>(resolved);
+        StockAlphaBetaAgent *agentPtr = agentUPtr.get();
+        OctiBotRunner runner(std::move(agentUPtr), resolved);
+        CHECK_TRUE(agentPtr->profile().fixFourPlayerCoalitionEval);
+
+        // Equivalent boolean token "1" matches effective default "true" -> does not bloat [bot4p]
+        CHECK_TRUE(runner.applyConfigUpdates({{"fix_4p_coalition_eval", "1"}}, false, err));
+        CHECK_FALSE(runner.config().hasProfileKey("bot4p", "fix_4p_coalition_eval"));
+        CHECK_TRUE(agentPtr->profile().fixFourPlayerCoalitionEval);
+
+        // Explicit "false" changes effective boolean value -> recorded on [bot4p] and reconfigures agent
+        CHECK_TRUE(runner.applyConfigUpdates({{"fix_4p_coalition_eval", "false"}}, false, err));
+        CHECK_TRUE(runner.config().hasProfileKey("bot4p", "fix_4p_coalition_eval"));
+        CHECK_FALSE(agentPtr->profile().fixFourPlayerCoalitionEval);
+        CHECK_FALSE(agentPtr->engine().tuningProfile().fixFourPlayerCoalitionEval);
+
+        // Equivalent false token "0" matches current effective "false" -> keeps false
+        CHECK_TRUE(runner.applyConfigUpdates({{"fix_4p_coalition_eval", "0"}}, false, err));
+        CHECK_FALSE(agentPtr->profile().fixFourPlayerCoalitionEval);
+
+        // Malformed token is not equal to "false" in parseStrictBoolToken and falls back cleanly
+        CHECK_TRUE(runner.applyConfigUpdates({{"fix_4p_coalition_eval", "malformed_bool"}}, false, err));
+        CHECK_FALSE(agentPtr->profile().fixFourPlayerCoalitionEval);
+
+        // Flip back to "true"
+        CHECK_TRUE(runner.applyConfigUpdates({{"fix_4p_coalition_eval", "true"}}, false, err));
+        CHECK_TRUE(agentPtr->profile().fixFourPlayerCoalitionEval);
+        CHECK_TRUE(agentPtr->engine().tuningProfile().fixFourPlayerCoalitionEval);
+    }
+
+    // 3. SDK StockAlphaBetaAgent 4P post-elimination move choice on g-20261125-3866 Ply 44 FEN
+    //    + fix_4p_coalition_eval = false fallback
+    {
+        const std::string ply44Fen =
+            "4:3:0:0:P:B:-:9:2,2,7,0:2,0,16,0:1,2,11,0:2,2,8,0:B84bdef,B35e,B37,C77fh,C77";
+        const std::string deadBase33Fen =
+            "4:3:0:0:P:C:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B33e,B37,C77fh,C77";
+
+        OctiBotConfigStore cfgOn;
+        cfgOn.set("use_opening_book", "false");
+        cfgOn.set("root_score_jitter", "0");
+        cfgOn.set("lazy_smp_threads", "1");
+        cfgOn.set("max_search_depth", "6");
+        cfgOn.set("time_budget_ms", "5000");
+        cfgOn.set("verbosity", "0");
+
+        StockAlphaBetaAgent agentOn(cfgOn);
+        CHECK_TRUE(agentOn.profile().fixFourPlayerCoalitionEval);
+
+        OctiBoard board4p(GAME_MODE_4);
+        board4p.fromPositionString(ply44Fen);
+        GameViewData gv4p;
+        gv4p.mode = "4P";
+        gv4p.bases = 3;
+        gv4p.timeControlEnabled = false;
+
+        BotMoveTelemetry telemOn;
+        std::string chosenOn = agentOn.computeMove(board4p, gv4p, 2, 0, &telemOn);
+        CHECK_FALSE(chosenOn.empty());
+        CHECK_TRUE(telemOn.present);
+        CHECK_TRUE(chosenOn != "35e-34");
+        CHECK_TRUE(chosenOn != "34e-33");
+        CHECK_TRUE(chosenOn != "36e-35");
+        CHECK_TRUE(chosenOn != "37");
+        CHECK_TRUE(chosenOn != "37+e");
+        const bool attacksLiveC =
+            (chosenOn.rfind("84bdef", 0) == 0) ||
+            (chosenOn == "37+c" || chosenOn == "37+b" || chosenOn == "37+d") ||
+            (chosenOn == "35e+b" || chosenOn == "35e+c");
+        CHECK_TRUE(attacksLiveC);
+
+        OctiBoard bDead33(GAME_MODE_4);
+        bDead33.fromPositionString(deadBase33Fen);
+        OctiEvalBreakdown bdOn33 =
+            OctiBotEngine::evaluatePositionBreakdown(bDead33, PLAYER_B, agentOn.profile());
+        CHECK_EQUAL(0, bdOn33.capturedEnemyBases);
+
+        // Fallback when fix_4p_coalition_eval = false restores legacy dead-base evaluation
+        OctiBotConfigStore cfgOff = cfgOn;
+        cfgOff.set("fix_4p_coalition_eval", "false");
+        StockAlphaBetaAgent agentOff(cfgOff);
+        CHECK_FALSE(agentOff.profile().fixFourPlayerCoalitionEval);
+        OctiEvalBreakdown bdOff33 =
+            OctiBotEngine::evaluatePositionBreakdown(bDead33, PLAYER_B, agentOff.profile());
+        CHECK_TRUE(bdOff33.capturedEnemyBases > 0);
+    }
+
+    // 4. 0-cp non-4P invariance (2P_3B) between fix_4p_coalition_eval = true and false
+    {
+        const std::string fen2p3b =
+            "2:3:0:0:P:A:-:0:3,1,16,0:2,1,14,0:A33ab,A55ace,A73a,B37ef,B56def,B77e";
+        OctiBoard b2p(GAME_MODE_2);
+        b2p.fromPositionString(fen2p3b);
+
+        OctiBotConfigStore cfg2pOn;
+        cfg2pOn.set("fix_4p_coalition_eval", "true");
+        cfg2pOn.set("use_opening_book", "false");
+        cfg2pOn.set("root_score_jitter", "0");
+        cfg2pOn.set("lazy_smp_threads", "1");
+        cfg2pOn.set("max_search_depth", "3");
+        cfg2pOn.set("time_budget_ms", "2000");
+        cfg2pOn.set("verbosity", "0");
+
+        OctiBotConfigStore cfg2pOff = cfg2pOn;
+        cfg2pOff.set("fix_4p_coalition_eval", "false");
+
+        StockAlphaBetaAgent agent2pOn(cfg2pOn);
+        StockAlphaBetaAgent agent2pOff(cfg2pOff);
+        CHECK_TRUE(agent2pOn.profile().fixFourPlayerCoalitionEval);
+        CHECK_FALSE(agent2pOff.profile().fixFourPlayerCoalitionEval);
+
+        for (OctiPlayer side : {PLAYER_A, PLAYER_B}) {
+            OctiEvalBreakdown bdOn =
+                OctiBotEngine::evaluatePositionBreakdown(b2p, side, agent2pOn.profile());
+            OctiEvalBreakdown bdOff =
+                OctiBotEngine::evaluatePositionBreakdown(b2p, side, agent2pOff.profile());
+            CHECK_EQUAL(bdOff.totalScore, bdOn.totalScore);
+            CHECK_EQUAL(bdOff.sumTerms(), bdOn.sumTerms());
+        }
+
+        GameViewData gv2p;
+        gv2p.mode = "2P";
+        gv2p.bases = 3;
+        gv2p.timeControlEnabled = false;
+        BotMoveTelemetry tOn, tOff;
+        std::string mvOn = agent2pOn.computeMove(b2p, gv2p, 1, 0, &tOn);
+        std::string mvOff = agent2pOff.computeMove(b2p, gv2p, 1, 0, &tOff);
+        CHECK_EQUAL(mvOff, mvOn);
+        CHECK_EQUAL(tOff.evalScore, tOn.evalScore);
+        CHECK_EQUAL(tOff.nodesVisited, tOn.nodesVisited);
+    }
 }
 
 TEST(OctiBotConfigStoreTest, TokenPoolAndResolution) {
@@ -2173,6 +2357,103 @@ TEST(OctiBotSdkExtensionHooks, CustomEngineSubclassFactoryInvokedByStockAlphaBet
     std::string mv = agent.computeMove(board, gv, 1, 0, &tel);
     CHECK_FALSE(mv.empty());
     CHECK_TRUE(customEng->customSearchMovesCalls > 0);
+}
+
+TEST(OctiBotSdkExtensionHooks, UnregisterAgentDisablesFallbackAndRestoresCleanly) {
+    auto &reg = OctiBotAgentRegistry::instance();
+    OctiBotConfigStore cfg;
+
+    reg.registerAgent("temp_probe_algo", [](const OctiBotConfigStore &c) {
+        return std::make_unique<StockAlphaBetaAgent>(c);
+    });
+    CHECK_TRUE(reg.hasAgent("temp_probe_algo"));
+    CHECK_TRUE(reg.createAgent("temp_probe_algo", cfg) != nullptr);
+    CHECK_TRUE(reg.unregisterAgent("temp_probe_algo"));
+    CHECK_FALSE(reg.hasAgent("temp_probe_algo"));
+    CHECK_FALSE(reg.unregisterAgent("temp_probe_algo"));
+
+    {
+        struct AlphaBetaRestoreGuard {
+            ~AlphaBetaRestoreGuard() {
+                OctiBotAgentRegistry::instance().registerAgent(
+                    "alpha_beta", [](const OctiBotConfigStore &c) {
+                        return std::make_unique<StockAlphaBetaAgent>(c);
+                    });
+            }
+        } guard;
+        CHECK_TRUE(reg.unregisterAgent("alpha_beta"));
+        CHECK_FALSE(reg.hasAgent("alpha_beta"));
+        CHECK_TRUE(reg.createAgent("unknown_algo_probe", cfg) == nullptr);
+    }
+
+    CHECK_TRUE(reg.hasAgent("alpha_beta"));
+    CHECK_TRUE(reg.createAgent("unknown_algo_probe", cfg) != nullptr);
+}
+
+TEST(OctiBotSdkExtensionHooks, FleetRunnerShouldStartProfileAndNullRunnerGuard) {
+    class ProbeFleetRunner : public OctiBotFleetRunner {
+    public:
+        bool returnNullRunner = false;
+
+        bool probeShouldStart(const std::string &label,
+                              const OctiBotConfigStore &resolvedConfig,
+                              const std::string &algo,
+                              const OctiBotAgent *agent) const {
+            return shouldStartProfile(label, resolvedConfig, algo, agent);
+        }
+
+    protected:
+        std::unique_ptr<OctiBotRunner> createRunner(
+            std::unique_ptr<OctiBotAgent> agent,
+            const OctiBotConfigStore &config,
+            const std::string &customEndpoint) const override {
+            if (returnNullRunner) {
+                return nullptr;
+            }
+            return OctiBotFleetRunner::createRunner(std::move(agent), config, customEndpoint);
+        }
+    };
+
+    ProbeFleetRunner fleet;
+    OctiBotConfigStore normalCfg;
+    normalCfg.set("algorithm", "alpha_beta");
+    OctiBotConfigStore lobbyFlagCfg;
+    lobbyFlagCfg.set("lobby_only", "true");
+    OctiBotConfigStore lobbyBehCfg;
+    lobbyBehCfg.set("table_behavior", " Lobby_Only ");
+
+    auto agent = std::make_unique<StockAlphaBetaAgent>(normalCfg);
+    CHECK_TRUE(fleet.probeShouldStart("p1", normalCfg, "alpha_beta", agent.get()));
+    CHECK_TRUE(fleet.probeShouldStart("p2", lobbyFlagCfg, "alpha_beta", nullptr));
+    CHECK_TRUE(fleet.probeShouldStart("p3", lobbyBehCfg, "alpha_beta", nullptr));
+    CHECK_FALSE(fleet.probeShouldStart("p4", normalCfg, "alpha_beta", nullptr));
+
+    fleet.returnNullRunner = true;
+    OctiBotConfigStore multiCfg;
+    std::string err;
+    CHECK_TRUE_TEXT(multiCfg.parseString(
+        "[stock]\n"
+        "robot_name = stock\n"
+        "algorithm = alpha_beta\n", err), err.c_str());
+    CHECK_FALSE(fleet.startProfiles(multiCfg, {"stock"}, "http://127.0.0.1:1"));
+    CHECK_TRUE(fleet.runners().empty());
+}
+
+TEST(OctiBotSdkExtensionHooks, ApplyMatchOverrideRejectsSelfTarget) {
+    OctiBotConfigStore cfg;
+    cfg.set("robot_name", "selfbot");
+    cfg.set("algorithm", "alpha_beta");
+    OctiBotRunner runner(std::make_unique<StockAlphaBetaAgent>(cfg), cfg, "http://127.0.0.1:1");
+
+    for (const char *selfTarget : {"@selfbot", "selfbot", "alice, SELFBOT"}) {
+        BotMatchOverride ov;
+        ov.active = true;
+        ov.targetPlayerHandle = selfTarget;
+        std::string sum, err;
+        CHECK_FALSE_TEXT(runner.applyMatchOverride(ov, sum, err), selfTarget);
+        CHECK_TRUE_TEXT(err.find("Cannot target self") != std::string::npos, err.c_str());
+        CHECK_FALSE(runner.matchOverride().active);
+    }
 }
 
 // ============================================================================

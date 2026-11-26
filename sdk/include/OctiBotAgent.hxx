@@ -234,6 +234,7 @@ public:
     static OctiBotAgentRegistry &instance();
 
     void registerAgent(const std::string &algorithmName, AgentFactory factory);
+    bool unregisterAgent(const std::string &algorithmName);
     bool hasAgent(const std::string &algorithmName) const;
     std::unique_ptr<OctiBotAgent> createAgent(const std::string &algorithmName,
                                               const OctiBotConfigStore &config) const;

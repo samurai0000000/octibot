@@ -480,6 +480,10 @@ public:
     const std::vector<std::unique_ptr<OctiBotRunner>> &runners() const { return _runners; }
 
 protected:
+    virtual bool shouldStartProfile(const std::string &profileLabel,
+                                    const OctiBotConfigStore &resolvedConfig,
+                                    const std::string &algorithmName,
+                                    const OctiBotAgent *agent) const;
     virtual std::unique_ptr<OctiBotRunner> createRunner(
         std::unique_ptr<OctiBotAgent> agent,
         const OctiBotConfigStore &config,

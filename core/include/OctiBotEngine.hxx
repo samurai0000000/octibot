@@ -132,6 +132,7 @@ struct BotTuningProfile {
     int capturedPodPenalty           = 3800;  // Penalty per captured pod in standard 2P/4P
     int reserveFreeProngVal          = 140;   // Value per unplaced prong in reserve in standard 2P/4P
     bool fixStackAndHomeEvalMirage   = false; // Exempt 2-pod armed batteries from stackPen, fix (4-freePods) inversion, and require armedPods <= 1 for monopoly
+    bool fixFourPlayerCoalitionEval  = true;  // Filter eliminated 4P bases/reserves, fix 4P basesNeeded=2->1, target-aware 4P prong dir & over-arm
 
     // --- 4. Leapfrog / Launchpad Battery & Jump Reachability Weights ---
     int leapfrogBatteryWeight        = 550;   // Bonus for friendly pod + adjacent friendly pivot along a prong dir
@@ -504,7 +505,9 @@ protected:
         const std::vector<std::pair<int, int>> &targets,
         int w, int h, bool edgeless);
     static std::vector<std::pair<int, int>> targetEnemyBases(
-        const OctiBoard &board, OctiPlayer p);
+        const OctiBoard &board,
+        OctiPlayer p,
+        bool fixFourPlayerCoalitionEval = true);
     static bool isDistOneBaseThreatProngTarget(const OctiBoard &board,
                                                OctiGameMode mode,
                                                OctiPlayer turn,
@@ -513,11 +516,13 @@ protected:
                                                int h,
                                                int x0,
                                                int y0,
-                                               OctiDir dir);
+                                               OctiDir dir,
+                                               bool fixFourPlayerCoalitionEval = true);
     static bool isTacticalMoveForSearch(const OctiBoard &board,
                                         OctiGameMode mode,
                                         OctiPlayer turn,
-                                        const OctiMove &mv);
+                                        const OctiMove &mv,
+                                        bool fixFourPlayerCoalitionEval = true);
     static CoalitionPhaseContext analyzeCoalitionPhase(
         const OctiBoard &board,
         OctiPlayer side,

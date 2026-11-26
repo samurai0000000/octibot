@@ -13967,6 +13967,291 @@ TEST(OctiNetworkClientPresenceTest,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Envelope 1 (4P Coalition Eval & Search Fix): Post-Elimination Base Targets,
+// Coalition Phase Scaling, Dead-Seat Reserves, Prong Dir & Over-Arm Tests
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class CoalitionEvalProbeEngine : public octi::OctiBotEngine {
+public:
+    using octi::OctiBotEngine::CoalitionPhaseContext;
+    using octi::OctiBotEngine::analyzeCoalitionPhase;
+    using octi::OctiBotEngine::targetEnemyBases;
+    using octi::OctiBotEngine::isDistOneBaseThreatProngTarget;
+    using octi::OctiBotEngine::isTacticalMoveForSearch;
+};
+
+} // namespace
+
+TEST_GROUP(OctiFourPlayerCoalitionEvalFixTest)
+{
+};
+
+TEST(OctiFourPlayerCoalitionEvalFixTest,
+     NominalGame3866Plies40To44EliminatesGhostBaseMirageAndAttacksLiveEnemy)
+{
+    using namespace octi;
+
+    // Exact FENs from g-20261125-3866 Plies 40, 42, and 44 (A at 33 & D at 73 eliminated, elimMask=9)
+    const char *ply40Fen =
+        "4:3:0:0:P:B:-:9:2,2,7,0:2,0,16,0:1,2,11,0:2,2,8,0:B84bdef,B36e,C77f";
+    const char *ply42Fen =
+        "4:3:0:0:P:B:-:9:2,2,7,0:1,0,16,0:0,2,11,0:2,2,8,0:B84bdef,B36e,B37,C77f,C77";
+    const char *ply44Fen =
+        "4:3:0:0:P:B:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B84bdef,B35e,B37,C77fh,C77";
+
+    BotTuningProfile prof = OctiBotEngine::defaultProfileForDifficulty(BotDifficulty::MASTER);
+    CHECK_TRUE(prof.fixFourPlayerCoalitionEval);
+    prof.useOpeningBook = false;
+    prof.rootScoreJitter = 0;
+    prof.lazySmpThreads = 1;
+    prof.maxSearchDepth = 6;
+    prof.timeBudgetMs = 8000;
+
+    const char *fens[3] = { ply40Fen, ply42Fen, ply44Fen };
+    for (int idx = 0; idx < 3; ++idx) {
+        OctiBoard board(GAME_MODE_4);
+        board.fromPositionString(fens[idx]);
+        CHECK_TRUE(board.getGame()->isPlayerEliminated(PLAYER_A));
+        CHECK_FALSE(board.getGame()->isPlayerEliminated(PLAYER_B));
+        CHECK_FALSE(board.getGame()->isPlayerEliminated(PLAYER_C));
+        CHECK_TRUE(board.getGame()->isPlayerEliminated(PLAYER_D));
+
+        // 1. Coalition phase: 1 live uncaptured enemy base (C at 77) -> basesNeeded == 1, scale == 100%
+        auto allyPhase = CoalitionEvalProbeEngine::analyzeCoalitionPhase(board, PLAYER_B, prof);
+        LONGS_EQUAL(1, allyPhase.basesNeeded);
+        LONGS_EQUAL(100, allyPhase.baseThreatScalePct);
+        CHECK_TRUE(allyPhase.feasible);
+
+        // 2. targetEnemyBases excludes eliminated A's corner (2, 2) and targets only C's corner (6, 6)
+        auto targets = CoalitionEvalProbeEngine::targetEnemyBases(board, PLAYER_B);
+        LONGS_EQUAL(1, static_cast<long>(targets.size()));
+        LONGS_EQUAL(6, targets[0].first);
+        LONGS_EQUAL(6, targets[0].second);
+
+        // 3. Static evaluation: C-attacking moves (84bdef+h / 84bdef-95) strictly beat dead-base South march
+        const char *southMove = (idx < 2) ? "36e-35" : "35e-34";
+        OctiBoard bAddH(GAME_MODE_4);
+        bAddH.fromPositionString(fens[idx]);
+        bAddH.getGame()->move("84bdef+h");
+
+        OctiBoard bStep95(GAME_MODE_4);
+        bStep95.fromPositionString(fens[idx]);
+        bStep95.getGame()->move("84bdef-95");
+
+        OctiBoard bSouth(GAME_MODE_4);
+        bSouth.fromPositionString(fens[idx]);
+        bSouth.getGame()->move(southMove);
+
+        int evalAddH = OctiBotEngine::evaluatePosition(bAddH, PLAYER_B, prof);
+        int evalStep95 = OctiBotEngine::evaluatePosition(bStep95, PLAYER_B, prof);
+        int evalSouth = OctiBotEngine::evaluatePosition(bSouth, PLAYER_B, prof);
+        CHECK_TRUE(evalAddH > evalSouth);
+        CHECK_TRUE(evalStep95 > evalSouth);
+
+        // 4. Search at depth >= 6 chooses active C-attacking move, never dead-base South march or idle 37 pod add
+        OctiBotEngine bot(BotDifficulty::MASTER, 0x5EED2026ULL);
+        bot.setTuningProfile(prof);
+        BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(board, &stats);
+        CHECK_FALSE(chosen.empty());
+        CHECK_TRUE(chosen != "36e-35");
+        CHECK_TRUE(chosen != "35e-34");
+        CHECK_TRUE(chosen != "34e-33");
+        CHECK_TRUE(chosen != "37");
+        CHECK_TRUE(chosen != "37+e");
+        const bool attacksC =
+            (chosen.rfind("84bdef", 0) == 0) ||
+            (chosen == "37+c" || chosen == "37+b" || chosen == "37+d") ||
+            (chosen == "36e+b" || chosen == "36e+c" || chosen == "35e+b" || chosen == "35e+c");
+        CHECK_TRUE(attacksC);
+    }
+
+    // 5. Occupying dead base 33 awards 0 capturedEnemyBases, and B34e awards 0 base threats
+    OctiBoard bAt34(GAME_MODE_4);
+    bAt34.fromPositionString(
+        "4:3:0:0:P:B:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B34e,B37,C77fh,C77");
+    OctiEvalBreakdown bd34 = OctiBotEngine::evaluatePositionBreakdown(bAt34, PLAYER_B, prof);
+    LONGS_EQUAL(0, bd34.oneStepBaseThreat);
+    LONGS_EQUAL(0, bd34.twoPlyBaseThreat);
+    CHECK_FALSE(CoalitionEvalProbeEngine::isTacticalMoveForSearch(
+        bAt34, GAME_MODE_4, PLAYER_B, OctiMove("34e-33")));
+    CHECK_FALSE(CoalitionEvalProbeEngine::isDistOneBaseThreatProngTarget(
+        bAt34, GAME_MODE_4, PLAYER_B, false, 9, 9, 2, 3, DIR_S));
+
+    OctiBoard bOnDead33(GAME_MODE_4);
+    bOnDead33.fromPositionString(
+        "4:3:0:0:P:C:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B33e,B37,C77fh,C77");
+    OctiEvalBreakdown bd33 = OctiBotEngine::evaluatePositionBreakdown(bOnDead33, PLAYER_B, prof);
+    LONGS_EQUAL(0, bd33.capturedEnemyBases);
+    LONGS_EQUAL(bd33.sumTerms(), bd33.totalScore);
+}
+
+TEST(OctiFourPlayerCoalitionEvalFixTest,
+     BoundaryStartPhaseLiberationWipeoutOverArmSyntheticAnd2PInvariance)
+{
+    using namespace octi;
+
+    BotTuningProfile prof = OctiBotEngine::defaultProfileForDifficulty(BotDifficulty::MASTER);
+    prof.fixStackAndHomeEvalMirage = true;
+
+    // (a) 4P start position: 2 live enemies -> basesNeeded == 2, baseThreatScalePct == 35%
+    {
+        OctiBoard bStart(GAME_MODE_4);
+        bStart.getGame()->start(PLAYER_A);
+        auto phaseA = CoalitionEvalProbeEngine::analyzeCoalitionPhase(bStart, PLAYER_A, prof);
+        LONGS_EQUAL(2, phaseA.basesNeeded);
+        LONGS_EQUAL(prof.multiBaseTwoNeededThreatScalePct, phaseA.baseThreatScalePct);
+        LONGS_EQUAL(8, phaseA.availPods);
+    }
+
+    // (b) Dead enemy base 33 occupied by B while B has capturedPods(B) > 0 still awards liberationBonus,
+    //     while capturedEnemyBases == 0 and eliminated D's reserves/liberation contribute 0
+    {
+        OctiBoard bLib(GAME_MODE_4);
+        bLib.fromPositionString(
+            "4:3:0:0:P:B:-:9:0,4,0,0:1,2,12,0:1,0,10,0:3,2,14,0:B33e,C77f");
+        CHECK_TRUE(bLib.canLiberate(PLAYER_B));
+        OctiEvalBreakdown bd = OctiBotEngine::evaluatePositionBreakdown(bLib, PLAYER_B, prof);
+        LONGS_EQUAL(0, bd.capturedEnemyBases);
+        LONGS_EQUAL(prof.canLiberateBonus, bd.liberationBonus);
+
+        // Changing eliminated D's frozen freePods/freeProngs must change totalScore by 0 cp
+        OctiBoard bLibDiffElimRes(GAME_MODE_4);
+        bLibDiffElimRes.fromPositionString(
+            "4:3:0:0:P:B:-:9:3,4,15,2:1,2,12,0:1,0,10,0:0,2,0,0:B33e,C77f");
+        OctiEvalBreakdown bdDiff =
+            OctiBotEngine::evaluatePositionBreakdown(bLibDiffElimRes, PLAYER_B, prof);
+        LONGS_EQUAL(bd.reserveAndCapturedMaterial, bdDiff.reserveAndCapturedMaterial);
+        LONGS_EQUAL(bd.undeployedAndUnarmedHomePenalty, bdDiff.undeployedAndUnarmedHomePenalty);
+        LONGS_EQUAL(bd.totalScore, bdDiff.totalScore);
+    }
+
+    // (c) Prong-rich 4P 5th prong over-arm relaxation (freeProngs >= 8 -> 0 overArmPen at 5 prongs, 650 at 6 prongs)
+    {
+        OctiBoard b5ProngRich(GAME_MODE_4);
+        b5ProngRich.fromPositionString(
+            "4:3:0:0:P:B:-:9:2,2,7,0:1,0,16,0:1,2,10,0:2,2,8,0:B84bdefh,B37ab,C77f");
+        OctiEvalBreakdown bd5Rich =
+            OctiBotEngine::evaluatePositionBreakdown(b5ProngRich, PLAYER_B, prof);
+        LONGS_EQUAL(0, bd5Rich.overArmAndBackRank);
+
+        OctiBoard b6ProngRich(GAME_MODE_4);
+        b6ProngRich.fromPositionString(
+            "4:3:0:0:P:B:-:9:2,2,7,0:1,0,15,0:1,2,10,0:2,2,8,0:B84abdefh,B37ab,C77f");
+        OctiEvalBreakdown bd6Rich =
+            OctiBotEngine::evaluatePositionBreakdown(b6ProngRich, PLAYER_B, prof);
+        LONGS_EQUAL(-650, bd6Rich.overArmAndBackRank);
+
+        // Single-survivor wipeout escalation: D eliminated (elimMask=8), B's sole board pod (0 freePods)
+        // in C's jump-capture lane incurs full 100% wipeoutDangerPenalty vs 50% when D is alive with a pod
+        OctiBoard bSurvHang(GAME_MODE_4);
+        bSurvHang.fromPositionString(
+            "4:3:0:0:P:C:-:8:2,0,10,0:0,2,10,0:2,0,10,0:0,4,10,0:A33,B66e,C77f");
+        OctiEvalBreakdown bdSurv =
+            OctiBotEngine::evaluatePositionBreakdown(bSurvHang, PLAYER_B, prof);
+
+        OctiBoard bPartnerAliveHang(GAME_MODE_4);
+        bPartnerAliveHang.fromPositionString(
+            "4:3:0:0:P:C:-:0:2,0,10,0:0,2,10,0:2,0,10,0:2,0,10,0:A33,B66e,C77f,D73");
+        OctiEvalBreakdown bdAlive =
+            OctiBotEngine::evaluatePositionBreakdown(bPartnerAliveHang, PLAYER_B, prof);
+        CHECK_TRUE(bdSurv.hangingVulnerability <=
+                   bdAlive.hangingVulnerability - (prof.wipeoutDangerPenalty / 2));
+    }
+
+    // (d) Synthetic non-gameover state with BOTH enemies marked eliminated (elimMask=5: A & C)
+    //     does not crash, returns non-empty fallback targets, and awards 0 dead-base bonus
+    {
+        OctiBoard bBothElim(GAME_MODE_4);
+        bBothElim.fromPositionString(
+            "4:3:0:0:P:B:-:5:2,2,7,0:2,0,16,0:2,2,10,0:2,0,12,0:B33e,B84bdef,D73a");
+        auto targets = CoalitionEvalProbeEngine::targetEnemyBases(bBothElim, PLAYER_B);
+        LONGS_EQUAL(2, static_cast<long>(targets.size()));
+        OctiEvalBreakdown bd = OctiBotEngine::evaluatePositionBreakdown(bBothElim, PLAYER_B, prof);
+        LONGS_EQUAL(0, bd.capturedEnemyBases);
+        LONGS_EQUAL(bd.sumTerms(), bd.totalScore);
+
+        BotTuningProfile searchProf = prof;
+        searchProf.useOpeningBook = false;
+        searchProf.rootScoreJitter = 0;
+        searchProf.lazySmpThreads = 1;
+        searchProf.maxSearchDepth = 2;
+        searchProf.timeBudgetMs = 500;
+        OctiBotEngine bot(BotDifficulty::TACTICAL, 0x5EED2026ULL);
+        bot.setTuningProfile(searchProf);
+        std::string mv = bot.chooseMove(bBothElim);
+        CHECK_FALSE(mv.empty());
+    }
+
+    // (e) Negative control: fixFourPlayerCoalitionEval = false restores exact legacy behavior on Ply 44
+    {
+        BotTuningProfile legacyProf = prof;
+        legacyProf.fixFourPlayerCoalitionEval = false;
+        OctiBoard bPly44(GAME_MODE_4);
+        bPly44.fromPositionString(
+            "4:3:0:0:P:B:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B84bdef,B35e,B37,C77fh,C77");
+        auto legacyPhase =
+            CoalitionEvalProbeEngine::analyzeCoalitionPhase(bPly44, PLAYER_B, legacyProf);
+        LONGS_EQUAL(3, legacyPhase.basesNeeded);
+        LONGS_EQUAL(legacyProf.multiBaseThreeNeededThreatScalePct, legacyPhase.baseThreatScalePct);
+
+        OctiBoard bDead33(GAME_MODE_4);
+        bDead33.fromPositionString(
+            "4:3:0:0:P:C:-:9:2,2,7,0:1,0,16,0:0,2,10,0:2,2,8,0:B33e,B37,C77fh,C77");
+        OctiEvalBreakdown bdLegacy33 =
+            OctiBotEngine::evaluatePositionBreakdown(bDead33, PLAYER_B, legacyProf);
+        CHECK_TRUE(bdLegacy33.capturedEnemyBases > 0);
+    }
+
+    // (f) Strict 0-cp exact invariance across 2P_3B, 2P_3B_SP, 2P_3B_ED, 2P_1B, and OFK
+    const char *non4PFens[] = {
+        "2:3:0:0:P:A:-:0:3,1,16,0:2,1,14,0:A33ab,A55ace,A73a,B37ef,B56def,B77e",
+        "2:3:1:0:P:A:-:0:3,0,18,1:3,0,18,1:A33a!b,A54ac,B37e!f,B57de",
+        "2:3:0:1:P:B:-:0:2,1,14,0:2,0,15,0:A15abc,A53a,B95efg,B57e",
+        "2:1:0:0:P:A:-:0:2,0,18,0:2,0,18,0:A53abc,A44ae,B57efg,B66de",
+        "OFK:1:0:0:P:A:-:0:0,0,9,0:0,0,7,0:A22,A32,A42,A65abh,B26d,B46cf,B56,B47be"
+    };
+    BotTuningProfile profOn = prof;
+    profOn.fixFourPlayerCoalitionEval = true;
+    profOn.useOpeningBook = false;
+    profOn.rootScoreJitter = 0;
+    profOn.lazySmpThreads = 1;
+    profOn.maxSearchDepth = 3;
+    profOn.timeBudgetMs = 2000;
+
+    BotTuningProfile profOff = profOn;
+    profOff.fixFourPlayerCoalitionEval = false;
+
+    for (const char *fen : non4PFens) {
+        OctiBoard b;
+        b.fromPositionString(fen);
+        for (OctiPlayer side : { PLAYER_A, PLAYER_B }) {
+            OctiEvalBreakdown bdOn = OctiBotEngine::evaluatePositionBreakdown(b, side, profOn);
+            OctiEvalBreakdown bdOff = OctiBotEngine::evaluatePositionBreakdown(b, side, profOff);
+            LONGS_EQUAL(bdOff.totalScore, bdOn.totalScore);
+            LONGS_EQUAL(bdOff.capturedEnemyBases, bdOn.capturedEnemyBases);
+            LONGS_EQUAL(bdOff.lostAlliedBases, bdOn.lostAlliedBases);
+            LONGS_EQUAL(bdOff.prongDirectionality, bdOn.prongDirectionality);
+            LONGS_EQUAL(bdOff.overArmAndBackRank, bdOn.overArmAndBackRank);
+            LONGS_EQUAL(bdOff.hangingVulnerability, bdOn.hangingVulnerability);
+            LONGS_EQUAL(bdOff.reserveAndCapturedMaterial, bdOn.reserveAndCapturedMaterial);
+        }
+        OctiBotEngine botOn(BotDifficulty::MASTER, 0x5EED2026ULL);
+        OctiBotEngine botOff(BotDifficulty::MASTER, 0x5EED2026ULL);
+        botOn.setTuningProfile(profOn);
+        botOff.setTuningProfile(profOff);
+        BotSearchStats stOn{}, stOff{};
+        std::string mvOn = botOn.chooseMove(b, &stOn);
+        std::string mvOff = botOff.chooseMove(b, &stOff);
+        STRCMP_EQUAL(mvOff.c_str(), mvOn.c_str());
+        CHECK_EQUAL(stOff.bestScore, stOn.bestScore);
+        CHECK_EQUAL(stOff.nodesVisited, stOn.nodesVisited);
+    }
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
