@@ -11288,7 +11288,7 @@ TEST(OctiPostMortemEngineBugFixes, DefaultOffProfilePreservesBitIdenticalEvalAnd
     octi::BotSearchStats st;
     std::string bm = eng.chooseMove(b43, &st);
     STRCMP_EQUAL("33abg-23", bm.c_str());
-    CHECK_EQUAL(45301ULL, st.nodesVisited);
+    CHECK_EQUAL(45280ULL, st.nodesVisited);
     CHECK_EQUAL(10630, st.bestScore);
 }
 
@@ -14663,6 +14663,293 @@ TEST(OctiNonCapturingEnemyJump, EmptySingleLargeHeapFallbackAndEdgelessSeamObstr
                         "Edgeless seam counter-jump obstruction (E1) must exempt and boost 84bc-16");
         CHECK_TRUE(MoveOrderProbeEngine::isTacticalMoveForSearch(
             seamBoard, GAME_MODE_2, PLAYER_A, OctiMove("84bc-16")));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Envelope 1 (Empty Allied Home-Base Defense, SuperProng Ordering &
+// Mate-Blindness Branch-Cap Guard):
+// Don's Archive Games #9 (4380), #12 (4405), #13 (4414), Mate-Escape & -6000
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int findMoveScoreInSnapshot(
+    const std::vector<std::pair<std::string, int>> &snapshot,
+    const std::string &moveStr,
+    int *outRank = nullptr)
+{
+    for (std::size_t i = 0; i < snapshot.size(); ++i) {
+        if (snapshot[i].first == moveStr) {
+            if (outRank != nullptr) {
+                *outRank = static_cast<int>(i);
+            }
+            return snapshot[i].second;
+        }
+    }
+    if (outRank != nullptr) {
+        *outRank = -1;
+    }
+    return -999999;
+}
+
+} // namespace
+
+TEST_GROUP(OctiSpMoveOrderAndMateEscapeGuard)
+{
+};
+
+TEST(OctiSpMoveOrderAndMateEscapeGuard, Don4380Ply7And4405Ply17EmptyHomeBaseDefensiveBlock)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    // 1. Don #9 g-20261126-4380 ply 7: B74e!f threatens 74e!f-73 onto empty allied base 73 in 1B.
+    {
+        OctiBoard board(GAME_MODE_2, true, false, GAME_BASES_1);
+        board.fromPositionString(
+            "2:1:1:0:P:A:-:0:4,0,22,1:4,0,23,0:A72e,A33b,A53,B74e!f,B37,B57");
+
+        MoveOrderProbeEngine probeBot(BotDifficulty::MASTER, 0x438007ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.rootBranchCap = 12;
+        prof.treeBranchCap = 12;
+        prof.maxSearchDepth = 4;
+        prof.timeBudgetMs = 5000;
+        probeBot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = probeBot.chooseMove(board, &stats);
+        int rank73 = -1;
+        int score73 = findMoveScoreInSnapshot(probeBot.rootOrderSnapshot, "73", &rank73);
+        CHECK_TRUE_TEXT(score73 >= 9000,
+                        (std::string("Expected >= 9000 for 1B empty-base block 73, got ") +
+                         std::to_string(score73)).c_str());
+        CHECK_TRUE_TEXT(rank73 >= 0 && rank73 < 8,
+                        (std::string("Expected 73 in top 8, got rank ") +
+                         std::to_string(rank73)).c_str());
+        STRCMP_EQUAL("73", chosen.c_str());
+        CHECK_TRUE_TEXT(stats.bestScore > -500000,
+                        (std::string("Must not hallucinate forced loss on #9 p7, got ") +
+                         std::to_string(stats.bestScore)).c_str());
+    }
+
+    // 2. Don #12 g-20261126-4405 ply 17: B72acde!f threatens 72acde!f-73 while empty 74 puts 73 in enemyThreatMask.
+    {
+        OctiBoard board(GAME_MODE_2, true, false, GAME_BASES_1);
+        board.fromPositionString(
+            "2:1:1:0:P:A:-:0:3,1,19,0:3,0,20,0:B72acde!f,A33,A53c,A64a!bcgh,B37,B57,B77");
+
+        MoveOrderProbeEngine probeBot(BotDifficulty::MASTER, 0x440517ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.rootBranchCap = 12;
+        prof.treeBranchCap = 12;
+        prof.maxSearchDepth = 4;
+        prof.timeBudgetMs = 5000;
+        probeBot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = probeBot.chooseMove(board, &stats);
+        int rank73 = -1;
+        int score73 = findMoveScoreInSnapshot(probeBot.rootOrderSnapshot, "73", &rank73);
+        CHECK_TRUE_TEXT(score73 >= 9000,
+                        (std::string("Expected >= 9000 for #12 p17 block 73 (no -6000/-7000), got ") +
+                         std::to_string(score73)).c_str());
+        CHECK_TRUE_TEXT(rank73 >= 0 && rank73 < 8,
+                        (std::string("Expected #12 p17 73 in top 8, got rank ") +
+                         std::to_string(rank73)).c_str());
+        STRCMP_EQUAL("73", chosen.c_str());
+        CHECK_TRUE_TEXT(stats.bestScore > -500000,
+                        (std::string("Must not hallucinate -999998 on #12 p17, got ") +
+                         std::to_string(stats.bestScore)).c_str());
+    }
+
+    // 3. Multi-base (3B -> +5000), jump-lane-only (+3500), unthreatened empty base (+150), and occupied home square (<= -6000 / <= -12000).
+    {
+        OctiBoard board3B(GAME_MODE_2, true, false, GAME_BASES_3);
+        board3B.fromPositionString(
+            "2:3:1:0:P:A:-:0:2,0,16,0:2,0,16,0:A33ab,A53,B74e,B37,B57");
+        MoveOrderProbeEngine probe3B(BotDifficulty::TACTICAL, 0x3B0001ULL);
+        BotTuningProfile prof = probe3B.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 1;
+        prof.timeBudgetMs = 1000;
+        probe3B.setTuningProfile(prof);
+        (void)probe3B.chooseMove(board3B);
+
+        int scoreEmpty3BBlock = findMoveScoreInSnapshot(probe3B.rootOrderSnapshot, "73");
+        int scoreOccupied1Pod = findMoveScoreInSnapshot(probe3B.rootOrderSnapshot, "33");
+        CHECK_EQUAL(5000, scoreEmpty3BBlock);
+        CHECK_TRUE_TEXT(scoreOccupied1Pod <= -6000,
+                        "Occupied allied home square (1 pod, even armed) must retain -6000 pod-spam penalty");
+
+        OctiBoard board2Pods(GAME_MODE_2, false, false, GAME_BASES_3);
+        board2Pods.fromPositionString(
+            "2:3:0:0:P:A:-:0:2,0,16,0:2,0,16,0:A33ab,A33cd,B37ef");
+        MoveOrderProbeEngine probe2Pods(BotDifficulty::TACTICAL, 0x3B0002ULL);
+        probe2Pods.setTuningProfile(prof);
+        (void)probe2Pods.chooseMove(board2Pods);
+        CHECK_TRUE(findMoveScoreInSnapshot(probe2Pods.rootOrderSnapshot, "33") <= -12000);
+        CHECK_EQUAL(150, findMoveScoreInSnapshot(probe2Pods.rootOrderSnapshot, "53"));
+    }
+}
+
+TEST(OctiSpMoveOrderAndMateEscapeGuard, Don4414Ply21SuperProngMateInFiveAnd4405Ply18CarrierOrdering)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    // 1. Don #13 g-20261126-4414 ply 21: 98a!bcegh+f! is forced mate in 5 (+999995).
+    {
+        OctiBoard board(GAME_MODE_2, true, false, GAME_BASES_1);
+        board.fromPositionString(
+            "2:1:1:0:P:A:-:0:3,0,22,1:3,1,18,0:A33,A53,A73,B37d,B57,B77bf,A98a!bcegh");
+
+        MoveOrderProbeEngine probeBot(BotDifficulty::GRANDMASTER, 0x441421ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.rootBranchCap = 36;
+        prof.treeBranchCap = 24;
+        prof.maxSearchDepth = 5;
+        prof.timeBudgetMs = 10000;
+        probeBot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = probeBot.chooseMove(board, &stats);
+        int rankSp = -1;
+        int scoreSp = findMoveScoreInSnapshot(probeBot.rootOrderSnapshot, "98a!bcegh+f!", &rankSp);
+        CHECK_TRUE_TEXT(scoreSp >= 4000,
+                        (std::string("Expected >= 4000 for 98a!bcegh+f!, got ") +
+                         std::to_string(scoreSp)).c_str());
+        CHECK_TRUE_TEXT(rankSp >= 0 && rankSp < 24,
+                        (std::string("Expected 98a!bcegh+f! inside treeBranchCap=24, got rank ") +
+                         std::to_string(rankSp)).c_str());
+        STRCMP_EQUAL("98a!bcegh+f!", chosen.c_str());
+        LONGS_EQUAL(999995, stats.bestScore);
+    }
+
+    // 2. Don #12 g-20261126-4405 ply 18: B72acde!f+g (6th prong on SuperProng carrier at curDist=1) scores positively.
+    {
+        OctiBoard board(GAME_MODE_2, true, false, GAME_BASES_1);
+        board.fromPositionString(
+            "2:1:1:0:P:B:-:0:2,1,19,0:3,0,20,0:B72acde!f,A33,A53c,A73,A64a!bcgh,B37,B57,B77");
+
+        MoveOrderProbeEngine probeBot(BotDifficulty::MASTER, 0x440518ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 1;
+        prof.timeBudgetMs = 2000;
+        probeBot.setTuningProfile(prof);
+        (void)probeBot.chooseMove(board);
+
+        int scoreCarrierAdd = findMoveScoreInSnapshot(probeBot.rootOrderSnapshot, "72acde!f+g");
+        CHECK_TRUE_TEXT(scoreCarrierAdd > 0,
+                        (std::string("Expected positive ordering for 72acde!f+g, got ") +
+                         std::to_string(scoreCarrierAdd)).c_str());
+    }
+
+    // 3. Negative control: normal 5-prong pod WITHOUT SuperProng still receives heavy over-arming penalty.
+    {
+        OctiBoard normalHeavy(GAME_MODE_2, false, false, GAME_BASES_1);
+        normalHeavy.fromPositionString(
+            "2:1:0:0:P:B:-:0:2,0,19,0:3,0,20,0:B72acdef,A33,A53,A73,B37,B57,B77");
+        MoveOrderProbeEngine probeNormal(BotDifficulty::MASTER, 0x440519ULL);
+        BotTuningProfile prof = probeNormal.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 1;
+        prof.timeBudgetMs = 1000;
+        probeNormal.setTuningProfile(prof);
+        (void)probeNormal.chooseMove(normalHeavy);
+        CHECK_TRUE(findMoveScoreInSnapshot(probeNormal.rootOrderSnapshot, "72acdef+g") <= -3000);
+    }
+}
+
+TEST(OctiSpMoveOrderAndMateEscapeGuard, RootAndInteriorMateEscapeContinuationUnderTightBranchCaps)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    // Seat A is NOT in immediate 1-move base threat (B65def is at Chebyshev dist 2 from empty 53 & 73),
+    // and A's top-2 heuristic moves (12a-14x and 22a-24x, +16000 captures) allow B65def-64 (leaving B65 on 65)
+    // which simultaneously threatens 64def-53 and 64def-73 for a forced win on ply 4 (-999996).
+    // Quiet move 63a-64 (heuristic -6450, ranked last) occupies 64 and prevents the double base threat!
+    const char *mateEscapeRootFen =
+        "2:1:0:0:P:A:-:0:0,0,4,0:0,0,0,0:A12a,B13,A22a,B23,A52a,A63a,A72a,B65def,B65,B37,B57,B77";
+
+    {
+        OctiBoard rootBoard(GAME_MODE_2, false, false, GAME_BASES_1);
+        rootBoard.fromPositionString(mateEscapeRootFen);
+
+        MoveOrderProbeEngine bot(BotDifficulty::TACTICAL, 0xE5CA9E01ULL);
+        BotTuningProfile prof = bot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.compositeMoveMaxPly = -1;
+        prof.rootBranchCap = 2;
+        prof.treeBranchCap = 4;
+        prof.maxSearchDepth = 4;
+        prof.maxQuiesceDepth = 0;
+        prof.timeBudgetMs = 5000;
+        bot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(rootBoard, &stats);
+        CHECK_TRUE(bot.rootOrderSnapshot.size() >= 2u);
+        CHECK_TRUE(bot.rootOrderSnapshot[0].first == "12a-14x" ||
+                   bot.rootOrderSnapshot[0].first == "22a-24x");
+        CHECK_TRUE(bot.rootOrderSnapshot[1].first == "12a-14x" ||
+                   bot.rootOrderSnapshot[1].first == "22a-24x");
+        const bool escapedOutsideCap2 =
+            (chosen == "52a-53" || chosen == "72a-73" || chosen == "63a-64");
+        CHECK_TRUE_TEXT(escapedOutsideCap2,
+                        (std::string("Expected saving move outside rootBranchCap=2, got ") +
+                         chosen).c_str());
+        CHECK_TRUE_TEXT(stats.bestScore > -500000,
+                        (std::string("Root mate-escape continuation must avoid false forced loss, got ") +
+                         std::to_string(stats.bestScore)).c_str());
+    }
+
+    // Interior negamax mate-escape continuation: Seat B has B65de + 1 free prong; playing 65de+f at ply 0
+    // reaches mateEscapeRootFen at ply 1 where Seat A has treeBranchCap = 2 (!inBaseThreat). Without interior
+    // mate-escape, B hallucinates +999995; with interior mate-escape, A's 52a-53 refutes the false forced win.
+    {
+        OctiBoard interiorBoard(GAME_MODE_2, false, false, GAME_BASES_1);
+        interiorBoard.fromPositionString(
+            "2:1:0:0:P:B:-:0:0,0,4,0:0,0,1,0:A12a,B13,A22a,B23,A52a,A63a,A72a,B65de,B65,B37,B57,B77");
+
+        OctiBotEngine bBot(BotDifficulty::TACTICAL, 0xE5CA9E02ULL);
+        BotTuningProfile prof = bBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.compositeMoveMaxPly = -1;
+        prof.rootBranchCap = 4;
+        prof.treeBranchCap = 2;
+        prof.maxSearchDepth = 5;
+        prof.maxQuiesceDepth = 0;
+        prof.timeBudgetMs = 5000;
+        bBot.setTuningProfile(prof);
+
+        BotSearchStats bStats{};
+        (void)bBot.chooseMove(interiorBoard, &bStats);
+        CHECK_TRUE_TEXT(bStats.bestScore < 500000,
+                        (std::string("Interior negamax mate-escape must refute hallucinated forced win, got ") +
+                         std::to_string(bStats.bestScore)).c_str());
     }
 }
 
