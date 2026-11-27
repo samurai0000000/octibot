@@ -6892,17 +6892,17 @@ TEST(OctiEngineSuperProngVariants, ChooseMoveFindsWinningLineRequiringSuperProng
     std::vector<octi::OctiMove> filtered = octi::filterDominatedMoves(board, octi::PLAYER_A, legalMoves);
 
     bool foundCapturingWin = false;
-    bool foundDominatedNonCapture = false;
+    bool foundNonCapturingVariant = false;
     for (const auto &m : filtered) {
         std::string s = m.asString();
         if (s == "35ac!-55x;55ac!-56") {
             foundCapturingWin = true;
         } else if (s == "35ac!-55;55ac!-56") {
-            foundDominatedNonCapture = true;
+            foundNonCapturingVariant = true;
         }
     }
     CHECK_TRUE(foundCapturingWin);
-    CHECK_FALSE(foundDominatedNonCapture);
+    CHECK_TRUE(foundNonCapturingVariant);
 
     // 1. Depth-3 search finds the unique winning bonus-capture line
     {
@@ -8419,8 +8419,9 @@ TEST(OctiEnvelope4SearchTest, DefaultOffProfilePreservesExactNodeCountsBestMoves
     const PinnedFixture kPinned[2] = {
         {"2:3:0:0:P:A:-:0:4,0,22,0:4,0,22,0:A33,A53ab,A73a,B37e,B57e,B77f",
          41577ULL, "73a+h", 2752},
+        // 45752 nodes reflects sound retention of non-capturing enemy jumps in filterDominatedMoves
         {"OFK:1:0:0:P:A:-:0:0,0,8,0:0,0,6,0:A22,A32,A42,A64abdh,B26de,B36de,B46,B56ef",
-         45124ULL, "64abdh-65", 14350}
+         45752ULL, "64abdh-65", 14350}
     };
 
     for (const auto &fix : kPinned) {
@@ -14249,6 +14250,419 @@ TEST(OctiFourPlayerCoalitionEvalFixTest,
         STRCMP_EQUAL(mvOff.c_str(), mvOn.c_str());
         CHECK_EQUAL(stOff.bestScore, stOn.bestScore);
         CHECK_EQUAL(stOff.nodesVisited, stOn.nodesVisited);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Envelope 1 (Non-Capturing Enemy Jump Retention & Move-Ordering Discipline):
+// Don Green's 2005 OFK BMP, Multi-Hop Ordering, Relay-Aware badSelfCap & Seam
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class MoveOrderProbeEngine : public octi::OctiBotEngine {
+public:
+    explicit MoveOrderProbeEngine(octi::BotDifficulty d = octi::BotDifficulty::TACTICAL,
+                                  std::uint64_t seed = 0x5EED2026ULL)
+        : octi::OctiBotEngine(d, seed)
+    {
+    }
+
+    using octi::OctiBotEngine::isTacticalMoveForSearch;
+
+    mutable std::vector<std::pair<std::string, int>> rootOrderSnapshot;
+    mutable std::size_t qsearchMaxCandidateCount = 0;
+
+protected:
+    bool hasCustomMoveOrdering() const noexcept override
+    {
+        return true;
+    }
+
+    void adjustMoveOrderScores(
+        const octi::OctiBoard &board,
+        const octi::OctiGame &game,
+        octi::OctiPlayer turn,
+        int ply,
+        bool inQuiesce,
+        const std::vector<octi::OctiMove> &moves,
+        std::vector<std::pair<int, std::size_t>> &scored) const override
+    {
+        (void)board;
+        (void)game;
+        (void)turn;
+        if (inQuiesce) {
+            if (moves.size() > qsearchMaxCandidateCount) {
+                qsearchMaxCandidateCount = moves.size();
+            }
+            return;
+        }
+        if (ply == 0 && rootOrderSnapshot.empty()) {
+            std::vector<std::pair<int, std::size_t>> sortedCopy = scored;
+            std::stable_sort(sortedCopy.begin(), sortedCopy.end(),
+                             [](const auto &a, const auto &b) {
+                                 return a.first > b.first;
+                             });
+            for (const auto &entry : sortedCopy) {
+                rootOrderSnapshot.push_back({
+                    moves[entry.second].asString(),
+                    entry.first
+                });
+            }
+        }
+    }
+};
+
+bool isWinningDon2005BlockerMove(const std::string &mv)
+{
+    return mv == "43abegh-41-23-45" ||
+           mv == "43abegh-41x-23-45" ||
+           mv == "43abegh-41-23x-45" ||
+           mv == "43abegh-41x-23x-45";
+}
+
+} // namespace
+
+TEST_GROUP(OctiNonCapturingEnemyJump)
+{
+};
+
+TEST(OctiNonCapturingEnemyJump, Don2005OfkBmpRetainsBlockerAndFindsForcedWinInTwo)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    const char *don2005Fen =
+        "OFK:1:0:0:P:A:-:0:0,0,1,0:0,0,1,0:A22,A32abch,A42fh,B13bdef,A43abegh,B34e,B25defg,B56ef";
+
+    OctiBoard board(GAME_MODE_OFK);
+    board.fromPositionString(don2005Fen);
+    OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+
+    // 1. filterDominatedMoves retains 43abegh-41-23-45 alongside 43abegh-41-23-45x
+    std::vector<OctiMove> legalMoves = game->generateLegalMoves();
+    std::vector<OctiMove> filtered = filterDominatedMoves(board, PLAYER_A, legalMoves);
+
+    bool hasPureNonCapBlocker = false;
+    bool hasCapturingDecoy = false;
+    for (const auto &m : filtered) {
+        std::string s = m.asString();
+        if (s == "43abegh-41-23-45") {
+            hasPureNonCapBlocker = true;
+        } else if (s == "43abegh-41-23-45x") {
+            hasCapturingDecoy = true;
+        }
+    }
+    CHECK_TRUE_TEXT(hasPureNonCapBlocker,
+                    "filterDominatedMoves must retain winning non-capturing enemy jump 43abegh-41-23-45");
+    CHECK_TRUE_TEXT(hasCapturingDecoy,
+                    "filterDominatedMoves must also retain capturing sibling 43abegh-41-23-45x");
+
+    // 2. TACTICAL and MASTER both solve the forced win in 2 (> 900000) and reject 43abegh-41-23-45x
+    for (BotDifficulty diff : { BotDifficulty::TACTICAL, BotDifficulty::MASTER }) {
+        OctiBotEngine bot(diff, 0xD042005ULL);
+        BotTuningProfile prof = bot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 6;
+        prof.timeBudgetMs = 5000;
+        bot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(board, &stats);
+        CHECK_FALSE(chosen == "43abegh-41-23-45x");
+        CHECK_TRUE_TEXT(isWinningDon2005BlockerMove(chosen),
+                        (std::string("Expected 34-non-capturing win-in-2 move, got: ") + chosen).c_str());
+        CHECK_TRUE(stats.bestScore > 900000);
+    }
+
+    // 3. Tight branch cap (rootBranchCap = 8, treeBranchCap = 8) still ranks (E1)+(E2) blocker in top 8 and wins
+    {
+        MoveOrderProbeEngine probeBot(BotDifficulty::TACTICAL, 0xD042006ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.rootBranchCap = 8;
+        prof.treeBranchCap = 8;
+        prof.maxSearchDepth = 4;
+        prof.timeBudgetMs = 4000;
+        probeBot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = probeBot.chooseMove(board, &stats);
+
+        int rankBlocker = -1;
+        int scoreBlocker = 0;
+        std::string top8Dump;
+        for (std::size_t i = 0; i < probeBot.rootOrderSnapshot.size(); ++i) {
+            if (i < 10) {
+                top8Dump += " #" + std::to_string(i) + ":" +
+                            probeBot.rootOrderSnapshot[i].first + "(" +
+                            std::to_string(probeBot.rootOrderSnapshot[i].second) + ")";
+            }
+            if (probeBot.rootOrderSnapshot[i].first == "43abegh-41-23-45") {
+                rankBlocker = static_cast<int>(i);
+                scoreBlocker = probeBot.rootOrderSnapshot[i].second;
+            }
+        }
+        CHECK_TRUE_TEXT(rankBlocker >= 0 && rankBlocker < 8,
+                        (std::string("rankBlocker=") + std::to_string(rankBlocker) + top8Dump).c_str());
+        CHECK_TRUE(scoreBlocker >= 15000);
+        CHECK_TRUE_TEXT(isWinningDon2005BlockerMove(chosen),
+                        (std::string("chosen=") + chosen + " score=" +
+                         std::to_string(stats.bestScore) + top8Dump).c_str());
+        CHECK_TRUE(stats.bestScore > 900000);
+        CHECK_TRUE(MoveOrderProbeEngine::isTacticalMoveForSearch(
+            board, GAME_MODE_OFK, PLAYER_A, OctiMove("43abegh-41-23-45")));
+    }
+
+    // 4. Negative control: playing 43abegh-41-23-45x allows Seat B's 56ef-34x and loses (< -900000 for A)
+    {
+        OctiBoard decoyBoard(GAME_MODE_OFK);
+        decoyBoard.fromPositionString(don2005Fen);
+        decoyBoard.getGame()->move("43abegh-41-23-45x");
+
+        OctiBotEngine bBot(BotDifficulty::MASTER, 0xD042007ULL);
+        BotTuningProfile prof = bBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 8;
+        prof.timeBudgetMs = 5000;
+        bBot.setTuningProfile(prof);
+
+        BotSearchStats bStats{};
+        std::string bReply = bBot.chooseMove(decoyBoard, &bStats);
+        STRCMP_EQUAL("56ef-34x", bReply.c_str());
+        CHECK_TRUE_TEXT(-bStats.bestScore < -900000,
+                        "43abegh-41-23-45x must evaluate < -900000 from Seat A's perspective after 56ef-34x");
+    }
+}
+
+TEST(OctiNonCapturingEnemyJump, FourHopEnemyChainOrdersMaximalFirstAndProtectsShallowBranchCap)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    // 4-hop North jump chain for A21a: 21 -> 23 -> 25 -> 27 -> 29 over B22, B24, B26, B28 (2^4 = 16 subsets),
+    // plus A53ab and A73ab providing normal quiet step & prong-addition candidates.
+    OctiBoard board(GAME_MODE_2);
+    board.fromPositionString(
+        "2:3:0:0:P:A:-:0:1,0,10,0:1,0,10,0:A21a,B22,B24,B26,B28,A53ab,A73ab,B57ef");
+    OctiGame *game = board.getGame();
+    CHECK_TRUE(game != nullptr);
+
+    std::vector<OctiMove> legalMoves = game->generateLegalMoves();
+    std::vector<OctiMove> filtered = filterDominatedMoves(board, PLAYER_A, legalMoves);
+
+    int fourHopSubsetsInFiltered = 0;
+    bool hasAllCap = false;
+    bool hasZeroCap = false;
+    for (const auto &m : filtered) {
+        std::string s = m.asString();
+        if (s.rfind("21a-23", 0) == 0 && s.find("-29") != std::string::npos) {
+            ++fourHopSubsetsInFiltered;
+        }
+        if (s == "21a-23x-25x-27x-29x") {
+            hasAllCap = true;
+        } else if (s == "21a-23-25-27-29") {
+            hasZeroCap = true;
+        }
+    }
+    LONGS_EQUAL(16, fourHopSubsetsInFiltered);
+    CHECK_TRUE(hasAllCap);
+    CHECK_TRUE(hasZeroCap);
+
+    // Probe move ordering & quiescence suppression under tight treeBranchCap = 8
+    MoveOrderProbeEngine probeBot(BotDifficulty::TACTICAL, 0x440016ULL);
+    BotTuningProfile prof = probeBot.tuningProfile();
+    prof.useOpeningBook = false;
+    prof.lazySmpThreads = 1;
+    prof.rootScoreJitter = 0;
+    prof.compositeMoveMaxPly = -1;
+    prof.rootBranchCap = 8;
+    prof.treeBranchCap = 8;
+    prof.maxSearchDepth = 2;
+    prof.maxQuiesceDepth = 2;
+    prof.quiesceBranchCap = 16;
+    prof.timeBudgetMs = 2000;
+    probeBot.setTuningProfile(prof);
+
+    std::string chosen = probeBot.chooseMove(board);
+    CHECK_FALSE(chosen.empty());
+    CHECK_TRUE(!probeBot.rootOrderSnapshot.empty());
+
+    // #1 move must be maximal capture 21a-23x-25x-27x-29x
+    STRCMP_EQUAL("21a-23x-25x-27x-29x", probeBot.rootOrderSnapshot[0].first.c_str());
+    CHECK_TRUE(probeBot.rootOrderSnapshot[0].second >= 60000);
+
+    // None of the 15 unexempted partial/non-capture 4-hop subsets may occupy top 8 slots ahead of quiet moves
+    for (std::size_t i = 1; i < 8 && i < probeBot.rootOrderSnapshot.size(); ++i) {
+        const std::string &mvStr = probeBot.rootOrderSnapshot[i].first;
+        const bool isSubmaximalChain =
+            (mvStr.rfind("21a-", 0) == 0 && mvStr != "21a-23x-25x-27x-29x" &&
+             mvStr != "21a-23x-25x-27x" && mvStr != "21a-23x-25x" && mvStr != "21a-23x");
+        CHECK_FALSE_TEXT(isSubmaximalChain,
+                         (std::string("Unexempted submaximal jump leaked into top 8: ") + mvStr).c_str());
+    }
+
+    // Verify all 15 unexempted 4-hop subsets score < 0 and are LMR-reducible (!isTacticalMoveForSearch)
+    CHECK_TRUE(MoveOrderProbeEngine::isTacticalMoveForSearch(
+        board, GAME_MODE_2, PLAYER_A, OctiMove("21a-23x-25x-27x-29x")));
+    for (const auto &entry : probeBot.rootOrderSnapshot) {
+        if (entry.first.rfind("21a-23", 0) == 0 &&
+            entry.first.find("-29") != std::string::npos &&
+            entry.first != "21a-23x-25x-27x-29x") {
+            CHECK_TRUE_TEXT(entry.second <= -6000,
+                            (std::string("Expected <= -6000 for ") + entry.first).c_str());
+            CHECK_FALSE(MoveOrderProbeEngine::isTacticalMoveForSearch(
+                board, GAME_MODE_2, PLAYER_A, OctiMove(entry.first)));
+        }
+    }
+
+    // Verify quiescence search suppresses the 14 partial-capture 4-hop subsets (only 4 maximal prefix/full caps survive)
+    MoveOrderProbeEngine qProbe(BotDifficulty::TACTICAL, 0x440017ULL);
+    BotTuningProfile qProf = prof;
+    qProf.maxSearchDepth = 1;
+    qProf.maxQuiesceDepth = 2;
+    qProf.qsearchIncludeBaseThreatProngs = false;
+    qProbe.setTuningProfile(qProf);
+    // Construct a pure 4-hop enemy-chain position for Seat A after a quiet B reply (2 legal moves for B so search runs)
+    OctiBoard qBoard(GAME_MODE_2);
+    qBoard.fromPositionString(
+        "2:3:0:0:P:B:-:0:0,0,0,0:0,0,0,0:A21a,B22,B24,B26,B28,B88ef");
+    (void)qProbe.chooseMove(qBoard);
+    // At qDepth 0 for Seat A, raw generateTacticalMoves produces 1+3+7+15 = 26 capture subsets,
+    // which qsearch submaximal filtering collapses to exactly the 4 maximal prefix/full captures!
+    LONGS_EQUAL(4, static_cast<long>(qProbe.qsearchMaxCandidateCount));
+}
+
+TEST(OctiNonCapturingEnemyJump, SelfCaptureRelayBridgeExemptionAndLeapfrogPreservation)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    // 1. Isolated 0-prong friendly pod at 44 (no enemy bridge): 43ae-45 retained, 43ae-45x pruned
+    {
+        OctiBoard isolated(GAME_MODE_2, false, false, GAME_BASES_1);
+        isolated.fromPositionString(
+            "2:1:0:0:P:A:-:0:0,0,6,0:0,0,6,0:A43ae,A44,A73,B77e");
+        std::vector<OctiMove> legal = isolated.getGame()->generateLegalMoves();
+        std::vector<OctiMove> filt = filterDominatedMoves(isolated, PLAYER_A, legal);
+        bool hasLeap = false;
+        bool hasSelfCap = false;
+        for (const auto &m : filt) {
+            if (m.asString() == "43ae-45") hasLeap = true;
+            if (m.asString() == "43ae-45x") hasSelfCap = true;
+        }
+        CHECK_TRUE(hasLeap);
+        CHECK_FALSE(hasSelfCap);
+    }
+
+    // 2. Enemy B35d adjacent to 0-prong A44 aiming SE across 44 onto Seat A's 1B base 53:
+    //    43ae-45x MUST be retained AND chosen by search to destroy the enemy jump bridge!
+    {
+        OctiBoard bridge(GAME_MODE_2, false, false, GAME_BASES_1);
+        bridge.fromPositionString(
+            "2:1:0:0:P:A:-:0:0,0,6,0:0,0,6,0:A43ae,A44,A73,B35d,B77");
+        std::vector<OctiMove> legal = bridge.getGame()->generateLegalMoves();
+        std::vector<OctiMove> filt = filterDominatedMoves(bridge, PLAYER_A, legal);
+        bool hasLeap = false;
+        bool hasSelfCap = false;
+        for (const auto &m : filt) {
+            if (m.asString() == "43ae-45") hasLeap = true;
+            if (m.asString() == "43ae-45x") hasSelfCap = true;
+        }
+        CHECK_TRUE_TEXT(hasLeap, "Allied leapfrog 43ae-45 must remain retained");
+        CHECK_TRUE_TEXT(hasSelfCap,
+                        "Bridge-destroying 0-prong self-capture 43ae-45x must be retained when B35d aims across 44");
+
+        OctiBotEngine bot(BotDifficulty::TACTICAL, 0xB21D6EULL);
+        BotTuningProfile prof = bot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 3;
+        prof.timeBudgetMs = 2000;
+        bot.setTuningProfile(prof);
+
+        BotSearchStats stats{};
+        std::string chosen = bot.chooseMove(bridge, &stats);
+        STRCMP_EQUAL("43ae-45x", chosen.c_str());
+        CHECK_TRUE(stats.bestScore > -500000);
+    }
+}
+
+TEST(OctiNonCapturingEnemyJump, EmptySingleLargeHeapFallbackAndEdgelessSeamObstruction)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using namespace octi;
+
+    OctiBoard board(GAME_MODE_2);
+    board.getGame()->start(PLAYER_A);
+
+    // 1. Empty and 1-element vectors
+    std::vector<OctiMove> emptyVec;
+    CHECK_EQUAL(0u, filterDominatedMoves(board, PLAYER_A, emptyVec).size());
+
+    std::vector<OctiMove> singleVec = { OctiMove("33+a") };
+    std::vector<OctiMove> singleOut = filterDominatedMoves(board, PLAYER_A, singleVec);
+    CHECK_EQUAL(1u, singleOut.size());
+    STRCMP_EQUAL("33+a", singleOut[0].asString().c_str());
+
+    // 2. >128 legal moves heap fallback (6-hop enemy jump chain generates 2+4+8+16+32+64 = 126 jump moves + steps/prongs > 150)
+    {
+        OctiBoard dense(GAME_MODE_2);
+        dense.fromPositionString(
+            "2:3:0:0:P:A:-:0:1,0,12,0:0,0,6,0:A21ace,B22,B24,B26,B37,B57,B66,A87a,A88,A51,A73ab");
+        std::vector<OctiMove> legal = dense.getGame()->generateLegalMoves();
+        CHECK_TRUE(legal.size() > 128u);
+        std::vector<OctiMove> filt = filterDominatedMoves(dense, PLAYER_A, legal);
+        // Only the 1 isolated 0-prong self-capture (87a-89x) is pruned; all 126 enemy-chain subsets survive
+        CHECK_EQUAL(legal.size() - 1u, filt.size());
+    }
+
+    // 3. Edgeless wraparound jump obstruction across the East/West seam (84 -> 16 over B95, blocking B27f -> 95x)
+    {
+        OctiBoard seamBoard(GAME_MODE_2, false, true, GAME_BASES_1);
+        seamBoard.fromPositionString(
+            "2:1:0:1:P:A:-:0:0,0,4,0:0,0,4,0:A84bc,B95c,B27f,A33,B57");
+        std::vector<OctiMove> legal = seamBoard.getGame()->generateLegalMoves();
+        std::vector<OctiMove> filt = filterDominatedMoves(seamBoard, PLAYER_A, legal);
+
+        bool hasSeamNonCap = false;
+        bool hasSeamCap = false;
+        for (const auto &m : filt) {
+            if (m.asString() == "84bc-16") hasSeamNonCap = true;
+            if (m.asString() == "84bc-16x") hasSeamCap = true;
+        }
+        CHECK_TRUE(hasSeamNonCap);
+        CHECK_TRUE(hasSeamCap);
+
+        MoveOrderProbeEngine probeBot(BotDifficulty::TACTICAL, 0x5EA301ULL);
+        BotTuningProfile prof = probeBot.tuningProfile();
+        prof.useOpeningBook = false;
+        prof.lazySmpThreads = 1;
+        prof.rootScoreJitter = 0;
+        prof.maxSearchDepth = 1;
+        prof.timeBudgetMs = 1000;
+        probeBot.setTuningProfile(prof);
+        (void)probeBot.chooseMove(seamBoard);
+
+        int seamNonCapScore = -999999;
+        for (const auto &entry : probeBot.rootOrderSnapshot) {
+            if (entry.first == "84bc-16") {
+                seamNonCapScore = entry.second;
+                break;
+            }
+        }
+        CHECK_TRUE_TEXT(seamNonCapScore >= 9000,
+                        "Edgeless seam counter-jump obstruction (E1) must exempt and boost 84bc-16");
+        CHECK_TRUE(MoveOrderProbeEngine::isTacticalMoveForSearch(
+            seamBoard, GAME_MODE_2, PLAYER_A, OctiMove("84bc-16")));
     }
 }
 
