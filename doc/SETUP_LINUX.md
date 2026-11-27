@@ -18,9 +18,14 @@ sudo apt install -y \
     cmake \
     pkg-config \
     git \
-    libssl-dev \
-    zlib1g-dev \
-    libpng-dev \
+    python3 \
+    libssl-dev
+```
+
+If you also plan to run the optional `test_octibot_sdk` loopback test suite against a sibling `../octi/server` checkout, install the test dependencies as well:
+
+```bash
+sudo apt install -y \
     libsqlite3-dev \
     libcpputest-dev \
     librapidcheck-dev
@@ -32,9 +37,9 @@ sudo apt install -y \
 | :--- | :--- |
 | `build-essential`, `g++`, `cmake`, `pkg-config` | C++17 compiler (`g++ >= 11`), CMake (`>= 3.16`), and build system |
 | `git` | Cloning the `octibot` repository and submodules |
-| `libssl-dev` | OpenSSL TLS client support (`OCTI_HAS_OPENSSL`) for `https://octi.selfso.com:443` |
-| `zlib1g-dev`, `libpng-dev`, `libsqlite3-dev` | Core engine serialization and transcript utilities |
-| `libcpputest-dev`, `librapidcheck-dev` | Unit testing (`CppUTest`) and property-based testing (`RapidCheck`) for `make test` |
+| `python3` | Required at CMake configure time by `core/tools/gen_rulebook_assets.py` |
+| `libssl-dev` | OpenSSL TLS client support (`CPPHTTPLIB_OPENSSL_SUPPORT`) for `https://octi.selfso.com:443` |
+| `libsqlite3-dev`, `libcpputest-dev`, `librapidcheck-dev` | Optional: in-process `../octi/server` loopback tests (`CppUTest` + `RapidCheck`) for `make test` |
 
 ---
 
@@ -71,11 +76,11 @@ This produces the standard starter and reference robot executable in `build/`:
 
 | Binary Path | Description |
 | :--- | :--- |
-| `build/octibot` | Standard starter & reference robot daemon with alpha-beta engine (`StockAlphaBetaAgent`), 85 tunable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner` |
+| `build/octibot` | Standard starter & reference robot daemon with alpha-beta engine (`StockAlphaBetaAgent`), 86 configurable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner` |
 
 ### Run the Verification Test Suite (Optional)
 
-Verify that all rules engine, network protocol, and SDK tests pass on your machine:
+When a sibling `../octi/server` checkout is present alongside `octibot`, CMake enables the hermetic loopback qualification suite (`test_octibot_sdk`). Run it to verify the rules engine, network protocol, and SDK:
 
 ```bash
 make test
@@ -194,7 +199,7 @@ use_opening_book = true
   - `matchmaking`: Enters the automated matchmaking queue with `allow_robots = true`.
   - `idle`: Connects to the lobby without autonomously joining or hosting tables.
 - **`announce_move_search_chat = true`**: After each move, posts a concise summary of the search state (`depth=8 | nodes=581440 | eval_score=16 | elapsed=10001ms`) to the game room chat so opponents and spectators can follow your algorithm's thinking in real time.
-- **`publish_move_telemetry = true`**: Embeds `{"ai": {"depth", "nodes", "score", "elapsed_ms"}}` into the `POST /api/v1/games/{room_id}/moves` payload, storing your algorithm's per-ply statistics in the `.octi` transcript archive.
+- **`publish_move_telemetry = true`**: Embeds `{"ai": {"depth", "nodes", "score", "elapsed_ms"}}` into the `POST /api/v1/games/{room_id}/move` payload, storing your algorithm's per-ply statistics in the `.octi` transcript archive.
 
 ---
 
@@ -218,7 +223,7 @@ Since `~/.config/octibot/octibot.conf` and `~/.config/octibot/tokens.conf` are t
 Expected console output upon connecting:
 
 ```text
-OCTIBOT v1.3.0 (config=/home/user/.config/octibot/octibot.conf, tokens=/home/user/.config/octibot/tokens.conf)
+OCTIBOT v1.5.0 (config=/home/user/.config/octibot/octibot.conf, tokens=/home/user/.config/octibot/tokens.conf)
 [my_alpha_bot] Connecting to server octi.selfso.com:443...
 [my_alpha_bot] Authenticated robot @my_alpha_bot (uuid=..., owner=@your_handle, record=0W/0L/0D)
 ```

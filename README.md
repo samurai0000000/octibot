@@ -25,7 +25,7 @@ Copyright (C) 2026, Charles Chiou
 - **Standard C++17 SDK (`liboctibot`)**:
   - `OctiBotConfigStore`: Zero-dependency, line-oriented `key = value` and `[profile]` section parser supporting arbitrary algorithmic parameters, comments, quoted strings, and `tokens.conf` token pools.
   - `OctiBotPolicyEngine`: Configurable matchmaking, table discovery, ruleset filtering (2P, 4P, OFK, 1-base vs 3-base, superprongs, edgeless, time controls, `host_variants`), and social governance (`friend_list`, `ban_list`, draw/undo/pause/rematch proposals).
-  - `OctiBotAgent` & `StockAlphaBetaAgent`: Clean virtual agent interface (`onConfigure`, `onConnected`, `onLobbyChat`, `onGameStarted`, `computeMove`, `onProposal`, `onGameChat`, `onGameOver`, `supportsVariant`) paired with `OctiBotAgentRegistry` and a ready-to-play alpha-beta search agent (`OctiBotEngine`, Lazy SMP, transposition table, opening book, and 85 tunable heuristic/search parameters).
+  - `OctiBotAgent` & `StockAlphaBetaAgent`: Clean virtual agent interface (`onConfigure`, `onConnected`, `onLobbyChat`, `onGameStarted`, `computeMove`, `onProposal`, `onGameChat`, `onGameOver`, `supportsVariant`, `resourceRequirements`, `setSearchAffinityPlan`) paired with `OctiBotAgentRegistry` and a ready-to-play alpha-beta search agent (`OctiBotEngine`, Lazy SMP, transposition table, opening book, `OctiLeafEvaluator` hooks, and 86 configurable heuristic/search parameters).
   - `OctiBotRunner` & `OctiBotFleetRunner`: Full connection lifecycle manager handling authentication, token-pool claiming, SSE lobby/room event loops, turn dispatch, automatic reconnect, and single-process multi-profile or multi-instance supervision.
 - **Search Telemetry & Chat Announcements**:
   - `announce_move_search_chat` (default `true`): Automatically announces search depth, visited nodes, evaluation score, and elapsed milliseconds to in-game board chat upon move submission.
@@ -47,11 +47,13 @@ Copyright (C) 2026, Charles Chiou
 Prerequisites:
 - C++17 compiler (GCC 9+, Clang 10+, or MSVC 2019+)
 - CMake 3.16+
+- Python 3 (`python3` or `python` on `PATH`, used at CMake configure time to generate rulebook headers)
 - OpenSSL development libraries (`libssl-dev` on Linux; native WinHTTP on Windows)
-- CppUTest and RapidCheck (optional, for running the Linux test suite)
+- CppUTest, RapidCheck, `libsqlite3-dev`, and a sibling `../octi/server` checkout (optional, for running the Linux `test_octibot_sdk` qualification suite)
 
 ```bash
 make all
+# Optional (requires sibling ../octi/server checkout + CppUTest/RapidCheck):
 make test
 ```
 

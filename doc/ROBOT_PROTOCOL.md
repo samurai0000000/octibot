@@ -101,7 +101,7 @@ bot_token_bot2 = octi_bot_fedcba9876543210...
 
 ### 3.2 Table Robot Policy (`allow_robots`)
 - Each table defines a boolean flag `allow_robots` (default `true`).
-- When a human hosts a table with `allow_robots: false`, robots attempting to join (`POST /api/v1/games/:id/join`) receive:
+- When a human hosts a table with `allow_robots: false`, robots attempting to join (`POST /api/v1/tables/:id/join`) receive:
   ```json
   {
     "status": 403,
@@ -110,23 +110,24 @@ bot_token_bot2 = octi_bot_fedcba9876543210...
   }
   ```
 
-### 3.3 Table Discovery & Matchmaking
-- Robots can query open tables via `GET /api/v1/lobby/tables`.
-- Robots can enqueue in matchmaking via `POST /api/v1/matchmaking/enqueue` and dequeue via `POST /api/v1/matchmaking/dequeue`.
+### 3.3 Table Discovery, Lifecycle & Matchmaking
+- Robots can query lobby state via `GET /api/v1/lobby/state` or open tables via `GET /api/v1/tables`.
+- Robots can host tables via `POST /api/v1/tables`, join via `POST /api/v1/tables/:id/join`, and leave via `POST /api/v1/tables/:id/leave` (pass `{"abort_if_ply0": true}` to stand up cleanly at ply 0 without resigning).
+- Robots can enqueue in matchmaking via `POST /api/v1/matchmaking/enqueue`, check status via `GET /api/v1/matchmaking/status`, and dequeue via `POST /api/v1/matchmaking/dequeue`.
 
 ---
 
 ## 4. Live Game Flow
 
 ### 4.1 Game Events: `GET /api/v1/games/:id/events`
-- SSE stream transmitting board updates, turns, clock increments, proposals, and chat messages.
+- SSE stream transmitting board updates, turns, clock increments, proposals, and chat messages (also supports polling with `?since_seq=<n>`).
 
-### 4.2 Move Submission: `POST /api/v1/games/:id/moves`
+### 4.2 Move Submission: `POST /api/v1/games/:id/move`
 
 **Request Payload:**
 ```json
 {
-  "move": "c3-c4",
+  "move": "33+a",
   "ai": {
     "depth": 6,
     "nodes": 45120,
@@ -137,13 +138,15 @@ bot_token_bot2 = octi_bot_fedcba9876543210...
 ```
 - The `ai` telemetry block is optional. It is persisted in move history for analysis when telemetry publishing is enabled.
 
-### 4.3 In-Game Chat & Commands
-- `POST /api/v1/games/:id/chat`: Send table chat (`ALL` or `TEAM`).
-- Proposals:
-  - `POST /api/v1/games/:id/proposals/draw`
-  - `POST /api/v1/games/:id/proposals/undo`
-  - `POST /api/v1/games/:id/proposals/pause`
-  - `POST /api/v1/games/:id/proposals/rematch`
+### 4.3 In-Game Chat, Proposals & Actions
+- `POST /api/v1/games/:id/chat`: Send table chat (`{"scope": "all" | "team", "text": "..."}`).
+- `POST /api/v1/games/:id/resign`: Resign an in-progress match.
+- `POST /api/v1/games/:id/action`: Submit proposals and game actions via `{"action": "<action>"}`:
+  - Draw: `offer_draw`, `accept_draw`, `decline_draw`
+  - Undo: `request_undo`, `accept_undo`, `decline_undo`
+  - Pause / Resume: `request_pause`, `accept_pause`, `decline_pause`, `resume`
+  - Rematch: `request_rematch`, `accept_rematch`, `decline_rematch`
+  - Disconnect forfeit & ply-0 abort: `claim_forfeit`, `abort` / `stand_up`
 
 ---
 
@@ -152,10 +155,9 @@ bot_token_bot2 = octi_bot_fedcba9876543210...
 1. **Human-Only Elo Rating Invariant**:
    Robots have independent game statistics (`games_played`, `wins`, `losses`, `draws`). Matches involving one or more robots do NOT affect human Elo ratings. Human ratings remain strictly unmodified upon winning or losing against a robot.
 2. **Forbidden Human Endpoints (`403 FORBIDDEN_ROBOT`)**:
-   Robot tokens are strictly prohibited from invoking human account or sensitive media endpoints:
+   Robot tokens are strictly prohibited from invoking human account or robot-management endpoints:
    - `/api/v1/auth/*`
-   - `/api/v1/robots` (except `/api/v1/robots/connect` and `/api/v1/robots/disconnect`)
+   - `/api/v1/robots` and `/api/v1/robots/*` (except `/api/v1/robots/connect`, `/api/v1/robots/disconnect`, `/api/v1/robots/directory`, and `/api/v1/robots/profile/:id`)
    - `PATCH /api/v1/profile*`
-   - `/api/v1/games/:id/voice-*` (WebRTC signaling)
 3. **Anti-Bot Chat Loops**:
    Chat messages where `is_robot: true` or where the sender is the bot itself are ignored by autonomous command parsers to prevent cyclic chat amplification.

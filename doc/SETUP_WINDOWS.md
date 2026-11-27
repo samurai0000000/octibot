@@ -14,7 +14,9 @@ On Windows, OCTIBOT compiles cleanly with zero external library dependencies: HT
    - During installation in the **Visual Studio Installer**, select the **"Desktop development with C++"** workload (includes the MSVC v143/v145 C++17 compiler and Windows 10/11 SDK).
 2. **CMake** (`>= 3.16`)
    - Included with the Visual Studio C++ workload, or installable via Winget (`winget install Kitware.CMake`) or from [cmake.org](https://cmake.org/download/).
-3. **Git for Windows**
+3. **Python 3** (`python3` or `python` on `PATH`)
+   - Required at CMake configure time to generate rulebook headers (`core/tools/gen_rulebook_assets.py`). Install via Winget (`winget install Python.Python.3.12`) or from [python.org](https://www.python.org/downloads/).
+4. **Git for Windows**
    - Install via Winget (`winget install Git.Git`) or from [git-scm.com](https://git-scm.com/download/win).
 
 ### One-Line Winget Installation (PowerShell)
@@ -24,6 +26,7 @@ If you prefer installing the prerequisites from an elevated PowerShell prompt us
 ```powershell
 winget install --id Git.Git -e
 winget install --id Kitware.CMake -e
+winget install --id Python.Python.3.12 -e
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
@@ -65,7 +68,7 @@ Once compilation finishes, the Windows executable is located at:
 
 | Binary Path | Description |
 | :--- | :--- |
-| `build\Release\octibot.exe` | Standard starter & reference robot daemon (`StockAlphaBetaAgent`, 85 tunable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner`) |
+| `build\Release\octibot.exe` | Standard starter & reference robot daemon (`StockAlphaBetaAgent`, 86 configurable heuristic/search parameters, opening book, and single/multi-profile `OctiBotFleetRunner`) |
 
 ---
 
@@ -191,7 +194,7 @@ Or specify explicit paths to `octibot.conf` and `tokens.conf`:
 Expected console output:
 
 ```text
-OCTIBOT v1.3.0 (config=C:\Users\user\AppData\Roaming\OCTIBOT\octibot.conf, tokens=C:\Users\user\AppData\Roaming\OCTIBOT\tokens.conf)
+OCTIBOT v1.5.0 (config=C:\Users\user\AppData\Roaming\OCTIBOT\octibot.conf, tokens=C:\Users\user\AppData\Roaming\OCTIBOT\tokens.conf)
 [my_win_bot] Connecting to server octi.selfso.com:443...
 [my_win_bot] Authenticated robot @my_win_bot (uuid=..., owner=@your_handle, record=0W/0L/0D)
 ```

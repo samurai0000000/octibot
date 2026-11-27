@@ -22,6 +22,15 @@ accept_takeback = any
 min_initial_time_sec = 0
 max_initial_time_sec = 14400
 min_increment_sec = 0
+# host_mode = 2P
+# host_bases = 3
+# host_super_prongs = false
+# host_edgeless = false
+# host_time_control_enabled = false
+# host_initial_ms = 600000
+# host_increment_ms = 5000
+# host_allow_robots = true
+# host_seat = wait_for_human     # wait_for_human (0), 1..4, a..d, or random
 # host_variants = 2P_3B, 2P_3B_SP, 2P_3B_ED, 2P_3B_SPED, 2P_1B, 2P_1B_SP, 2P_1B_ED, 2P_1B_SPED, 4P, 4P_SP, 4P_ED, 4P_SPED, OFK
 
 # Social & Opponent Policies
@@ -53,6 +62,7 @@ chat_goodbye = Thanks for the game! Since things are quiet here, I'll head back 
 # composite_tactical_only_min_ply = 0
 # qsearch_include_base_threat_prongs = false
 # fix_stack_and_home_eval_mirage = false
+# fix_4p_coalition_eval = true
 # empty_allied_base_penalty_1b = 0
 # empty_allied_base_1b_close_urgency_pct = 175
 # empty_allied_base_1b_mid_urgency_pct = 130

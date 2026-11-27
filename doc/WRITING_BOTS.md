@@ -72,6 +72,17 @@ struct BotMoveTelemetry {
     std::int64_t adaptiveMaxBudgetMs = 0;
 };
 
+struct BotResourceRequirements {
+    int cpuThreads = 1;                  // Concurrent CPU search/worker threads during computeMove()
+    bool usesGpu = false;                // True when GPU/NPU execution provider is active
+    int gpuStreams = 0;                  // Concurrent GPU compute streams required (0 or 1)
+    std::uint64_t staticRamMiB = 0;      // Persistent per-agent RAM (TT, weights, NN cache, worker boards)
+    std::uint64_t scratchRamMiB = 0;     // Per-search active CPU scratch RAM
+    std::uint64_t staticVramMiB = 0;     // Persistent GPU VRAM (ORT session + loaded weights)
+    std::uint64_t scratchVramMiB = 0;    // Active GPU inference workspace + batch tensors
+    std::string backendLabel;            // e.g. "alpha_beta(cpu:4T)"
+};
+
 class OctiBotAgent {
 public:
     virtual ~OctiBotAgent() = default;
@@ -117,12 +128,21 @@ public:
         outUnsupportedReason.clear();
         return true;
     }
+
+    // Declare CPU/GPU/RAM footprint for multi-bot fleet admission & scheduling
+    virtual BotResourceRequirements resourceRequirements() const;
+
+    // Receive CPU core-slot offset and pinning guidance before search
+    virtual void setSearchAffinityPlan(std::size_t slotOffset, bool allowPinning) {}
 };
 
 } // namespace octi
 ```
 
-Subclasses of `octi::StockAlphaBetaAgent` can also adjust per-move or per-match search parameters (such as `timeBudgetMs`, `maxSearchDepth`, or `useOpeningBook`) before delegating to `StockAlphaBetaAgent::computeMove(...)` via the protected `BotTuningProfile &mutableProfile()` accessor.
+Subclasses of `octi::StockAlphaBetaAgent` can also:
+- Override `createEngine()` to substitute a custom `OctiBotEngine` subclass (which exposes protected virtual hooks such as `generateSearchMoves()`, `appendExtraQuiesceMoves()`, `adjustMoveOrderScores()`, `adjustEvalBreakdown()`, `adjustLmrReduction()`, `effectiveMaxSearchThreads()`, and `enterSearchThreadAffinity()`), or attach an `OctiLeafEvaluator` via `engine().setLeafEvaluator(...)`.
+- Adjust per-move or per-match search parameters (such as `timeBudgetMs`, `maxSearchDepth`, or `useOpeningBook`) before delegating to `StockAlphaBetaAgent::computeMove(...)` via `mutableProfile()`, and register live depth/node progress callbacks via `setProgressCallback(...)`.
+- For fleet-level orchestration, `OctiBotRunner` and `OctiBotFleetRunner` (`sdk/include/OctiBotRunner.hxx`) provide protected virtual lifecycle, chat, resource-admission, and search-turn hooks (`onRunnerStarting`, `onGameStartedHandled`, `onGameOverHandled`, `onLobbyChatReceived`, `onGameChatReceived`, `canCommitToMatch`, `createRunner`, etc.).
 
 ---
 
@@ -132,10 +152,14 @@ When `OctiBotRunner` invokes your `computeMove(board, game, mySeat, remainingClo
 
 ### 3.1 Board Coordinates, Squares, and Pods
 
-- **2-Player (`GAME_MODE_2`) and OCTI for Kids (`GAME_MODE_OFK`)**: `7x7` grid (`x` in `0..6` corresponding to files `'1'..'7'`, `y` in `0..6` corresponding to ranks `'1'..'7'`).
-  - Player A (`PLAYER_A`, Seat 1) home bases are at `(1, 1)`, `(3, 1)`, `(5, 1)` (`A_HOME_SQUARE`).
-  - Player B (`PLAYER_B`, Seat 2) home bases are at `(1, 5)`, `(3, 5)`, `(5, 5)` (`B_HOME_SQUARE`).
+- **2-Player (`GAME_MODE_2`)**: `9x9` grid (`x` in `0..8` corresponding to files `'1'..'9'`, `y` in `0..8` corresponding to ranks `'1'..'9'`).
+  - Player A (`PLAYER_A`, Seat 1) home bases are at `(2, 2)`, `(4, 2)`, `(6, 2)` (`33`, `53`, `73`, `A_HOME_SQUARE`).
+  - Player B (`PLAYER_B`, Seat 2) home bases are at `(2, 6)`, `(4, 6)`, `(6, 6)` (`37`, `57`, `77`, `B_HOME_SQUARE`).
 - **4-Player (`GAME_MODE_4`)**: `9x9` grid (`x` in `0..8`, `y` in `0..8`).
+  - Home bases are at A `(2, 2)` [`33`], B `(2, 6)` [`37`], C `(6, 6)` [`77`], D `(6, 2)` [`73`], with neutral OCTI squares (`NEUTRAL_OCTI_SQUARE`) at `(4, 2)` [`53`] and `(4, 6)` [`57`].
+- **OCTI for Kids (`GAME_MODE_OFK`)**: `6x7` grid (`x` in `0..5` corresponding to files `'1'..'6'`, `y` in `0..6` corresponding to ranks `'1'..'7'`).
+  - Player A home bases are at `(1, 1)`, `(2, 1)`, `(3, 1)`, `(4, 1)` (`22`, `32`, `42`, `52`).
+  - Player B home bases are at `(1, 5)`, `(2, 5)`, `(3, 5)`, `(4, 5)` (`26`, `36`, `46`, `56`).
 - **Directions (`OctiDir`)**: 8 compass directions (`DIR_N = 0`, `DIR_NE = 1`, `DIR_E = 2`, `DIR_SE = 3`, `DIR_S = 4`, `DIR_SW = 5`, `DIR_W = 6`, `DIR_NW = 7`), encoded in move strings as `'a'..'h'`.
 
 Inspecting squares, pods, prongs, and player reserves:
@@ -238,7 +262,7 @@ if (outTelemetry) {
    depth=8 | nodes=581440 | eval_score=16 | elapsed=10001ms
    ```
 2. **Permanent `.octi` Archive Telemetry (`publish_move_telemetry = true`)**:
-   Includes your telemetry object in the move submission (`POST /api/v1/games/{room_id}/moves`):
+   Includes your telemetry object in the move submission (`POST /api/v1/games/{room_id}/move`):
    ```json
    {
      "move": "32+a",
@@ -484,6 +508,8 @@ Even when writing a brand-new search algorithm (such as MCTS, Proof-Number Searc
 | `OctiBotEngine::computeCanonicalOpeningHash(board, &mirrored)` | Horizontal-symmetry canonical Zobrist hash for opening book lookups |
 | `OctiBotEngine::mirrorMoveNotation(moveStr, width)` | Mirrors a move string across the vertical board axis (`x' = width - 1 - x`) |
 | `OctiBotEngine::evaluatePosition(board, perspective, profile)` | Full static heuristic evaluation in centipawn-like units |
+| `OctiBotEngine::evaluatePositionBreakdown(board, perspective, profile)` | Decomposed `OctiEvalBreakdown` struct exposing every static heuristic term |
+| `OctiBotEngine::setLeafEvaluator(const OctiLeafEvaluator *)` | Plugs a custom or neural leaf evaluator (with incremental `onSearchRoot`/`onBeforeMove`/`onPopPly` hooks) directly into `OctiBotEngine` search |
 | `OctiBotEngine::probeOpeningBookTable(...)` | Probes a sorted `OpeningBookEntry[]` table with temperature-weighted candidate selection |
 
 ---
