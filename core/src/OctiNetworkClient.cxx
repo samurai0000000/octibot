@@ -673,6 +673,69 @@ GameViewData parseGameViewJson(const Json &j)
         rawTurnElapsedMs = (*cfg)["turn_elapsed_ms"].get<std::int64_t>();
     }
     v.turnElapsedMs = std::max<std::int64_t>(0, rawTurnElapsedMs);
+
+    if (j.contains("admin_paused") && j["admin_paused"].is_boolean()) {
+        v.adminPaused = j["admin_paused"].get<bool>();
+    } else if (cfg != nullptr &&
+               cfg->contains("admin_paused") &&
+               (*cfg)["admin_paused"].is_boolean()) {
+        v.adminPaused = (*cfg)["admin_paused"].get<bool>();
+    }
+
+    std::int64_t rawPauseRemMs = 0;
+    if (j.contains("pause_remaining_ms") &&
+        j["pause_remaining_ms"].is_number_integer()) {
+        rawPauseRemMs = j["pause_remaining_ms"].get<std::int64_t>();
+    } else if (cfg != nullptr &&
+               cfg->contains("pause_remaining_ms") &&
+               (*cfg)["pause_remaining_ms"].is_number_integer()) {
+        rawPauseRemMs = (*cfg)["pause_remaining_ms"].get<std::int64_t>();
+    }
+    v.pauseRemainingMs = std::max<std::int64_t>(0, rawPauseRemMs);
+
+    int rawPausesUsed = 0;
+    if (j.contains("pauses_used") && j["pauses_used"].is_number_integer()) {
+        rawPausesUsed = j["pauses_used"].get<int>();
+    } else if (cfg != nullptr &&
+               cfg->contains("pauses_used") &&
+               (*cfg)["pauses_used"].is_number_integer()) {
+        rawPausesUsed = (*cfg)["pauses_used"].get<int>();
+    }
+    v.pausesUsed = std::max(0, rawPausesUsed);
+
+    int rawMaxPauses = 0;
+    if (j.contains("max_pauses_per_match") &&
+        j["max_pauses_per_match"].is_number_integer()) {
+        rawMaxPauses = j["max_pauses_per_match"].get<int>();
+    } else if (cfg != nullptr &&
+               cfg->contains("max_pauses_per_match") &&
+               (*cfg)["max_pauses_per_match"].is_number_integer()) {
+        rawMaxPauses = (*cfg)["max_pauses_per_match"].get<int>();
+    }
+    v.maxPausesPerMatch = std::max(0, rawMaxPauses);
+
+    if (j.contains("allow_mutual_pause") &&
+        j["allow_mutual_pause"].is_boolean()) {
+        v.allowMutualPause = j["allow_mutual_pause"].get<bool>();
+    } else if (cfg != nullptr &&
+               cfg->contains("allow_mutual_pause") &&
+               (*cfg)["allow_mutual_pause"].is_boolean()) {
+        v.allowMutualPause = (*cfg)["allow_mutual_pause"].get<bool>();
+    }
+
+    if (j.contains("disable_disconnect_forfeit") &&
+        j["disable_disconnect_forfeit"].is_boolean()) {
+        v.disableDisconnectForfeit =
+            j["disable_disconnect_forfeit"].get<bool>();
+    } else if (cfg != nullptr &&
+               cfg->contains("disable_disconnect_forfeit") &&
+               (*cfg)["disable_disconnect_forfeit"].is_boolean()) {
+        v.disableDisconnectForfeit =
+            (*cfg)["disable_disconnect_forfeit"].get<bool>();
+    } else {
+        v.disableDisconnectForfeit =
+            (v.isTournamentRoom && v.disconnectGraceMs == 0);
+    }
     return v;
 }
 

@@ -485,6 +485,12 @@ struct GameViewData {
     int tournamentRound = 0;
     std::string tournamentMatchId;
     std::int64_t turnElapsedMs = 0;
+    bool adminPaused = false;
+    std::int64_t pauseRemainingMs = 0;
+    int pausesUsed = 0;
+    int maxPausesPerMatch = 0;
+    bool allowMutualPause = true;
+    bool disableDisconnectForfeit = false;
 
     std::string variantCode() const
     {

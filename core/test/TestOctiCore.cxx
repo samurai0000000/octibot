@@ -15358,6 +15358,199 @@ TEST(OctiNetworkClientTournamentAndClockTest,
     CHECK_TRUE(passed);
 }
 
+TEST(OctiNetworkClientTournamentAndClockTest,
+     ParseGameViewPauseAndDisconnectImmunityFieldsTopLevelNestedAndDefaults)
+{
+    using Json = nlohmann::json;
+
+    /* 1. Casual / empty defaults */
+    {
+        octi::GameViewData vEmpty =
+            octi::OctiNetworkClient::parseGameView("{}");
+        CHECK_FALSE(vEmpty.paused);
+        CHECK_FALSE(vEmpty.adminPaused);
+        LONGS_EQUAL(0, vEmpty.pauseRemainingMs);
+        LONGS_EQUAL(0, vEmpty.pausesUsed);
+        LONGS_EQUAL(0, vEmpty.maxPausesPerMatch);
+        CHECK_TRUE(vEmpty.allowMutualPause);
+        CHECK_FALSE(vEmpty.disableDisconnectForfeit);
+    }
+
+    /* 2. Explicit top-level multi-day break & disconnect-immunity fields */
+    {
+        Json topJson = {
+            {"room_id", "tour-multiday-1"},
+            {"phase", "IN_PROGRESS"},
+            {"paused", true},
+            {"admin_paused", true},
+            {"pause_remaining_ms", 425000},
+            {"pauses_used", 2},
+            {"max_pauses_per_match", 3},
+            {"allow_mutual_pause", false},
+            {"disable_disconnect_forfeit", true},
+            {"is_tournament_room", true},
+            {"time_control", {
+                {"enabled", true},
+                {"initial_ms", 86400000},
+                {"increment_ms", 3600000},
+                {"disconnect_grace_ms", 0}
+            }}
+        };
+        octi::GameViewData vTop =
+            octi::OctiNetworkClient::parseGameView(topJson.dump());
+        CHECK_TRUE(vTop.paused);
+        CHECK_TRUE(vTop.adminPaused);
+        LONGS_EQUAL(425000, vTop.pauseRemainingMs);
+        LONGS_EQUAL(2, vTop.pausesUsed);
+        LONGS_EQUAL(3, vTop.maxPausesPerMatch);
+        CHECK_FALSE(vTop.allowMutualPause);
+        CHECK_TRUE(vTop.disableDisconnectForfeit);
+        LONGS_EQUAL(0, vTop.disconnectGraceMs);
+    }
+
+    /* 3. Nested config fallback, negative clamping, and tournament grace=0 inference */
+    {
+        Json nestedJson = {
+            {"room_id", "tour-multiday-nested"},
+            {"phase", "IN_PROGRESS"},
+            {"pause_remaining_ms", -9000},
+            {"pauses_used", -4},
+            {"time_control", {
+                {"enabled", true},
+                {"initial_ms", 1209600000},
+                {"increment_ms", 3600000},
+                {"disconnect_grace_ms", 0}
+            }},
+            {"config", {
+                {"is_tournament_room", true},
+                {"max_pauses_per_match", 4},
+                {"allow_mutual_pause", false}
+            }}
+        };
+        octi::GameViewData vNested =
+            octi::OctiNetworkClient::parseGameView(nestedJson.dump());
+        CHECK_FALSE(vNested.adminPaused);
+        LONGS_EQUAL(0, vNested.pauseRemainingMs);
+        LONGS_EQUAL(0, vNested.pausesUsed);
+        LONGS_EQUAL(4, vNested.maxPausesPerMatch);
+        CHECK_FALSE(vNested.allowMutualPause);
+        CHECK_TRUE(vNested.disableDisconnectForfeit);
+
+        /* Explicit false on disable_disconnect_forfeit overrides inferred default */
+        nestedJson["disable_disconnect_forfeit"] = false;
+        octi::GameViewData vExplicitFalse =
+            octi::OctiNetworkClient::parseGameView(nestedJson.dump());
+        CHECK_FALSE(vExplicitFalse.disableDisconnectForfeit);
+    }
+
+    /* 4. Loopback HTTP fetchGameView round-trip */
+    httplib::Server mockSrv;
+    mockSrv.Get("/api/v1/games/t-multiday-http",
+                [](const httplib::Request &, httplib::Response &res) {
+                    Json body = {
+                        {"ok", true},
+                        {"live", true},
+                        {"room_id", "t-multiday-http"},
+                        {"phase", "IN_PROGRESS"},
+                        {"paused", true},
+                        {"admin_paused", false},
+                        {"pause_remaining_ms", 1800000},
+                        {"pauses_used", 1},
+                        {"max_pauses_per_match", 2},
+                        {"allow_mutual_pause", true},
+                        {"disable_disconnect_forfeit", true},
+                        {"is_tournament_room", true}
+                    };
+                    res.status = 200;
+                    res.set_content(body.dump(), "application/json");
+                });
+    int port = mockSrv.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread srvThread([&mockSrv]() { mockSrv.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    octi::ApiResult<octi::GameViewData> viewRes =
+        client->fetchGameView("t-multiday-http");
+    CHECK_TRUE(viewRes.ok);
+    CHECK_TRUE(viewRes.data.paused);
+    CHECK_FALSE(viewRes.data.adminPaused);
+    LONGS_EQUAL(1800000, viewRes.data.pauseRemainingMs);
+    LONGS_EQUAL(1, viewRes.data.pausesUsed);
+    LONGS_EQUAL(2, viewRes.data.maxPausesPerMatch);
+    CHECK_TRUE(viewRes.data.allowMutualPause);
+    CHECK_TRUE(viewRes.data.disableDisconnectForfeit);
+
+    mockSrv.stop();
+    if (srvThread.joinable()) {
+        srvThread.join();
+    }
+}
+
+TEST(OctiNetworkClientTournamentAndClockTest,
+     RapidCheckGameViewPauseAndDisconnectImmunityInvariants)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using Json = nlohmann::json;
+
+    bool passed = rc::check(
+        "parseGameView parses pause/disconnect fields from top-level or config and clamps non-negative counters",
+        []() {
+            const int placement = *rc::gen::inRange(0, 4); // 0=top, 1=config, 2=both, 3=omitted
+            const bool adminPaused = *rc::gen::arbitrary<bool>();
+            const std::int64_t rawPauseRem =
+                static_cast<std::int64_t>(*rc::gen::inRange(-100000, 3600000));
+            const int rawPausesUsed = *rc::gen::inRange(-5, 12);
+            const int rawMaxPauses = *rc::gen::inRange(-5, 12);
+            const bool allowMutual = *rc::gen::arbitrary<bool>();
+            const bool disableDisc = *rc::gen::arbitrary<bool>();
+
+            Json cfgMeta = {
+                {"max_pauses_per_match", rawMaxPauses},
+                {"allow_mutual_pause", allowMutual},
+                {"disable_disconnect_forfeit", disableDisc}
+            };
+            Json payload = {
+                {"room_id", "rc-pause-room"},
+                {"phase", "IN_PROGRESS"},
+                {"admin_paused", adminPaused},
+                {"pause_remaining_ms", rawPauseRem},
+                {"pauses_used", rawPausesUsed}
+            };
+            if (placement == 0 || placement == 2) {
+                for (Json::const_iterator it = cfgMeta.begin();
+                     it != cfgMeta.end(); ++it) {
+                    payload[it.key()] = it.value();
+                }
+            }
+            if (placement == 1 || placement == 2) {
+                Json altCfg = cfgMeta;
+                if (placement == 2) {
+                    altCfg["max_pauses_per_match"] = 99;
+                    altCfg["allow_mutual_pause"] = !allowMutual;
+                    altCfg["disable_disconnect_forfeit"] = !disableDisc;
+                }
+                payload["config"] = altCfg;
+            }
+
+            const octi::GameViewData v =
+                octi::OctiNetworkClient::parseGameView(payload.dump());
+            RC_ASSERT(v.adminPaused == adminPaused);
+            RC_ASSERT(v.pauseRemainingMs == std::max<std::int64_t>(0, rawPauseRem));
+            RC_ASSERT(v.pausesUsed == std::max(0, rawPausesUsed));
+            if (placement == 3) {
+                RC_ASSERT(v.maxPausesPerMatch == 0);
+                RC_ASSERT(v.allowMutualPause);
+                RC_ASSERT(!v.disableDisconnectForfeit);
+            } else {
+                RC_ASSERT(v.maxPausesPerMatch == std::max(0, rawMaxPauses));
+                RC_ASSERT(v.allowMutualPause == allowMutual);
+                RC_ASSERT(v.disableDisconnectForfeit == disableDisc);
+            }
+        });
+    CHECK_TRUE(passed);
+}
+
 int main(int argc, char **argv)
 {
     MemoryLeakWarningPlugin::turnOffNewDeleteOverloads();
