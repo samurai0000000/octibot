@@ -16,17 +16,23 @@
 namespace octi {
 
 enum class SoundCue {
-    POD_PLACE      = 0,
-    PRONG_SNAP     = 1,
-    POD_STEP       = 2,
-    POD_JUMP       = 3,
-    POD_CAPTURE    = 4,
-    CLOCK_LOW_TICK = 5,
-    GAME_VICTORY   = 6,
+    POD_PLACE         = 0,
+    PRONG_SNAP        = 1,
+    POD_STEP          = 2,
+    POD_JUMP          = 3,
+    POD_CAPTURE       = 4,
+    CLOCK_LOW_TICK    = 5,
+    GAME_WIN          = 6,
+    GAME_VICTORY      = GAME_WIN,
+    GAME_START        = 7,
+    GAME_DRAW         = 8,
+    GAME_LOSS         = 9,
+    PLAYER_ELIMINATED = 10,
+    NOTIFY_PING       = 11,
 };
 
 constexpr int OCTI_SOUND_SAMPLE_RATE = 16000;
-constexpr std::size_t OCTI_SOUND_CUE_COUNT = 7;
+constexpr std::size_t OCTI_SOUND_CUE_COUNT = 12;
 
 const char *soundCueName(SoundCue cue);
 const char *soundCueAssetFileName(SoundCue cue);

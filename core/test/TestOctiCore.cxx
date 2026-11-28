@@ -10276,39 +10276,59 @@ TEST(OctiSoundCueTest, CueNamesAssetFilenamesAndWhitelistValidation)
         const char *fileName;
     };
     const ExpectedCueMeta expected[octi::OCTI_SOUND_CUE_COUNT] = {
-        { octi::SoundCue::POD_PLACE,      "POD_PLACE",      "pod_place.wav"      },
-        { octi::SoundCue::PRONG_SNAP,     "PRONG_SNAP",     "prong_snap.wav"     },
-        { octi::SoundCue::POD_STEP,       "POD_STEP",       "pod_step.wav"       },
-        { octi::SoundCue::POD_JUMP,       "POD_JUMP",       "pod_jump.wav"       },
-        { octi::SoundCue::POD_CAPTURE,    "POD_CAPTURE",    "pod_capture.wav"    },
-        { octi::SoundCue::CLOCK_LOW_TICK, "CLOCK_LOW_TICK", "clock_low_tick.wav" },
-        { octi::SoundCue::GAME_VICTORY,   "GAME_VICTORY",   "game_victory.wav"   },
+        { octi::SoundCue::POD_PLACE,         "POD_PLACE",         "pod_place.wav"         },
+        { octi::SoundCue::PRONG_SNAP,        "PRONG_SNAP",        "prong_snap.wav"        },
+        { octi::SoundCue::POD_STEP,          "POD_STEP",          "pod_step.wav"          },
+        { octi::SoundCue::POD_JUMP,          "POD_JUMP",          "pod_jump.wav"          },
+        { octi::SoundCue::POD_CAPTURE,       "POD_CAPTURE",       "pod_capture.wav"       },
+        { octi::SoundCue::CLOCK_LOW_TICK,    "CLOCK_LOW_TICK",    "clock_low_tick.wav"    },
+        { octi::SoundCue::GAME_WIN,          "GAME_WIN",          "game_win.wav"          },
+        { octi::SoundCue::GAME_START,        "GAME_START",        "game_start.wav"        },
+        { octi::SoundCue::GAME_DRAW,         "GAME_DRAW",         "game_draw.wav"         },
+        { octi::SoundCue::GAME_LOSS,         "GAME_LOSS",         "game_loss.wav"         },
+        { octi::SoundCue::PLAYER_ELIMINATED, "PLAYER_ELIMINATED", "player_eliminated.wav" },
+        { octi::SoundCue::NOTIFY_PING,       "NOTIFY_PING",       "notify_ping.wav"       },
     };
 
     for (std::size_t i = 0; i < octi::OCTI_SOUND_CUE_COUNT; ++i) {
         STRCMP_EQUAL(expected[i].name, octi::soundCueName(expected[i].cue));
         STRCMP_EQUAL(expected[i].fileName, octi::soundCueAssetFileName(expected[i].cue));
 
-        octi::SoundCue parsedByName = octi::SoundCue::GAME_VICTORY;
+        octi::SoundCue parsedByName = octi::SoundCue::GAME_WIN;
         CHECK_TRUE(octi::soundCueFromName(expected[i].name, parsedByName));
         CHECK_EQUAL(static_cast<int>(expected[i].cue), static_cast<int>(parsedByName));
 
-        octi::SoundCue parsedByFile = octi::SoundCue::GAME_VICTORY;
+        octi::SoundCue parsedByFile = octi::SoundCue::GAME_WIN;
         CHECK_TRUE(octi::soundCueFromAssetFileName(expected[i].fileName, parsedByFile));
         CHECK_EQUAL(static_cast<int>(expected[i].cue), static_cast<int>(parsedByFile));
     }
 
-    octi::SoundCue dropAlias = octi::SoundCue::GAME_VICTORY;
+    octi::SoundCue dropAlias = octi::SoundCue::GAME_WIN;
     CHECK_TRUE(octi::soundCueFromName("POD_DROP", dropAlias));
     CHECK_EQUAL(static_cast<int>(octi::SoundCue::POD_PLACE), static_cast<int>(dropAlias));
+
+    CHECK_EQUAL(static_cast<int>(octi::SoundCue::GAME_WIN),
+                static_cast<int>(octi::SoundCue::GAME_VICTORY));
+    STRCMP_EQUAL("GAME_WIN", octi::soundCueName(octi::SoundCue::GAME_VICTORY));
+    STRCMP_EQUAL("game_win.wav", octi::soundCueAssetFileName(octi::SoundCue::GAME_VICTORY));
+
+    octi::SoundCue victoryNameAlias = octi::SoundCue::POD_PLACE;
+    CHECK_TRUE(octi::soundCueFromName("GAME_VICTORY", victoryNameAlias));
+    CHECK_EQUAL(static_cast<int>(octi::SoundCue::GAME_WIN), static_cast<int>(victoryNameAlias));
+
+    octi::SoundCue victoryFileAlias = octi::SoundCue::POD_PLACE;
+    CHECK_TRUE(octi::soundCueFromAssetFileName("game_victory.wav", victoryFileAlias));
+    CHECK_EQUAL(static_cast<int>(octi::SoundCue::GAME_WIN), static_cast<int>(victoryFileAlias));
 
     octi::SoundCue outCue = octi::SoundCue::PRONG_SNAP;
     CHECK_FALSE(octi::soundCueFromName("", outCue));
     CHECK_FALSE(octi::soundCueFromName("pod_place", outCue));
+    CHECK_FALSE(octi::soundCueFromName("ROOM_READY", outCue));
     CHECK_FALSE(octi::soundCueFromName("UNKNOWN_CUE", outCue));
     CHECK_FALSE(octi::soundCueFromName(std::string("POD_PLACE\0EXTRA", 15), outCue));
 
     CHECK_FALSE(octi::soundCueFromAssetFileName("", outCue));
+    CHECK_FALSE(octi::soundCueFromAssetFileName("room_ready.wav", outCue));
     CHECK_FALSE(octi::soundCueFromAssetFileName("../etc/passwd", outCue));
     CHECK_FALSE(octi::soundCueFromAssetFileName("..%2fetc%2fpasswd", outCue));
     CHECK_FALSE(octi::soundCueFromAssetFileName("sounds/pod_place.wav", outCue));
@@ -10335,13 +10355,18 @@ TEST(OctiSoundCueTest, CanonicalWavBytesMatchDiskAssetsAndDecodePcm16)
         std::size_t sampleCount;
     };
     const ExpectedAsset assets[octi::OCTI_SOUND_CUE_COUNT] = {
-        { octi::SoundCue::POD_PLACE,      "pod_place.wav",      3884u,  1920u },
-        { octi::SoundCue::PRONG_SNAP,     "prong_snap.wav",     2444u,  1200u },
-        { octi::SoundCue::POD_STEP,       "pod_step.wav",       3084u,  1520u },
-        { octi::SoundCue::POD_JUMP,       "pod_jump.wav",       4844u,  2400u },
-        { octi::SoundCue::POD_CAPTURE,    "pod_capture.wav",    6764u,  3360u },
-        { octi::SoundCue::CLOCK_LOW_TICK, "clock_low_tick.wav", 1484u,   720u },
-        { octi::SoundCue::GAME_VICTORY,   "game_victory.wav",  11564u,  5760u },
+        { octi::SoundCue::POD_PLACE,         "pod_place.wav",          3884u,   1920u },
+        { octi::SoundCue::PRONG_SNAP,        "prong_snap.wav",         2444u,   1200u },
+        { octi::SoundCue::POD_STEP,          "pod_step.wav",           3084u,   1520u },
+        { octi::SoundCue::POD_JUMP,          "pod_jump.wav",           4844u,   2400u },
+        { octi::SoundCue::POD_CAPTURE,       "pod_capture.wav",        6764u,   3360u },
+        { octi::SoundCue::CLOCK_LOW_TICK,    "clock_low_tick.wav",     1484u,    720u },
+        { octi::SoundCue::GAME_WIN,          "game_win.wav",          17964u,   8960u },
+        { octi::SoundCue::GAME_START,        "game_start.wav",        20524u,  10240u },
+        { octi::SoundCue::GAME_DRAW,         "game_draw.wav",         17964u,   8960u },
+        { octi::SoundCue::GAME_LOSS,         "game_loss.wav",         18604u,   9280u },
+        { octi::SoundCue::PLAYER_ELIMINATED, "player_eliminated.wav", 13484u,   6720u },
+        { octi::SoundCue::NOTIFY_PING,       "notify_ping.wav",        7724u,   3840u },
     };
 
     std::vector<std::vector<std::int16_t>> decodedWaveforms;
@@ -10692,6 +10717,53 @@ TEST(OctiSoundCueTest, RapidCheckWavDecoderAndClassifierFuzzing)
             }
         });
     CHECK_TRUE(moveClassifierFuzz);
+
+    bool cueTableAndAliasFuzz = rc::check(
+        "12-cue descriptor table, WAV decoding, and alias fuzzing",
+        []() {
+            int idx = *rc::gen::inRange(-16, 32);
+            auto cue = static_cast<octi::SoundCue>(idx);
+            std::size_t wavSize = 999u;
+            const std::uint8_t *wavPtr = octi::soundCueWavBytes(cue, wavSize);
+            if (idx >= 0 && static_cast<std::size_t>(idx) < octi::OCTI_SOUND_CUE_COUNT) {
+                RC_ASSERT(wavPtr != nullptr);
+                RC_ASSERT(wavSize >= 44u);
+                const char *name = octi::soundCueName(cue);
+                const char *file = octi::soundCueAssetFileName(cue);
+                RC_ASSERT(name != nullptr && name[0] != '\0');
+                RC_ASSERT(file != nullptr && file[0] != '\0');
+                octi::SoundCue byName = octi::SoundCue::POD_PLACE;
+                octi::SoundCue byFile = octi::SoundCue::POD_PLACE;
+                RC_ASSERT(octi::soundCueFromName(name, byName));
+                RC_ASSERT(byName == cue);
+                RC_ASSERT(octi::soundCueFromAssetFileName(file, byFile));
+                RC_ASSERT(byFile == cue);
+                std::vector<std::int16_t> pcm;
+                int sr = 0;
+                RC_ASSERT(octi::decodeWavPcm16Mono(wavPtr, wavSize, pcm, sr));
+                RC_ASSERT(sr == octi::OCTI_SOUND_SAMPLE_RATE);
+                RC_ASSERT(!pcm.empty());
+            } else {
+                RC_ASSERT(wavPtr == nullptr);
+                RC_ASSERT(wavSize == 0u);
+                RC_ASSERT(std::string(octi::soundCueName(cue)).empty());
+                RC_ASSERT(std::string(octi::soundCueAssetFileName(cue)).empty());
+            }
+
+            auto arbStr = *rc::gen::arbitrary<std::string>();
+            octi::SoundCue fuzzedCue = octi::SoundCue::POD_PLACE;
+            if (octi::soundCueFromName(arbStr, fuzzedCue)) {
+                int ci = static_cast<int>(fuzzedCue);
+                RC_ASSERT(ci >= 0 &&
+                          static_cast<std::size_t>(ci) < octi::OCTI_SOUND_CUE_COUNT);
+            }
+            if (octi::soundCueFromAssetFileName(arbStr, fuzzedCue)) {
+                int ci = static_cast<int>(fuzzedCue);
+                RC_ASSERT(ci >= 0 &&
+                          static_cast<std::size_t>(ci) < octi::OCTI_SOUND_CUE_COUNT);
+            }
+        });
+    CHECK_TRUE(cueTableAndAliasFuzz);
 }
 
 TEST(OctiSoundCueTest, OctiSoundGenCliVerifyAndJsSync)
@@ -11747,18 +11819,18 @@ TEST(OctiRulebookTest, SupportedLanguagesNormalizationFallbackAndLocalizedHtml)
     LONGS_EQUAL(16, static_cast<long>(langs.size()));
     STRCMP_EQUAL("en", langs[0].c_str());
     STRCMP_EQUAL("zh-TW", langs[1].c_str());
-    STRCMP_EQUAL("zh-CN", langs[2].c_str());
-    STRCMP_EQUAL("fr", langs[3].c_str());
-    STRCMP_EQUAL("ro", langs[4].c_str());
-    STRCMP_EQUAL("ru", langs[5].c_str());
-    STRCMP_EQUAL("es", langs[6].c_str());
-    STRCMP_EQUAL("de", langs[7].c_str());
-    STRCMP_EQUAL("ja", langs[8].c_str());
-    STRCMP_EQUAL("tr", langs[9].c_str());
+    STRCMP_EQUAL("ja", langs[2].c_str());
+    STRCMP_EQUAL("ko", langs[3].c_str());
+    STRCMP_EQUAL("zh-CN", langs[4].c_str());
+    STRCMP_EQUAL("de", langs[5].c_str());
+    STRCMP_EQUAL("fr", langs[6].c_str());
+    STRCMP_EQUAL("es", langs[7].c_str());
+    STRCMP_EQUAL("it", langs[8].c_str());
+    STRCMP_EQUAL("ro", langs[9].c_str());
     STRCMP_EQUAL("pt-BR", langs[10].c_str());
-    STRCMP_EQUAL("ko", langs[11].c_str());
-    STRCMP_EQUAL("pl", langs[12].c_str());
-    STRCMP_EQUAL("it", langs[13].c_str());
+    STRCMP_EQUAL("pl", langs[11].c_str());
+    STRCMP_EQUAL("ru", langs[12].c_str());
+    STRCMP_EQUAL("tr", langs[13].c_str());
     STRCMP_EQUAL("id", langs[14].c_str());
     STRCMP_EQUAL("vi", langs[15].c_str());
 
@@ -14951,6 +15023,339 @@ TEST(OctiSpMoveOrderAndMateEscapeGuard, RootAndInteriorMateEscapeContinuationUnd
                         (std::string("Interior negamax mate-escape must refute hallucinated forced win, got ") +
                          std::to_string(bStats.bestScore)).c_str());
     }
+}
+
+// ---------------------------------------------------------------------------
+// OctiNetworkClient Tournament Metadata & turn_elapsed_ms Wire Contract Tests
+// ---------------------------------------------------------------------------
+
+TEST_GROUP(OctiNetworkClientTournamentAndClockTest)
+{
+};
+
+TEST(OctiNetworkClientTournamentAndClockTest,
+     ParseTableSummaryAndGameViewTopLevelConfigFallbackAndClampedDefaults)
+{
+    using Json = nlohmann::json;
+
+    /* 1. Missing-field defaults on empty/casual JSON */
+    {
+        octi::TableSummaryInfo tEmpty =
+            octi::OctiNetworkClient::parseTableSummary("{}");
+        CHECK_FALSE(tEmpty.hostIsRobot);
+        CHECK_FALSE(tEmpty.isTournamentRoom);
+        LONGS_EQUAL(0, tEmpty.tournamentId);
+        STRCMP_EQUAL("", tEmpty.tournamentSlug.c_str());
+        STRCMP_EQUAL("", tEmpty.tournamentTitle.c_str());
+        LONGS_EQUAL(0, tEmpty.tournamentRound);
+        STRCMP_EQUAL("", tEmpty.tournamentMatchId.c_str());
+
+        octi::GameViewData vEmpty =
+            octi::OctiNetworkClient::parseGameView("{}");
+        CHECK_FALSE(vEmpty.isTournamentRoom);
+        LONGS_EQUAL(0, vEmpty.tournamentId);
+        STRCMP_EQUAL("", vEmpty.tournamentSlug.c_str());
+        STRCMP_EQUAL("", vEmpty.tournamentTitle.c_str());
+        LONGS_EQUAL(0, vEmpty.tournamentRound);
+        STRCMP_EQUAL("", vEmpty.tournamentMatchId.c_str());
+        LONGS_EQUAL(0, vEmpty.turnElapsedMs);
+    }
+
+    /* 2. Top-level tournament metadata and positive turn_elapsed_ms */
+    {
+        Json topJson = {
+            {"room_id", "tour-room-101"},
+            {"mode", "2P"},
+            {"bases", 3},
+            {"phase", "IN_PROGRESS"},
+            {"is_tournament_room", true},
+            {"tournament_id", 42},
+            {"tournament_slug", "formosa-octi-cup-001"},
+            {"tournament_title", "Formosa OCTI Cup"},
+            {"tournament_round", 3},
+            {"tournament_match_id", "r3-m2"},
+            {"turn_elapsed_ms", 4750}
+        };
+        octi::TableSummaryInfo tTop =
+            octi::OctiNetworkClient::parseTableSummary(topJson.dump());
+        CHECK_TRUE(tTop.isTournamentRoom);
+        LONGS_EQUAL(42, tTop.tournamentId);
+        STRCMP_EQUAL("formosa-octi-cup-001", tTop.tournamentSlug.c_str());
+        STRCMP_EQUAL("Formosa OCTI Cup", tTop.tournamentTitle.c_str());
+        LONGS_EQUAL(3, tTop.tournamentRound);
+        STRCMP_EQUAL("r3-m2", tTop.tournamentMatchId.c_str());
+
+        octi::GameViewData vTop =
+            octi::OctiNetworkClient::parseGameView(topJson.dump());
+        CHECK_TRUE(vTop.isTournamentRoom);
+        LONGS_EQUAL(42, vTop.tournamentId);
+        STRCMP_EQUAL("formosa-octi-cup-001", vTop.tournamentSlug.c_str());
+        STRCMP_EQUAL("Formosa OCTI Cup", vTop.tournamentTitle.c_str());
+        LONGS_EQUAL(3, vTop.tournamentRound);
+        STRCMP_EQUAL("r3-m2", vTop.tournamentMatchId.c_str());
+        LONGS_EQUAL(4750, vTop.turnElapsedMs);
+    }
+
+    /* 3. Nested "config" fallback when top-level tournament keys are omitted */
+    {
+        Json nestedJson = {
+            {"room_id", "tour-room-nested"},
+            {"phase", "IN_PROGRESS"},
+            {"turn_elapsed_ms", -950},
+            {"config", {
+                {"is_tournament_room", true},
+                {"tournament_id", 77},
+                {"tournament_slug", "spring-swiss-2026"},
+                {"tournament_title", "Spring Swiss 2026"},
+                {"tournament_round", 2},
+                {"tournament_match_id", "r2-m1"}
+            }}
+        };
+        octi::TableSummaryInfo tNested =
+            octi::OctiNetworkClient::parseTableSummary(nestedJson.dump());
+        CHECK_TRUE(tNested.isTournamentRoom);
+        LONGS_EQUAL(77, tNested.tournamentId);
+        STRCMP_EQUAL("spring-swiss-2026", tNested.tournamentSlug.c_str());
+        STRCMP_EQUAL("Spring Swiss 2026", tNested.tournamentTitle.c_str());
+        LONGS_EQUAL(2, tNested.tournamentRound);
+        STRCMP_EQUAL("r2-m1", tNested.tournamentMatchId.c_str());
+
+        octi::GameViewData vNested =
+            octi::OctiNetworkClient::parseGameView(nestedJson.dump());
+        CHECK_TRUE(vNested.isTournamentRoom);
+        LONGS_EQUAL(77, vNested.tournamentId);
+        STRCMP_EQUAL("spring-swiss-2026", vNested.tournamentSlug.c_str());
+        STRCMP_EQUAL("Spring Swiss 2026", vNested.tournamentTitle.c_str());
+        LONGS_EQUAL(2, vNested.tournamentRound);
+        STRCMP_EQUAL("r2-m1", vNested.tournamentMatchId.c_str());
+        /* Negative turn_elapsed_ms must be clamped to 0 */
+        LONGS_EQUAL(0, vNested.turnElapsedMs);
+    }
+
+    /* 4. End-to-end loopback HTTP listTables() and fetchGameView() */
+    httplib::Server mockSrv;
+    mockSrv.Get("/api/v1/tables",
+                [](const httplib::Request &, httplib::Response &res) {
+                    Json tbl = {
+                        {"room_id", "t-http-1"},
+                        {"mode", "2P"},
+                        {"bases", 3},
+                        {"is_tournament_room", true},
+                        {"tournament_id", 99},
+                        {"tournament_slug", "loopback-cup"},
+                        {"tournament_title", "Loopback Cup"},
+                        {"tournament_round", 1},
+                        {"tournament_match_id", "r1-b1"}
+                    };
+                    Json body = {{"tables", Json::array({tbl})}};
+                    res.status = 200;
+                    res.set_content(body.dump(), "application/json");
+                });
+    mockSrv.Get("/api/v1/games/t-http-1",
+                [](const httplib::Request &, httplib::Response &res) {
+                    Json body = {
+                        {"ok", true},
+                        {"live", true},
+                        {"room_id", "t-http-1"},
+                        {"phase", "IN_PROGRESS"},
+                        {"turn_elapsed_ms", 1825},
+                        {"config", {
+                            {"is_tournament_room", true},
+                            {"tournament_id", 99},
+                            {"tournament_slug", "loopback-cup"},
+                            {"tournament_title", "Loopback Cup"},
+                            {"tournament_round", 1},
+                            {"tournament_match_id", "r1-b1"}
+                        }}
+                    };
+                    res.status = 200;
+                    res.set_content(body.dump(), "application/json");
+                });
+
+    int port = mockSrv.bind_to_any_port("127.0.0.1");
+    CHECK_TRUE(port > 0);
+    std::thread srvThread([&mockSrv]() { mockSrv.listen_after_bind(); });
+
+    std::unique_ptr<octi::OctiNetworkClient> client =
+        octi::OctiNetworkClient::createForLoopbackTest(port);
+    octi::ApiResult<std::vector<octi::TableSummaryInfo>> tablesRes =
+        client->listTables();
+    CHECK_TRUE(tablesRes.ok);
+    LONGS_EQUAL(1, static_cast<long>(tablesRes.data.size()));
+    CHECK_TRUE(tablesRes.data[0].isTournamentRoom);
+    LONGS_EQUAL(99, tablesRes.data[0].tournamentId);
+    STRCMP_EQUAL("loopback-cup", tablesRes.data[0].tournamentSlug.c_str());
+
+    octi::ApiResult<octi::GameViewData> viewRes =
+        client->fetchGameView("t-http-1");
+    CHECK_TRUE(viewRes.ok);
+    CHECK_TRUE(viewRes.data.isTournamentRoom);
+    LONGS_EQUAL(99, viewRes.data.tournamentId);
+    STRCMP_EQUAL("Loopback Cup", viewRes.data.tournamentTitle.c_str());
+    LONGS_EQUAL(1, viewRes.data.tournamentRound);
+    STRCMP_EQUAL("r1-b1", viewRes.data.tournamentMatchId.c_str());
+    LONGS_EQUAL(1825, viewRes.data.turnElapsedMs);
+
+    mockSrv.stop();
+    if (srvThread.joinable()) {
+        srvThread.join();
+    }
+
+    /* 5. host_is_robot explicit field and fallback to host_detail / host seat */
+    {
+        Json explicitBot = {
+            {"room_id", "bot-room-1"},
+            {"host_uuid", "bot-uuid-1"},
+            {"host_handle", "AlphaBot"},
+            {"host_is_robot", true}
+        };
+        octi::TableSummaryInfo tBot =
+            octi::OctiNetworkClient::parseTableSummary(explicitBot.dump());
+        CHECK_TRUE(tBot.hostIsRobot);
+
+        Json explicitHuman = {
+            {"room_id", "human-room-1"},
+            {"host_uuid", "human-uuid-1"},
+            {"host_handle", "Alice"},
+            {"host_is_robot", false},
+            {"host_detail", {{"is_robot", true}}}
+        };
+        octi::TableSummaryInfo tHuman =
+            octi::OctiNetworkClient::parseTableSummary(explicitHuman.dump());
+        CHECK_FALSE(tHuman.hostIsRobot);
+
+        Json detailFallback = {
+            {"room_id", "bot-room-detail"},
+            {"host_uuid", "bot-uuid-2"},
+            {"host_handle", "BetaBot"},
+            {"host_detail", {{"is_robot", true}}}
+        };
+        octi::TableSummaryInfo tDetail =
+            octi::OctiNetworkClient::parseTableSummary(detailFallback.dump());
+        CHECK_TRUE(tDetail.hostIsRobot);
+
+        Json seatUuidFallback = {
+            {"room_id", "bot-room-seat-uuid"},
+            {"host_uuid", "bot-uuid-3"},
+            {"host_handle", "GammaBot"},
+            {"seats", Json::array({
+                {{"seat", 1}, {"player_uuid", "bot-uuid-3"}, {"handle", "GammaBot"}, {"is_robot", true}},
+                {{"seat", 2}, {"player_uuid", "human-uuid-2"}, {"handle", "Bob"}, {"is_robot", false}}
+            })}
+        };
+        octi::TableSummaryInfo tSeatUuid =
+            octi::OctiNetworkClient::parseTableSummary(seatUuidFallback.dump());
+        CHECK_TRUE(tSeatUuid.hostIsRobot);
+
+        Json seatHandleFallback = {
+            {"room_id", "bot-room-seat-handle"},
+            {"host_handle", "DeltaBot"},
+            {"seats", Json::array({
+                {{"seat", 1}, {"handle", "Bob"}, {"is_robot", false}},
+                {{"seat", 2}, {"handle", "DeltaBot"}, {"is_robot", true}}
+            })}
+        };
+        octi::TableSummaryInfo tSeatHandle =
+            octi::OctiNetworkClient::parseTableSummary(seatHandleFallback.dump());
+        CHECK_TRUE(tSeatHandle.hostIsRobot);
+    }
+}
+
+TEST(OctiNetworkClientTournamentAndClockTest,
+     RapidCheckTournamentAndTurnElapsedParsingInvariants)
+{
+    IGNORE_ALL_LEAKS_IN_TEST();
+    using Json = nlohmann::json;
+
+    bool passed = rc::check(
+        "parseTableSummary and parseGameView preserve tournament metadata and clamp turn_elapsed_ms >= 0",
+        []() {
+            const int placement = *rc::gen::inRange(0, 4); // 0=top, 1=config, 2=both, 3=omitted
+            const bool isTour = *rc::gen::arbitrary<bool>();
+            const std::int64_t tourId =
+                static_cast<std::int64_t>(*rc::gen::inRange(0, 100000));
+            const int roundNum = *rc::gen::inRange(0, 32);
+            const int slugId = *rc::gen::inRange(1, 9999);
+            const int matchNum = *rc::gen::inRange(1, 128);
+            const std::int64_t rawElapsed =
+                static_cast<std::int64_t>(*rc::gen::inRange(-500000, 500000));
+            const bool includeElapsed = *rc::gen::arbitrary<bool>();
+
+            const std::string slug = "tour-slug-" + std::to_string(slugId);
+            const std::string title = "Tournament #" + std::to_string(slugId);
+            const std::string matchId =
+                "r" + std::to_string(roundNum) + "-m" + std::to_string(matchNum);
+
+            Json meta = {
+                {"is_tournament_room", isTour},
+                {"tournament_id", tourId},
+                {"tournament_slug", slug},
+                {"tournament_title", title},
+                {"tournament_round", roundNum},
+                {"tournament_match_id", matchId}
+            };
+
+            Json payload = {
+                {"room_id", "rc-room"},
+                {"mode", "2P"},
+                {"bases", 3},
+                {"phase", "IN_PROGRESS"}
+            };
+            if (placement == 0 || placement == 2) {
+                for (Json::const_iterator it = meta.begin();
+                     it != meta.end(); ++it) {
+                    payload[it.key()] = it.value();
+                }
+            }
+            if (placement == 1 || placement == 2) {
+                payload["config"] = meta;
+            }
+            if (includeElapsed) {
+                payload["turn_elapsed_ms"] = rawElapsed;
+            }
+
+            const std::string dumped = payload.dump();
+            const octi::TableSummaryInfo t =
+                octi::OctiNetworkClient::parseTableSummary(dumped);
+            const octi::GameViewData v =
+                octi::OctiNetworkClient::parseGameView(dumped);
+
+            if (placement == 3) {
+                RC_ASSERT(!t.isTournamentRoom);
+                RC_ASSERT(t.tournamentId == 0);
+                RC_ASSERT(t.tournamentSlug.empty());
+                RC_ASSERT(t.tournamentTitle.empty());
+                RC_ASSERT(t.tournamentRound == 0);
+                RC_ASSERT(t.tournamentMatchId.empty());
+
+                RC_ASSERT(!v.isTournamentRoom);
+                RC_ASSERT(v.tournamentId == 0);
+                RC_ASSERT(v.tournamentSlug.empty());
+                RC_ASSERT(v.tournamentTitle.empty());
+                RC_ASSERT(v.tournamentRound == 0);
+                RC_ASSERT(v.tournamentMatchId.empty());
+            } else {
+                RC_ASSERT(t.isTournamentRoom == isTour);
+                RC_ASSERT(t.tournamentId == tourId);
+                RC_ASSERT(t.tournamentSlug == slug);
+                RC_ASSERT(t.tournamentTitle == title);
+                RC_ASSERT(t.tournamentRound == roundNum);
+                RC_ASSERT(t.tournamentMatchId == matchId);
+
+                RC_ASSERT(v.isTournamentRoom == isTour);
+                RC_ASSERT(v.tournamentId == tourId);
+                RC_ASSERT(v.tournamentSlug == slug);
+                RC_ASSERT(v.tournamentTitle == title);
+                RC_ASSERT(v.tournamentRound == roundNum);
+                RC_ASSERT(v.tournamentMatchId == matchId);
+            }
+
+            const std::int64_t expectedElapsed =
+                includeElapsed ? std::max<std::int64_t>(0, rawElapsed) : 0;
+            RC_ASSERT(v.turnElapsedMs >= 0);
+            RC_ASSERT(v.turnElapsedMs == expectedElapsed);
+        });
+    CHECK_TRUE(passed);
 }
 
 int main(int argc, char **argv)

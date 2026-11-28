@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include "OctiBoard.hxx"
+#include "OctiBotClock.hxx"
 #include "OctiBotConfig.hxx"
 #include "OctiBotEngine.hxx"
 #include "OctiDefs.hxx"
@@ -211,6 +212,7 @@ public:
 
     OctiBotEngine &engine() { return ensureEngine(); }
     const BotTuningProfile &profile() const { return _profile; }
+    const TimedClockBudgetPolicy &timedClockPolicy() const { return _timedClockPolicy; }
     void setProgressCallback(ProgressCallback cb) { _progressCallback = std::move(cb); }
 
 protected:
@@ -219,10 +221,12 @@ protected:
     OctiBotEngine *existingEngine() noexcept { return _engine.get(); }
     const OctiBotEngine *existingEngine() const noexcept { return _engine.get(); }
     BotTuningProfile &mutableProfile() { return _profile; }
+    TimedClockBudgetPolicy &mutableTimedClockPolicy() { return _timedClockPolicy; }
 
 private:
     std::unique_ptr<OctiBotEngine> _engine;
     BotTuningProfile _profile;
+    TimedClockBudgetPolicy _timedClockPolicy;
     int _verbosity = 2;
     ProgressCallback _progressCallback;
 };

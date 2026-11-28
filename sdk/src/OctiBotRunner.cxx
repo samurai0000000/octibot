@@ -186,6 +186,9 @@ static bool isBooleanConfigKey(const std::string &key) {
         "host_time_control_enabled",
         "publish_move_telemetry",
         "announce_move_search_chat",
+        "timed_auto_pace",
+        "accept_tournament_matches",
+        "tournament_suppress_casual_chat",
         "server_use_ssl",
         "allow_supersede",
         "lobby_only"
@@ -250,6 +253,10 @@ static std::map<std::string, std::string> buildEffectiveConfigMapImpl(
     applyConfigToTuningProfile(cfg, prof);
     serializeTuningProfileToMap(prof, effectiveDefaults);
 
+    TimedClockBudgetPolicy timedPol;
+    applyConfigToTimedClockPolicy(cfg, timedPol);
+    serializeTimedClockPolicyToMap(timedPol, effectiveDefaults);
+
     // 2. Policy defaults
     effectiveDefaults["table_behavior"] = cfg.getString("table_behavior", "auto");
     effectiveDefaults["accept_modes"] = cfg.getString("accept_modes", "2P, 4P, OFK");
@@ -282,6 +289,11 @@ static std::map<std::string, std::string> buildEffectiveConfigMapImpl(
     effectiveDefaults["max_consecutive_rematches"] = std::to_string(cfg.getInt("max_consecutive_rematches", 5));
     effectiveDefaults["claim_forfeit_delay_sec"] = std::to_string(cfg.getInt("claim_forfeit_delay_sec", 10));
     effectiveDefaults["min_move_think_ms"] = std::to_string(cfg.getInt("min_move_think_ms", 0));
+    effectiveDefaults["accept_tournament_matches"] = cfg.getBool("accept_tournament_matches", true) ? "true" : "false";
+    effectiveDefaults["tournament_post_game_linger_sec"] =
+        std::to_string(std::max(0, cfg.getInt("tournament_post_game_linger_sec", 2)));
+    effectiveDefaults["tournament_suppress_casual_chat"] =
+        cfg.getBool("tournament_suppress_casual_chat", true) ? "true" : "false";
 
     // 3. Runner & locked defaults
     effectiveDefaults["algorithm"] = cfg.getString("algorithm", "alpha_beta");
@@ -495,6 +507,8 @@ StockAlphaBetaAgent::StockAlphaBetaAgent(const OctiBotConfigStore &config) {
 
 void StockAlphaBetaAgent::onConfigure(const OctiBotConfigStore &config) {
     applyConfigToTuningProfile(config, _profile);
+    _timedClockPolicy = TimedClockBudgetPolicy{};
+    applyConfigToTimedClockPolicy(config, _timedClockPolicy);
     _verbosity = config.getVerbosityLevel(2);
     if (_engine) {
         _engine->setTuningProfile(_profile);
@@ -524,17 +538,13 @@ std::string StockAlphaBetaAgent::computeMove(const OctiBoard &board,
                                             std::int64_t remainingClockMs,
                                             BotMoveTelemetry *outTelemetry) {
     (void) mySeat;
-    (void) remainingClockMs;
 
     BotTuningProfile searchProfile = _profile;
-    if (game.timeControlEnabled && remainingClockMs > 0) {
-        int dynamicBudget = static_cast<int>(remainingClockMs / 25) +
-                            static_cast<int>(game.incrementMs);
-        if (dynamicBudget < 200) {
-            dynamicBudget = 200;
-        }
-        searchProfile.timeBudgetMs = std::min(_profile.timeBudgetMs, dynamicBudget);
-    }
+    const int currentPly = std::max(
+        0, std::max(game.plyCount, static_cast<int>(game.moves.size())));
+    const TimedMoveBudgetBreakdown budget = computeClockManagedMoveBudget(
+        _timedClockPolicy, _profile.timeBudgetMs, game, remainingClockMs, currentPly);
+    searchProfile.timeBudgetMs = budget.allocatedBudgetMs;
     OctiBotEngine &eng = ensureEngine();
     eng.setTuningProfile(searchProfile);
 
@@ -955,6 +965,9 @@ bool OctiBotRunner::reclaimIfUnused(std::string &errorOut) {
         _currentPhase = "IDLE";
         _currentSeat = 0;
         _activeGameView = GameViewData();
+        _activeGameViewFetchedMs = 0;
+        _pendingMatchFoundRoomId.clear();
+        _explicitAllowRobotsRoomId.clear();
         _pendingSseActions.clear();
         _chatMutedRooms.clear();
         _lastSeatedOpponents.clear();
@@ -1137,6 +1150,7 @@ int OctiBotRunner::computeNextWaitMs() const {
     std::string roomId;
     std::string phase;
     bool ovActive = false;
+    bool isTourneyRoom = false;
     std::int64_t graceUntilMs = 0;
     bool hasPendingSse = false;
     {
@@ -1144,10 +1158,11 @@ int OctiBotRunner::computeNextWaitMs() const {
         roomId = _currentRoomId;
         phase = _currentPhase;
         ovActive = _matchOverride.active;
+        isTourneyRoom = _activeGameView.isTournamentRoom;
         graceUntilMs = _matchOverrideJoinGraceUntilMs;
         hasPendingSse = !_pendingSseActions.empty();
     }
-    if (hasPendingSse) {
+    if (hasPendingSse || _pendingTournamentPreemptCheck.load()) {
         return 0;
     }
     if (isLobbyOnly() || _policy.tableBehavior() == "lobby_only") {
@@ -1164,18 +1179,30 @@ int OctiBotRunner::computeNextWaitMs() const {
         return lobbyStreamOk ? 2000 : 500;
     }
     if (phase == "WAITING_FOR_PLAYERS") {
+        if (_lobbyTablesDirty.load()) {
+            std::int64_t remThrottle = 2000 - (nowMs() - _lastLobbyTablesFetchMs);
+            if (remThrottle <= 25) {
+                return 25;
+            }
+            return static_cast<int>(std::min<std::int64_t>(remThrottle, 2000));
+        }
         return (gameStreamOk && lobbyStreamOk) ? 5000 : 500;
     }
     if (phase == "IN_PROGRESS") {
         return gameStreamOk ? 1000 : 250;
     }
     if (phase == "FINISHED" || phase == "GAME_OVER" || phase == "ABANDONED") {
-        int lingerSec = std::max(5, _config.getInt("post_game_linger_sec", 60));
+        int lingerSec = isTourneyRoom
+            ? std::max(0, _policy.tournamentPostGameLingerSec())
+            : std::max(5, _config.getInt("post_game_linger_sec", 60));
+        if (lingerSec <= 0) {
+            return 25;
+        }
         std::int64_t startMs = _postGameSilenceStartMs.load();
         if (startMs > 0) {
             std::int64_t remMs = (static_cast<std::int64_t>(lingerSec) * 1000) - (nowMs() - startMs);
-            if (remMs <= 200) {
-                return 200;
+            if (remMs <= 50) {
+                return 50;
             }
             if (remMs < 2000) {
                 return static_cast<int>(remMs);
@@ -1665,9 +1692,11 @@ void OctiBotRunner::onGameStartedHandled(const std::string &roomId,
                                          const GameViewData &view,
                                          int mySeat,
                                          const std::string &opponentHandle) {
-    (void) view;
     (void) mySeat;
     (void) opponentHandle;
+    if (view.isTournamentRoom && _policy.tournamentSuppressCasualChat()) {
+        return;
+    }
     if (!_agentEmittedGameStartGreeting && shouldEmitProactiveChat(roomId, "game_start")) {
         std::string gMsg = _config.getString("greeting_game_start", "Good luck and have fun!");
         if (!gMsg.empty()) {
@@ -1682,10 +1711,12 @@ void OctiBotRunner::onGameOverHandled(const std::string &roomId,
                                       const std::string &result,
                                       bool hasConnectedOpponent,
                                       const std::string &opponentHandle) {
-    (void) view;
     (void) mySeat;
     (void) hasConnectedOpponent;
     (void) opponentHandle;
+    if (view.isTournamentRoom && _policy.tournamentSuppressCasualChat()) {
+        return;
+    }
     if (shouldEmitProactiveChat(roomId, "game_over")) {
         std::string goMsg;
         if (result == "WIN") {
@@ -1712,6 +1743,9 @@ void OctiBotRunner::onPostGameLingerElapsed(const std::string &roomId,
                                             const std::string &opponentHandle,
                                             int lingerSec) {
     (void) lingerSec;
+    if (activeGameView().isTournamentRoom && _policy.tournamentSuppressCasualChat()) {
+        return;
+    }
     if (shouldEmitProactiveChat(roomId, "goodbye")) {
         std::string byeMsg = _config.getString(
             "chat_goodbye",
@@ -1856,6 +1890,7 @@ void OctiBotRunner::updateActiveGameView(const GameViewData &view) {
         const std::string prevPhase = _currentPhase;
         prevRoomSnap = prevRoom;
         _activeGameView = view;
+        _activeGameViewFetchedMs = nowMs();
         if (!view.roomId.empty()) {
             _currentRoomId = normalizeHandleOrId(view.roomId, '#');
             _activeGameView.roomId = _currentRoomId;
@@ -1956,7 +1991,14 @@ bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int &outSeat, std
 }
 
 bool OctiBotRunner::joinRoomById(const std::string &rawRoomId, int preferredSeat, int &outSeat, std::string &errorOut) {
-    return joinRoomByIdImpl(rawRoomId, preferredSeat, outSeat, errorOut, false, true, nullptr);
+    if (!joinRoomByIdImpl(rawRoomId, preferredSeat, outSeat, errorOut, false, true, nullptr)) {
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        _explicitAllowRobotsRoomId = _currentRoomId;
+    }
+    return true;
 }
 
 bool OctiBotRunner::joinRoomByIdImpl(const std::string &rawRoomId,
@@ -2001,7 +2043,9 @@ bool OctiBotRunner::joinRoomByIdImpl(const std::string &rawRoomId,
         auto gvRes = _client.fetchGameView(roomId);
         if (gvRes.ok && !_identity.handle.empty()) {
             for (const auto &s : gvRes.data.seats) {
-                if (iequalsStr(s.handle, _identity.handle) && s.seat > 0) {
+                if (((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                     (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) &&
+                    s.seat > 0) {
                     assignedSeat = s.seat;
                     assignedRoomId = gvRes.data.roomId.empty() ? roomId : gvRes.data.roomId;
                     break;
@@ -2058,7 +2102,18 @@ bool OctiBotRunner::joinRoomByIdImpl(const std::string &rawRoomId,
 }
 
 bool OctiBotRunner::hostRoomWithRequest(const CreateTableRequest &req, std::string &outRoomId, int &outSeat, std::string &errorOut) {
-    return hostRoomWithRequestImpl(req, true, outRoomId, outSeat, errorOut, nullptr);
+    if (!hostRoomWithRequestImpl(req, true, outRoomId, outSeat, errorOut, nullptr)) {
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(_stateMutex);
+        if (req.allowRobots) {
+            _explicitAllowRobotsRoomId = outRoomId;
+        } else if (_explicitAllowRobotsRoomId == outRoomId) {
+            _explicitAllowRobotsRoomId.clear();
+        }
+    }
+    return true;
 }
 
 bool OctiBotRunner::hostRoomWithRequestImpl(const CreateTableRequest &req,
@@ -2185,6 +2240,7 @@ bool OctiBotRunner::standUpFromWaitingRoomWithoutResign(const std::string &rawRo
             if (_currentRoomId == roomId || _currentRoomId.empty()) {
                 _currentRoomId = roomId;
                 _activeGameView = gv;
+                _activeGameViewFetchedMs = nowMs();
                 _currentPhase = gv.phase;
                 for (const auto &seat : gv.seats) {
                     if ((!_identity.handle.empty() && seat.handle == _identity.handle) ||
@@ -2239,6 +2295,22 @@ bool OctiBotRunner::standUpFromWaitingRoomWithoutResign(const std::string &rawRo
                     } else {
                         auto r2 = _client.leaveTable(roomId);
                         leftOk = r2.ok || r2.httpStatus == 404 || r2.httpStatus == 410;
+                        if (!leftOk) {
+                            bool stillSeatedOrHost =
+                                (!gvRes.data.hostUuid.empty() &&
+                                 (gvRes.data.hostUuid == _identity.robotUuid ||
+                                  gvRes.data.hostUuid == _identity.ownerUuid));
+                            for (const auto &s : gvRes.data.seats) {
+                                if ((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                                    (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) {
+                                    stillSeatedOrHost = true;
+                                    break;
+                                }
+                            }
+                            if (!stillSeatedOrHost) {
+                                leftOk = true;
+                            }
+                        }
                     }
                 } else if (gvRes.data.phase == "FINISHED" ||
                            gvRes.data.phase == "GAME_OVER" ||
@@ -2256,11 +2328,15 @@ bool OctiBotRunner::standUpFromWaitingRoomWithoutResign(const std::string &rawRo
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
         _chatMutedRooms.erase(roomId);
+        if (_explicitAllowRobotsRoomId == roomId) {
+            _explicitAllowRobotsRoomId.clear();
+        }
         if (_currentRoomId == roomId) {
             _currentRoomId = "";
             _currentSeat = 0;
             _currentPhase = "IDLE";
             _activeGameView = GameViewData();
+            _activeGameViewFetchedMs = 0;
             _lastSeatedOpponents.clear();
             _gameOverHandledRoomId = "";
             _gameStartedHandledRoomId.clear();
@@ -2354,6 +2430,9 @@ LeaveRoomResult OctiBotRunner::leaveRoomWithOptions(const std::string &rawRoomId
                 _excludedPlayerUntilMs = nowMs() + 60000;
             }
             _chatMutedRooms.erase(roomId);
+            if (_explicitAllowRobotsRoomId == roomId) {
+                _explicitAllowRobotsRoomId.clear();
+            }
             if (_currentRoomId == roomId) {
                 _currentRoomId = "";
                 _currentSeat = 0;
@@ -2470,6 +2549,7 @@ LeaveRoomResult OctiBotRunner::leaveRoomWithOptions(const std::string &rawRoomId
             std::lock_guard<std::mutex> lock(_stateMutex);
             if (_currentRoomId == roomId) {
                 _activeGameView = gvRes.data;
+                _activeGameViewFetchedMs = nowMs();
                 if (!gvRes.data.phase.empty()) {
                     _currentPhase = gvRes.data.phase;
                 }
@@ -2494,6 +2574,7 @@ LeaveRoomResult OctiBotRunner::leaveRoomWithOptions(const std::string &rawRoomId
                 std::lock_guard<std::mutex> lock(_stateMutex);
                 if (_currentRoomId == roomId) {
                     _activeGameView = gvRace.data;
+                    _activeGameViewFetchedMs = nowMs();
                     _currentPhase = gvRace.data.phase;
                 }
             }
@@ -2560,6 +2641,7 @@ LeaveRoomResult OctiBotRunner::leaveRoomWithOptions(const std::string &rawRoomId
                         std::lock_guard<std::mutex> lock(_stateMutex);
                         if (_currentRoomId == roomId) {
                             _activeGameView = gvAfter.data;
+                            _activeGameViewFetchedMs = nowMs();
                             if (!gvAfter.data.phase.empty()) {
                                 _currentPhase = gvAfter.data.phase;
                             }
@@ -3321,6 +3403,7 @@ void OctiBotRunner::drainPendingSseActions() {
                     std::lock_guard<std::mutex> lock(_stateMutex);
                     if (_currentRoomId == curRoom) {
                         _activeGameView = gvRes.data;
+                        _activeGameViewFetchedMs = nowMs();
                         _currentPhase = gvRes.data.phase;
                     }
                 }
@@ -3492,6 +3575,7 @@ void OctiBotRunner::loopStep() {
     }
 
     std::string roomId;
+    bool explicitAllowRobotsForRoom = false;
     BotMatchOverride ov;
     std::string exclRoom;
     std::int64_t exclRoomUntil = 0;
@@ -3501,6 +3585,8 @@ void OctiBotRunner::loopStep() {
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
         roomId = _currentRoomId;
+        explicitAllowRobotsForRoom =
+            (!_currentRoomId.empty() && _explicitAllowRobotsRoomId == _currentRoomId);
         ov = _matchOverride;
         exclRoom = _excludedRoomId;
         exclRoomUntil = _excludedRoomUntilMs;
@@ -3791,12 +3877,103 @@ void OctiBotRunner::loopStep() {
         }
 
         if (behavior == "auto" || behavior == "join_only" || behavior == "host_only") {
+            _pendingTournamentPreemptCheck.store(false);
+            {
+                std::lock_guard<std::mutex> lock(_stateMutex);
+                _pendingMatchFoundRoomId.clear();
+            }
             auto tablesRes = _client.listTables(false);
             _lastLobbyTablesFetchMs = nowMs();
             if (tablesRes.ok) {
-                // First check if we are already seated in an IN_PROGRESS or WAITING_FOR_PLAYERS table
+                // Pass 1: Adopt/join any table where we are already seated (prioritizing tournament rooms first)
+                for (int tourneyPass = 0; tourneyPass < 2; ++tourneyPass) {
+                    const bool wantTourney = (tourneyPass == 0);
+                    for (const auto &t : tablesRes.data) {
+                        if (t.isTournamentRoom != wantTourney) {
+                            continue;
+                        }
+                        if (t.isTournamentRoom && !_policy.acceptTournamentMatches()) {
+                            continue;
+                        }
+                        if (t.phase != "IN_PROGRESS" && t.phase != "WAITING_FOR_PLAYERS") {
+                            continue;
+                        }
+                        if (!t.isTournamentRoom && !exclRoom.empty() &&
+                            t.roomId == exclRoom && now < exclRoomUntil &&
+                            (!ov.active || ov.targetRoomId != t.roomId)) {
+                            continue;
+                        }
+                        bool selfSeated = false;
+                        bool onlyRobotOpponents = true;
+                        bool hasAnyOpponent = false;
+                        for (const auto &s : t.seats) {
+                            if ((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                                (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) {
+                                selfSeated = true;
+                            } else if (!s.handle.empty()) {
+                                hasAnyOpponent = true;
+                                if (!s.isRobot) {
+                                    onlyRobotOpponents = false;
+                                }
+                            }
+                        }
+                        const bool exemptTournament =
+                            t.isTournamentRoom && _policy.acceptTournamentMatches();
+                        const bool blockedByCasualHumansOnly =
+                            !exemptTournament &&
+                            (_policy.opponentFilter() == "humans_only" && !ov.allowRobots &&
+                             hasAnyOpponent && onlyRobotOpponents);
+                        if (selfSeated && !blockedByCasualHumansOnly) {
+                            if (exemptTournament && !_identity.handle.empty()) {
+                                for (const auto &stale : tablesRes.data) {
+                                    if (stale.roomId != t.roomId && !stale.isTournamentRoom &&
+                                        stale.phase == "WAITING_FOR_PLAYERS" &&
+                                        stale.seatsFilled == 0 &&
+                                        iequalsStr(stale.hostHandle, _identity.handle)) {
+                                        _client.purgeTable(stale.roomId);
+                                    }
+                                }
+                            }
+                            int joinedSeat = 0;
+                            std::string joinErr;
+                            if (t.phase == "IN_PROGRESS") {
+                                if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr)) {
+                                    return;
+                                }
+                            } else {
+                                if (!exemptTournament && !ov.active &&
+                                    (shouldStandUpAndUnhostWaitingRoom(t.roomId) ||
+                                     (!hasAnyOpponent && isAutonomousMatchmakingPaused()))) {
+                                    bool transitioned = false;
+                                    standUpFromWaitingRoomWithoutResign(t.roomId, transitioned);
+                                    if (transitioned) {
+                                        joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr);
+                                        return;
+                                    }
+                                    continue;
+                                }
+                                bool commitNow = (hasAnyOpponent || ov.active || exemptTournament);
+                                bool joinMaxed = false;
+                                if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, false, commitNow, &joinMaxed)) {
+                                    return;
+                                }
+                                if (joinMaxed && !exemptTournament) {
+                                    bool transitioned = false;
+                                    standUpFromWaitingRoomWithoutResign(t.roomId, transitioned);
+                                    if (transitioned) {
+                                        joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr);
+                                        return;
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Pass 2: Recover unseated casual hosted WAITING_FOR_PLAYERS tables
                 for (const auto &t : tablesRes.data) {
-                    if (t.phase != "IN_PROGRESS" && t.phase != "WAITING_FOR_PLAYERS") {
+                    if (t.isTournamentRoom || t.phase != "WAITING_FOR_PLAYERS") {
                         continue;
                     }
                     if (!exclRoom.empty() && t.roomId == exclRoom && now < exclRoomUntil &&
@@ -3804,55 +3981,15 @@ void OctiBotRunner::loopStep() {
                         continue;
                     }
                     bool selfSeated = false;
-                    bool onlyRobotOpponents = true;
-                    bool hasAnyOpponent = false;
                     for (const auto &s : t.seats) {
-                        if (!s.handle.empty() && s.handle == _identity.handle) {
+                        if ((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                            (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) {
                             selfSeated = true;
-                        } else if (!s.handle.empty()) {
-                            hasAnyOpponent = true;
-                            if (!s.isRobot) {
-                                onlyRobotOpponents = false;
-                            }
-                        }
-                    }
-                    if (selfSeated &&
-                        !(_policy.opponentFilter() == "humans_only" && !ov.allowRobots && hasAnyOpponent && onlyRobotOpponents)) {
-                        int joinedSeat = 0;
-                        std::string joinErr;
-                        if (t.phase == "IN_PROGRESS") {
-                            if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr)) {
-                                return;
-                            }
-                        } else {
-                            if (!ov.active && (shouldStandUpAndUnhostWaitingRoom(t.roomId) ||
-                                               (!hasAnyOpponent && isAutonomousMatchmakingPaused()))) {
-                                bool transitioned = false;
-                                standUpFromWaitingRoomWithoutResign(t.roomId, transitioned);
-                                if (transitioned) {
-                                    joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr);
-                                    return;
-                                }
-                                continue;
-                            }
-                            bool commitNow = (hasAnyOpponent || ov.active);
-                            bool joinMaxed = false;
-                            if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, false, commitNow, &joinMaxed)) {
-                                return;
-                            }
-                            if (joinMaxed) {
-                                bool transitioned = false;
-                                standUpFromWaitingRoomWithoutResign(t.roomId, transitioned);
-                                if (transitioned) {
-                                    joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr, true, false, nullptr);
-                                    return;
-                                }
-                                continue;
-                            }
+                            break;
                         }
                     }
                     if (!selfSeated && !_identity.handle.empty() &&
-                        t.hostHandle == _identity.handle &&
+                        iequalsStr(t.hostHandle, _identity.handle) &&
                         t.phase == "WAITING_FOR_PLAYERS") {
                         std::string unseatedReason;
                         if (!checkAgentSupportsVariant(OctiVariantSpec::fromTable(t), unseatedReason)) {
@@ -3940,7 +4077,7 @@ void OctiBotRunner::loopStep() {
                         }
                         int joinedSeat = 0;
                         std::string joinErr;
-                        if (joinRoomById(cand.roomId, joinedSeat, joinErr)) {
+                        if (joinRoomByIdImpl(cand.roomId, 0, joinedSeat, joinErr, false, true, nullptr)) {
                             return;
                         }
                     }
@@ -4096,6 +4233,7 @@ void OctiBotRunner::loopStep() {
                 }
                 oldPhase = _currentPhase;
                 _activeGameView = gvRes.data;
+                _activeGameViewFetchedMs = _lastRoomFetchMs;
                 _currentPhase = gvRes.data.phase;
 
                 int foundSeat = 0;
@@ -4234,8 +4372,11 @@ void OctiBotRunner::loopStep() {
                                    (curTarget.empty() || !matchesAnyTargetHandle(ov.targetPlayerHandle, seat.handle))) {
                             shouldKick = true;
                         }
+                    } else if (explicitAllowRobotsForRoom && seat.isRobot && !_policy.isBanned(seat.handle)) {
+                        shouldKick = false;
                     } else {
-                        shouldKick = _policy.shouldKickSeatedPlayer(tsi, _identity.ownerHandle);
+                        shouldKick = _policy.shouldKickSeatedPlayer(
+                            tsi, _identity.ownerHandle, _activeGameView.isTournamentRoom);
                     }
                     if (isHost && shouldKick) {
                         if (needRoomFetch) {
@@ -4300,12 +4441,98 @@ void OctiBotRunner::loopStep() {
                     return;
                 }
             }
-            bool shouldCheckOtherTables = (_lobbyTablesDirty.exchange(false) || !_client.isLobbyEventStreamActive()) &&
-                                          (ov.active || (now - _lastLobbyTablesFetchMs >= 2000));
-            if (!hasValidSeatedOpponent && shouldCheckOtherTables) {
+            bool forceLobbyCheckNow = false;
+            if (!hasValidSeatedOpponent && !_activeGameView.isTournamentRoom &&
+                _policy.acceptTournamentMatches() &&
+                _pendingTournamentPreemptCheck.exchange(false)) {
+                forceLobbyCheckNow = true;
+                std::string pendingMatchRoom;
+                {
+                    std::lock_guard<std::mutex> lock(_stateMutex);
+                    pendingMatchRoom = _pendingMatchFoundRoomId;
+                    _pendingMatchFoundRoomId.clear();
+                }
+                if (!pendingMatchRoom.empty() && pendingMatchRoom != roomId) {
+                    auto gvMatch = _client.fetchGameView(pendingMatchRoom);
+                    if (gvMatch.ok && gvMatch.data.isTournamentRoom &&
+                        (gvMatch.data.phase == "IN_PROGRESS" ||
+                         gvMatch.data.phase == "WAITING_FOR_PLAYERS")) {
+                        bool selfInMatch = false;
+                        for (const auto &s : gvMatch.data.seats) {
+                            if ((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                                (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) {
+                                selfInMatch = true;
+                                break;
+                            }
+                        }
+                        if (selfInMatch) {
+                            logMsg(2, "Preempting casual waiting room #" + roomId +
+                                   " for assigned tournament match #" + pendingMatchRoom);
+                            if (isHost) {
+                                _client.purgeTable(roomId);
+                            }
+                            bool transitioned = false;
+                            standUpFromWaitingRoomWithoutResign(roomId, transitioned);
+                            if (transitioned) {
+                                return;
+                            }
+                            int joinedSeat = 0;
+                            std::string joinErr;
+                            const bool inProg = (gvMatch.data.phase == "IN_PROGRESS");
+                            if (joinRoomByIdImpl(pendingMatchRoom, 0, joinedSeat, joinErr,
+                                                 inProg, !inProg, nullptr)) {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const bool lobbyDirtyOrUnstreamed =
+                _lobbyTablesDirty.load() || !_client.isLobbyEventStreamActive() || forceLobbyCheckNow;
+            const bool throttleElapsed =
+                forceLobbyCheckNow || ov.active || (now - _lastLobbyTablesFetchMs >= 2000);
+            if (!hasValidSeatedOpponent && lobbyDirtyOrUnstreamed && throttleElapsed) {
+                _lobbyTablesDirty.store(false);
                 auto tablesRes = _client.listTables(false);
                 _lastLobbyTablesFetchMs = nowMs();
                 if (tablesRes.ok) {
+                    if (!_activeGameView.isTournamentRoom && _policy.acceptTournamentMatches()) {
+                        for (const auto &t : tablesRes.data) {
+                            if (t.roomId == roomId || !t.isTournamentRoom ||
+                                (t.phase != "IN_PROGRESS" && t.phase != "WAITING_FOR_PLAYERS")) {
+                                continue;
+                            }
+                            bool selfInTourney = false;
+                            for (const auto &s : t.seats) {
+                                if ((!_identity.handle.empty() && iequalsStr(s.handle, _identity.handle)) ||
+                                    (!_identity.robotUuid.empty() && s.robotUuid == _identity.robotUuid)) {
+                                    selfInTourney = true;
+                                    break;
+                                }
+                            }
+                            if (!selfInTourney) {
+                                continue;
+                            }
+                            logMsg(2, "Preempting casual waiting room #" + roomId +
+                                   " for tournament room #" + t.roomId);
+                            if (isHost) {
+                                _client.purgeTable(roomId);
+                            }
+                            bool transitioned = false;
+                            standUpFromWaitingRoomWithoutResign(roomId, transitioned);
+                            if (transitioned) {
+                                return;
+                            }
+                            int joinedSeat = 0;
+                            std::string joinErr;
+                            const bool inProg = (t.phase == "IN_PROGRESS");
+                            if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, joinErr,
+                                                 inProg, !inProg, nullptr)) {
+                                return;
+                            }
+                        }
+                    }
                     std::string curTarget = firstTargetHandle(ov.targetPlayerHandle);
                     if (ov.active && !curTarget.empty()) {
                         for (const auto &t : tablesRes.data) {
@@ -4362,7 +4589,7 @@ void OctiBotRunner::loopStep() {
                                     std::string dummyErr;
                                     leaveRoomById(roomId, dummyErr);
                                     int joinedSeat = 0;
-                                    if (joinRoomById(t.roomId, joinedSeat, dummyErr)) {
+                                    if (joinRoomByIdImpl(t.roomId, 0, joinedSeat, dummyErr, false, true, nullptr)) {
                                         {
                                             std::lock_guard<std::mutex> lock(_stateMutex);
                                             _matchOverrideJoinGraceUntilMs = 0;
@@ -4423,7 +4650,9 @@ void OctiBotRunner::loopStep() {
                     return;
                 }
             }
-            bool allowRobotsNow = _activeGameView.allowRobots ||
+            bool allowRobotsNow =
+                (_activeGameView.isTournamentRoom && _policy.acceptTournamentMatches()) ||
+                explicitAllowRobotsForRoom ||
                 (ov.active && (ov.allowRobots || !ov.targetPlayerHandle.empty() || !ov.targetRoomId.empty()));
             if (_policy.opponentFilter() == "humans_only" && !allowRobotsNow) {
                 bool hasHumanOpponent = false;
@@ -4543,7 +4772,9 @@ void OctiBotRunner::loopStep() {
                     return;
                 }
 
-                if (hasConnectedOpponent) {
+                const int tourneyLingerCfg = std::max(0, _policy.tournamentPostGameLingerSec());
+                if (hasConnectedOpponent &&
+                    !(_activeGameView.isTournamentRoom && tourneyLingerCfg == 0)) {
                     return;
                 }
             }
@@ -4559,6 +4790,7 @@ void OctiBotRunner::loopStep() {
                     _currentSeat = 0;
                     _currentPhase = "IDLE";
                     _activeGameView = GameViewData();
+                    _activeGameViewFetchedMs = 0;
                     _lastSeatedOpponents.clear();
                     _gameOverHandledRoomId = "";
                     _gameStartedHandledRoomId.clear();
@@ -4592,7 +4824,9 @@ void OctiBotRunner::loopStep() {
                 return;
             }
 
-            int lingerSec = std::max(5, _config.getInt("post_game_linger_sec", 60));
+            int lingerSec = _activeGameView.isTournamentRoom
+                ? std::max(0, _policy.tournamentPostGameLingerSec())
+                : std::max(5, _config.getInt("post_game_linger_sec", 60));
             std::int64_t silentMs = nowMs() - _postGameSilenceStartMs.load();
             if (silentMs >= static_cast<std::int64_t>(lingerSec) * 1000) {
                 onPostGameLingerElapsed(roomId, oppHandle, lingerSec);
@@ -4606,6 +4840,7 @@ void OctiBotRunner::loopStep() {
                     _currentSeat = 0;
                     _currentPhase = "IDLE";
                     _activeGameView = GameViewData();
+                    _activeGameViewFetchedMs = 0;
                     _lastSeatedOpponents.clear();
                     _gameOverHandledRoomId = "";
                     _gameStartedHandledRoomId.clear();
@@ -4697,12 +4932,14 @@ void OctiBotRunner::playEngineTurn() {
     bool superProngs = false;
     bool edgeless = false;
     GameViewData gameViewSnap;
+    std::int64_t gameViewFetchedMs = 0;
 
     {
         std::lock_guard<std::mutex> lock(_stateMutex);
         roomId = _currentRoomId;
         mySeat = _currentSeat;
         gameViewSnap = _activeGameView;
+        gameViewFetchedMs = _activeGameViewFetchedMs;
         fen = _activeGameView.fen;
         mode = _activeGameView.mode;
         bases = _activeGameView.bases;
@@ -4775,6 +5012,25 @@ void OctiBotRunner::playEngineTurn() {
         std::this_thread::sleep_for(std::chrono::milliseconds(_policy.minMoveThinkMs()));
     }
 
+    const std::int64_t baseTurnElapsedMs =
+        std::max<std::int64_t>(0, gameViewSnap.turnElapsedMs);
+    auto refreshTurnClockSnapshot = [&]() {
+        const std::int64_t turnNowMs = nowMs();
+        gameViewSnap.turnElapsedMs = baseTurnElapsedMs;
+        clockMs = computeEffectiveRemainingClockMs(
+            gameViewSnap, mySeat, gameViewFetchedMs, turnNowMs);
+        if (gameViewSnap.timeControlEnabled &&
+            gameViewSnap.phase == "IN_PROGRESS" &&
+            !gameViewSnap.paused &&
+            gameViewSnap.turnSeat == mySeat &&
+            gameViewFetchedMs > 0 &&
+            turnNowMs > gameViewFetchedMs) {
+            gameViewSnap.turnElapsedMs =
+                baseTurnElapsedMs + (turnNowMs - gameViewFetchedMs);
+        }
+    };
+    refreshTurnClockSnapshot();
+
     std::string chosenMove;
     bool extAborted = false;
     if (tryComputeExternalMove(*_activeBoard, gameViewSnap, mySeat, chosenMove, extAborted)) {
@@ -4815,6 +5071,7 @@ void OctiBotRunner::playEngineTurn() {
             }
         } progressGuard{*this};
         onBeforeComputeMove();
+        refreshTurnClockSnapshot();
         chosenMove = _agent->computeMove(*_activeBoard, gameViewSnap, mySeat, clockMs, &_lastTelemetry);
     }
 
@@ -5002,6 +5259,25 @@ void OctiBotRunner::handleLobbySseEvent(const std::string &eventType, const std:
 
     if (eventType == "TABLE_UPDATED" || eventType == "TABLE_CLOSED" || eventType == "MATCH_FOUND") {
         if (eventType == "MATCH_FOUND") {
+            try {
+                auto j = nlohmann::json::parse(data);
+                std::string evRoom = normalizeHandleOrId(j.value("room_id", ""), '#');
+                std::string evHandle = j.value("handle", "");
+                std::string evRobotUuid = j.value("robot_uuid", "");
+                const bool forSelf =
+                    (evHandle.empty() && evRobotUuid.empty()) ||
+                    (!_identity.handle.empty() && iequalsStr(evHandle, _identity.handle)) ||
+                    (!_identity.robotUuid.empty() && evRobotUuid == _identity.robotUuid);
+                if (forSelf) {
+                    if (!evRoom.empty()) {
+                        std::lock_guard<std::mutex> lock(_stateMutex);
+                        _pendingMatchFoundRoomId = evRoom;
+                    }
+                    _pendingTournamentPreemptCheck.store(true);
+                }
+            } catch (...) {
+                _pendingTournamentPreemptCheck.store(true);
+            }
             wakeLoop(true, true);
             return;
         }
@@ -5122,6 +5398,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
                         std::lock_guard<std::mutex> lock(_stateMutex);
                         if (_currentRoomId == curRoom || _currentRoomId.empty()) {
                             _activeGameView = gvRes.data;
+                            _activeGameViewFetchedMs = nowMs();
                             if (!gvRes.data.phase.empty()) {
                                 _currentPhase = gvRes.data.phase;
                             }
@@ -5212,6 +5489,7 @@ void OctiBotRunner::handleGameSseEvent(const std::string &eventType, const std::
             _currentSeat = 0;
             _currentPhase = "IDLE";
             _activeGameView = GameViewData();
+            _activeGameViewFetchedMs = 0;
             _lastSeatedOpponents.clear();
             _gameOverHandledRoomId = "";
             _gameStartedHandledRoomId.clear();

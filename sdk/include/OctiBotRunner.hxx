@@ -418,6 +418,7 @@ private:
     std::string _currentPhase = "IDLE";
     int _currentSeat = 0;
     GameViewData _activeGameView;
+    std::int64_t _activeGameViewFetchedMs = 0;
     std::unique_ptr<OctiBoard> _activeBoard;
     BotMoveTelemetry _lastTelemetry;
     BotMatchOverride _matchOverride;
@@ -434,6 +435,9 @@ private:
     std::set<std::string> _lastSeatedOpponents;
     std::int64_t _matchOverrideJoinGraceUntilMs = 0;
     std::int64_t _lastLobbyStreamRestartMs = 0;
+    std::atomic<bool> _pendingTournamentPreemptCheck{false};
+    std::string _pendingMatchFoundRoomId;
+    std::string _explicitAllowRobotsRoomId;
 
     std::mutex _eventMutex;
     std::condition_variable _eventCv;

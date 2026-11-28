@@ -12,6 +12,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "OctiBotClock.hxx"
 #include "OctiBotConfig.hxx"
 #include "OctiNetworkClient.hxx"
 
@@ -58,7 +59,8 @@ public:
         const std::string &myHandle) const;
 
     bool shouldKickSeatedPlayer(const TableSeatInfo &seat,
-                                const std::string &ownerHandle) const;
+                                const std::string &ownerHandle,
+                                bool isTournamentRoom = false) const;
 
     bool shouldAcceptProposal(const GameProposalInfo &proposal,
                               const std::string &proposerHandle,
@@ -80,6 +82,12 @@ public:
     int claimForfeitDelaySec() const { return _claimForfeitDelaySec; }
     int minMoveThinkMs() const { return _minMoveThinkMs; }
     int maxConsecutiveRematches() const { return _maxConsecutiveRematches; }
+
+    bool acceptTournamentMatches() const { return _acceptTournamentMatches; }
+    void setAcceptTournamentMatches(bool val) { _acceptTournamentMatches = val; }
+    int tournamentPostGameLingerSec() const { return _tournamentPostGameLingerSec; }
+    bool tournamentSuppressCasualChat() const { return _tournamentSuppressCasualChat; }
+    const TimedClockBudgetPolicy &timedClockPolicy() const { return _timedClockPolicy; }
 
 private:
     mutable std::mutex _mutex;
@@ -106,6 +114,11 @@ private:
     int _maxConsecutiveRematches = 5;
     int _claimForfeitDelaySec = 10;
     int _minMoveThinkMs = 0;
+
+    bool _acceptTournamentMatches = true;
+    int _tournamentPostGameLingerSec = 2;
+    bool _tournamentSuppressCasualChat = true;
+    TimedClockBudgetPolicy _timedClockPolicy;
 
     // Hosting defaults
     std::string _hostMode = "2P";

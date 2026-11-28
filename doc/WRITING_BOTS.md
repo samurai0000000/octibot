@@ -21,7 +21,8 @@ The repository is divided into three clean layers:
 +-----------------------------------------------------------------------+
 | octibot_sdk (sdk/include/*.hxx)                                       |
 |  - OctiBotRunner & OctiBotFleetRunner: SSE loop, turns, lease & fleet |
-|  - OctiBotPolicyEngine: table hosting/joining, draw/undo/rematch      |
+|  - OctiBotPolicyEngine: table hosting/joining, tournament exemptions  |
+|  - OctiBotClock: horizon-tapered clock pacing & sudden-death margins  |
 |  - OctiBotConfigStore: INI profile & tokens.conf resolution           |
 |  - OctiBotAgent & StockAlphaBetaAgent: agent interface & stock engine |
 +-----------------------------------------------------------------------+
@@ -322,13 +323,16 @@ public:
         _maxDepth     = config.getInt("max_search_depth", 4);
         _timeBudgetMs = config.getInt("time_budget_ms", 3000);
         applyConfigToTuningProfile(config, _profile);
+        applyConfigToTimedClockPolicy(config, _clockPolicy);
     }
 
     void onGameStarted(const GameViewData &game,
                        int mySeat,
                        std::string &outGreetingChat) override {
-        (void) game;
         (void) mySeat;
+        if (game.isTournamentRoom) {
+            return; // Keep tournament rooms focused on play
+        }
         outGreetingChat = "Hello! Running MyCustomNegamaxAgent (max_depth=" +
                           std::to_string(_maxDepth) + "). Good luck!";
     }
@@ -338,7 +342,6 @@ public:
                             int mySeat,
                             std::int64_t remainingClockMs,
                             BotMoveTelemetry *outTelemetry) override {
-        (void) game;
         (void) mySeat;
         auto startTime = std::chrono::steady_clock::now();
 
@@ -348,11 +351,10 @@ public:
         std::vector<OctiMove> rootMoves = g->generateLegalMoves();
         if (rootMoves.empty()) return "";
 
-        // Respect remaining clock if timed match is low on time
-        std::int64_t budgetMs = _timeBudgetMs;
-        if (remainingClockMs > 0 && remainingClockMs < budgetMs * 3) {
-            budgetMs = std::max<std::int64_t>(200, remainingClockMs / 10);
-        }
+        // Delegate timed-game pacing & sudden-death safety margins to OctiBotClock
+        const int currentPly = std::max(game.plyCount, static_cast<int>(game.moves.size()));
+        const std::int64_t budgetMs = computeClockManagedMoveBudgetMs(
+            _clockPolicy, _timeBudgetMs, game, remainingClockMs, currentPly);
 
         OctiBoard scratch(board.getGameMode(),
                           g->useSuperProngs(),
@@ -479,6 +481,7 @@ private:
     int _maxDepth = 4;
     int _timeBudgetMs = 3000;
     BotTuningProfile _profile;
+    TimedClockBudgetPolicy _clockPolicy;
 };
 
 } // namespace octi
@@ -495,6 +498,15 @@ int main(int argc, char **argv) {
     return octi::runFleetCli(argc, argv);
 }
 ```
+
+### 5.1 Clock Management & Tournament Awareness (`OctiBotClock.hxx`)
+
+`octibot_sdk` provides a shared clock-management engine (`sdk/include/OctiBotClock.hxx`, included automatically by `OctiBotAgent.hxx`) used by `StockAlphaBetaAgent` and available to any custom engine:
+
+- **Untimed Preservation**: When `!game.timeControlEnabled`, `computeClockManagedMoveBudget(...)` returns `configuredUntimedBudgetMs` unchanged (`usedDynamicClock == false`).
+- **Horizon & Increment Pacing**: When `game.timeControlEnabled`, usable time (`remainingClockMs - effectiveSafetyMs`) is paced across opening (`ply < timedOpeningTaperMaxPly`, `75%` bank taper), midgame (`24` moves), and endgame (`ply >= 40`, `16` moves) plus weighted Fischer increment (`75%`), softly bounded inside `[timed_time_budget_min_ms, timed_auto_pace ? timed_time_budget_max_ms : time_budget_ms]`.
+- **Hard Sudden-Death Safety Margin**: Move allocation never exceeds `remainingClockMs - (clockSafetyMarginMs + extraEngineStopOverheadMs)` when above the margin (and caps single-move spend at `timedMaxBankFractionPct` of usable bank). Batched GPU/MCTS or subprocess engines with non-instant stop latency can pass `extraEngineStopOverheadMs > 0` so worker teardown finishes comfortably before `0ms`.
+- **Tournament Runtime Support**: `OctiBotPolicyEngine` and `OctiBotRunner` automatically exempt `game.isTournamentRoom` matches from casual `opponent_filter = humans_only`, `friends_only`, and casual time-control range filters (when `accept_tournament_matches = true`), preempt idle casual waiting tables upon `MATCH_FOUND`, suppress casual untimed greetings (`tournament_suppress_casual_chat = true`), and vacate finished tournament rooms after `tournament_post_game_linger_sec` (default `2` seconds).
 
 ---
 

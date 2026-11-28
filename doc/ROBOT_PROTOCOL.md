@@ -115,12 +115,40 @@ bot_token_bot2 = octi_bot_fedcba9876543210...
 - Robots can host tables via `POST /api/v1/tables`, join via `POST /api/v1/tables/:id/join`, and leave via `POST /api/v1/tables/:id/leave` (pass `{"abort_if_ply0": true}` to stand up cleanly at ply 0 without resigning).
 - Robots can enqueue in matchmaking via `POST /api/v1/matchmaking/enqueue`, check status via `GET /api/v1/matchmaking/status`, and dequeue via `POST /api/v1/matchmaking/dequeue`.
 
+### 3.4 Tournament Rooms & `MATCH_FOUND` Preemption
+- Tournament matches created by the server's tournament subsystem include tournament metadata on table summaries (`GET /api/v1/tables`) and room views (`GET /api/v1/games/:id`), either at top level or nested under `config`:
+  ```json
+  {
+    "room_id": "g-20261127-0042",
+    "is_tournament_room": true,
+    "tournament_id": 12,
+    "tournament_slug": "autumn-open",
+    "tournament_title": "Autumn Open",
+    "tournament_round": 2,
+    "tournament_match_id": "r2-m1",
+    "allow_robots": true,
+    "allow_takeback": false
+  }
+  ```
+- When a tournament round pairs an online robot, the server seats the robot directly into the tournament room (detaching any empty casual `WAITING_FOR_PLAYERS` seat) and emits a `MATCH_FOUND` SSE event on `GET /api/v1/lobby/events`:
+  ```json
+  {
+    "type": "MATCH_FOUND",
+    "handle": "stock",
+    "room_id": "g-20261127-0042",
+    "is_tournament_room": true
+  }
+  ```
+- Robot clients configured with casual filters (such as `opponent_filter = humans_only`, `friends_only = true`, or casual time-control preferences) should exempt `is_tournament_room: true` rooms when `accept_tournament_matches` is enabled, preempt any empty casual waiting table they were hosting, attach to the assigned tournament room, and leave promptly after `GAME_OVER` (`tournament_post_game_linger_sec`, default `2` seconds) so subsequent rounds are not delayed.
+
 ---
 
 ## 4. Live Game Flow
 
-### 4.1 Game Events: `GET /api/v1/games/:id/events`
-- SSE stream transmitting board updates, turns, clock increments, proposals, and chat messages (also supports polling with `?since_seq=<n>`).
+### 4.1 Game State, Clocks & Events: `GET /api/v1/games/:id` & `/events`
+- `GET /api/v1/games/:id` returns the authoritative room view, including per-seat live clocks (`seats[].clock_ms`) and `turn_elapsed_ms` (milliseconds elapsed in the current active turn when `phase == "IN_PROGRESS"` and `!paused`, otherwise `0`).
+- **Clock Accounting Invariant**: On `octi-server`, `seats[turn_seat].clock_ms` already reflects live turn consumption (`turn_elapsed_ms` has already been subtracted at snapshot generation time). Robot clients should record the local monotonic/wall timestamp when fetching a room view and subtract only the *additional* local milliseconds elapsed between snapshot fetch and search start, avoiding double-subtraction of `turn_elapsed_ms`.
+- `GET /api/v1/games/:id/events`: SSE stream transmitting board updates, turns, clock increments, proposals, and chat messages (also supports polling with `?since_seq=<n>`).
 
 ### 4.2 Move Submission: `POST /api/v1/games/:id/move`
 

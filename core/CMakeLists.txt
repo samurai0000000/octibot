@@ -69,7 +69,12 @@ set(_OCTI_SOUND_CUE_IDS
     pod_jump
     pod_capture
     clock_low_tick
-    game_victory
+    game_win
+    game_start
+    game_draw
+    game_loss
+    player_eliminated
+    notify_ping
 )
 
 set(_OCTI_SOUND_ASSETS_HXX_TMP "${CMAKE_CURRENT_BINARY_DIR}/OctiSoundAssets.hxx.tmp")

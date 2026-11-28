@@ -307,6 +307,7 @@ struct TableSummaryInfo {
     bool hasPasscode = false;
     std::string hostUuid;
     std::string hostHandle;
+    bool hostIsRobot = false;
     std::int64_t createdAtMs = 0;
     std::int64_t lastMoveAtMs = 0;
     std::int64_t idleMs = 0;
@@ -318,6 +319,12 @@ struct TableSummaryInfo {
     std::vector<std::string> observerHandles;
     int observerCount = 0;
     bool allowRobots = true;
+    bool isTournamentRoom = false;
+    std::int64_t tournamentId = 0;
+    std::string tournamentSlug;
+    std::string tournamentTitle;
+    int tournamentRound = 0;
+    std::string tournamentMatchId;
 
     std::string variantCode() const
     {
@@ -471,6 +478,13 @@ struct GameViewData {
     std::int64_t idleMs = 0;
     std::int64_t ttlRemainingMs = -1;
     bool allowRobots = true;
+    bool isTournamentRoom = false;
+    std::int64_t tournamentId = 0;
+    std::string tournamentSlug;
+    std::string tournamentTitle;
+    int tournamentRound = 0;
+    std::string tournamentMatchId;
+    std::int64_t turnElapsedMs = 0;
 
     std::string variantCode() const
     {
@@ -709,6 +723,8 @@ public:
         const std::string &sessionId = "",
         const std::string &reason = "app_close");
     static LobbyPlayerInfo parsePresenceSseEvent(const std::string &dataJson);
+    static TableSummaryInfo parseTableSummary(const std::string &dataJson);
+    static GameViewData parseGameView(const std::string &dataJson);
     ApiResult<std::int64_t> postLobbyChat(const std::string &text);
     ApiResult<std::vector<TableSummaryInfo>> listTables(
         bool includeFinished = false);

@@ -39,6 +39,26 @@ min_increment_sec = 0
 friends_only = false
 opponent_filter = any            # any, humans_only, robots_only, owner_only
 
+# Timed Clock Pacing & Safety Margins (used when time_control.enabled = true;
+# untimed club games always use each profile's time_budget_ms unchanged)
+timed_auto_pace = true           # Scale move budgets from clock bank + increment up to timed_time_budget_max_ms
+timed_time_budget_min_ms = 250
+timed_time_budget_max_ms = 60000
+clock_safety_margin_ms = 1500    # Hard sudden-death reserve kept on clock to prevent network/teardown flags
+# timed_opening_taper_max_ply = 6
+# timed_opening_taper_pct = 75
+# timed_midgame_horizon_moves = 24
+# timed_endgame_horizon_moves = 16
+# timed_endgame_min_ply = 40
+# timed_increment_weight_pct = 75
+# timed_max_bank_fraction_pct = 40
+# timed_emergency_floor_ms = 200
+
+# Tournament Lifecycle Policies
+accept_tournament_matches = true        # Exempt TD-paired tournament rooms from casual humans_only/friends_only/clock filters
+tournament_post_game_linger_sec = 2     # Leave finished tournament rooms promptly so next Swiss/bracket round can start
+tournament_suppress_casual_chat = true  # Suppress casual untimed greetings/goodbye chatter inside tournament rooms
+
 # Proposal & Rematch Defaults
 accept_draw_eval_threshold = -1500
 accept_undo = friends_only       # always, friends_only, never

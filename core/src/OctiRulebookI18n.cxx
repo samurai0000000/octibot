@@ -1851,8 +1851,8 @@ std::string renderLocalizedDesktopRulebookHtml(const LocalizedRulebookPack &p,
 const std::vector<std::string> &rulebookSupportedLanguages()
 {
     static const std::vector<std::string> kLanguages = {
-        "en", "zh-TW", "zh-CN", "fr", "ro", "ru", "es", "de",
-        "ja", "tr", "pt-BR", "ko", "pl", "it", "id", "vi"
+        "en", "zh-TW", "ja", "ko", "zh-CN", "de", "fr", "es",
+        "it", "ro", "pt-BR", "pl", "ru", "tr", "id", "vi"
     };
     return kLanguages;
 }

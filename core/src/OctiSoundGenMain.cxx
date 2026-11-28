@@ -19,7 +19,8 @@
 
 namespace {
 
-constexpr double TWO_PI = 2.0 * 3.141592653589793238462643383279502884;
+constexpr double PI = 3.141592653589793238462643383279502884;
+constexpr double TWO_PI = 2.0 * PI;
 
 struct CueSpec {
     octi::SoundCue cue;
@@ -29,13 +30,18 @@ struct CueSpec {
 };
 
 constexpr CueSpec kCueSpecs[octi::OCTI_SOUND_CUE_COUNT] = {
-    { octi::SoundCue::POD_PLACE,      "POD_PLACE",      "pod_place.wav",      120 },
-    { octi::SoundCue::PRONG_SNAP,     "PRONG_SNAP",     "prong_snap.wav",      75 },
-    { octi::SoundCue::POD_STEP,       "POD_STEP",       "pod_step.wav",        95 },
-    { octi::SoundCue::POD_JUMP,       "POD_JUMP",       "pod_jump.wav",       150 },
-    { octi::SoundCue::POD_CAPTURE,    "POD_CAPTURE",    "pod_capture.wav",    210 },
-    { octi::SoundCue::CLOCK_LOW_TICK, "CLOCK_LOW_TICK", "clock_low_tick.wav",  45 },
-    { octi::SoundCue::GAME_VICTORY,   "GAME_VICTORY",   "game_victory.wav",   360 },
+    { octi::SoundCue::POD_PLACE,         "POD_PLACE",         "pod_place.wav",         120 },
+    { octi::SoundCue::PRONG_SNAP,        "PRONG_SNAP",        "prong_snap.wav",         75 },
+    { octi::SoundCue::POD_STEP,          "POD_STEP",          "pod_step.wav",           95 },
+    { octi::SoundCue::POD_JUMP,          "POD_JUMP",          "pod_jump.wav",          150 },
+    { octi::SoundCue::POD_CAPTURE,       "POD_CAPTURE",       "pod_capture.wav",       210 },
+    { octi::SoundCue::CLOCK_LOW_TICK,    "CLOCK_LOW_TICK",    "clock_low_tick.wav",     45 },
+    { octi::SoundCue::GAME_WIN,          "GAME_WIN",          "game_win.wav",          560 },
+    { octi::SoundCue::GAME_START,        "GAME_START",        "game_start.wav",        640 },
+    { octi::SoundCue::GAME_DRAW,         "GAME_DRAW",         "game_draw.wav",         560 },
+    { octi::SoundCue::GAME_LOSS,         "GAME_LOSS",         "game_loss.wav",         580 },
+    { octi::SoundCue::PLAYER_ELIMINATED, "PLAYER_ELIMINATED", "player_eliminated.wav", 420 },
+    { octi::SoundCue::NOTIFY_PING,       "NOTIFY_PING",       "notify_ping.wav",       240 },
 };
 
 std::int16_t clampPcm16(double sample)
@@ -44,8 +50,156 @@ std::int16_t clampPcm16(double sample)
     return static_cast<std::int16_t>(std::floor(clamped * 30000.0 + 0.5));
 }
 
+struct ChimeNote {
+    double freq;
+    double gain;
+};
+
+struct ChimeEvent {
+    double startSec;
+    std::vector<ChimeNote> notes;
+    double decayRate;
+    double sheenGain;
+    double attackMs;
+};
+
+double octiChimeVoice(double freq,
+                      double t,
+                      double decayRate,
+                      double sheenGain,
+                      double attackMs)
+{
+    const double sr = static_cast<double>(octi::OCTI_SOUND_SAMPLE_RATE);
+    const double attackSamples = std::max(1.0, (attackMs / 1000.0) * sr);
+    const double attack = std::min(1.0, (t * sr) / attackSamples);
+    const double env = attack * std::exp(-t * decayRate);
+    const double pingEnv = attack * std::exp(-t * (decayRate * 2.8));
+
+    const double body =
+        0.58 * std::sin(TWO_PI * freq * t) +
+        0.26 * std::sin(TWO_PI * (freq * 1.5) * t) +
+        0.16 * std::sin(TWO_PI * (freq * 2.0) * t);
+    const double sheen = (sheenGain > 0.0)
+        ? (sheenGain * pingEnv * std::sin(TWO_PI * (freq * 3.0) * t))
+        : 0.0;
+    return env * body + sheen;
+}
+
+std::vector<std::int16_t> renderChimeEvents(const std::vector<ChimeEvent> &events,
+                                            int durationMs,
+                                            double targetPeak,
+                                            double overlapDamp,
+                                            int fadeMs)
+{
+    const double sr = static_cast<double>(octi::OCTI_SOUND_SAMPLE_RATE);
+    const int numSamples = (octi::OCTI_SOUND_SAMPLE_RATE * durationMs) / 1000;
+    std::vector<double> buf(static_cast<std::size_t>(numSamples), 0.0);
+
+    for (std::size_t idx = 0; idx < events.size(); ++idx) {
+        const ChimeEvent &ev = events[idx];
+        const int startSample =
+            static_cast<int>(std::floor(ev.startSec * sr + 0.5));
+        if (idx > 0) {
+            for (int k = startSample; k < numSamples; ++k) {
+                const double dt = static_cast<double>(k - startSample) / sr;
+                buf[static_cast<std::size_t>(k)] *= std::exp(-dt * overlapDamp);
+            }
+        }
+        for (int i = startSample; i < numSamples; ++i) {
+            const double t = static_cast<double>(i - startSample) / sr;
+            double val = 0.0;
+            for (const ChimeNote &n : ev.notes) {
+                val += n.gain * octiChimeVoice(n.freq, t, ev.decayRate,
+                                               ev.sheenGain, ev.attackMs);
+            }
+            buf[static_cast<std::size_t>(i)] += val;
+        }
+    }
+
+    const int fadeSamples = std::min(
+        numSamples,
+        (octi::OCTI_SOUND_SAMPLE_RATE * fadeMs) / 1000);
+    for (int k = 0; k < fadeSamples; ++k) {
+        const int idx = numSamples - 1 - k;
+        buf[static_cast<std::size_t>(idx)] *=
+            0.5 * (1.0 - std::cos(PI * (static_cast<double>(k) /
+                                        static_cast<double>(fadeSamples))));
+    }
+
+    double peak = 0.0;
+    for (double x : buf) {
+        const double ax = std::abs(x);
+        if (ax > peak) {
+            peak = ax;
+        }
+    }
+    if (peak <= 0.0) {
+        peak = 1.0;
+    }
+    const double scale = targetPeak / peak;
+    std::vector<std::int16_t> pcm(static_cast<std::size_t>(numSamples), 0);
+    for (int i = 0; i < numSamples; ++i) {
+        const double scaled = std::max(
+            -30000.0,
+            std::min(30000.0, buf[static_cast<std::size_t>(i)] * scale));
+        pcm[static_cast<std::size_t>(i)] =
+            static_cast<std::int16_t>(std::floor(scaled + 0.5));
+    }
+    return pcm;
+}
+
 std::vector<std::int16_t> synthesizeCanonicalPcm(octi::SoundCue cue, int durationMs)
 {
+    switch (cue) {
+    case octi::SoundCue::GAME_WIN:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 523.25, 0.80 } },                   11.0, 0.10, 3.0 },
+                { 0.085, { { 659.25, 0.84 } },                   11.0, 0.10, 3.0 },
+                { 0.170, { { 783.99, 0.88 } },                   11.0, 0.11, 3.0 },
+                { 0.255, { { 1046.50, 0.90 }, { 523.25, 0.35 } }, 6.5, 0.12, 3.0 },
+            },
+            durationMs, 26000.0, 12.0, 90);
+    case octi::SoundCue::GAME_START:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 783.99, 0.92 } }, 11.5, 0.12, 3.0 },
+                { 0.160, { { 783.99, 0.90 } }, 11.5, 0.12, 3.0 },
+                { 0.320, { { 783.99, 1.00 } },  7.2, 0.12, 3.0 },
+            },
+            durationMs, 26000.0, 12.0, 95);
+    case octi::SoundCue::GAME_DRAW:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 783.99, 0.85 } },                   10.5, 0.08, 3.0 },
+                { 0.180, { { 783.99, 0.65 }, { 523.25, 0.58 } },  7.2, 0.07, 3.0 },
+            },
+            durationMs, 26000.0, 10.0, 90);
+    case octi::SoundCue::GAME_LOSS:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 659.25, 0.82 } },                   10.0, 0.04, 3.0 },
+                { 0.125, { { 523.25, 0.80 } },                   10.0, 0.03, 3.0 },
+                { 0.250, { { 440.00, 0.92 }, { 220.00, 0.25 } },  6.2, 0.02, 3.0 },
+            },
+            durationMs, 26000.0, 9.0, 90);
+    case octi::SoundCue::PLAYER_ELIMINATED:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 293.66, 0.90 } },                   11.5, 0.01, 4.0 },
+                { 0.130, { { 220.00, 1.00 }, { 329.63, 0.18 } },  7.8, 0.00, 4.0 },
+            },
+            durationMs, 24000.0, 10.0, 60);
+    case octi::SoundCue::NOTIFY_PING:
+        return renderChimeEvents(
+            {
+                { 0.000, { { 880.00, 1.00 } }, 14.5, 0.05, 5.5 },
+            },
+            durationMs, 19500.0, 11.0, 60);
+    default:
+        break;
+    }
+
     const int numSamples = (octi::OCTI_SOUND_SAMPLE_RATE * durationMs) / 1000;
     std::vector<std::int16_t> pcm(static_cast<std::size_t>(numSamples), 0);
 
@@ -100,16 +254,8 @@ std::vector<std::int16_t> synthesizeCanonicalPcm(octi::SoundCue cue, int duratio
             val = env * std::sin(TWO_PI * 1050.0 * t);
             break;
         }
-        case octi::SoundCue::GAME_VICTORY: {
-            double freq = (progress < 0.22) ? 523.25 :
-                          (progress < 0.44) ? 659.25 :
-                          (progress < 0.68) ? 783.99 : 1046.50;
-            double env = attack * std::exp(-t * 5.5);
-            val = env * (0.60 * std::sin(TWO_PI * freq * t) +
-                         0.28 * std::sin(TWO_PI * (freq * 1.5) * t) +
-                         0.12 * std::sin(TWO_PI * (freq * 2.0) * t));
+        default:
             break;
-        }
         }
 
         pcm[static_cast<std::size_t>(i)] = clampPcm16(val);
@@ -389,8 +535,8 @@ void printUsage(const char *prog)
         << "Deterministic Canonical 16kHz PCM16 Sound Asset Generator & Web Sync Tool\n\n"
         << "Options:\n"
         << "  -h, --help             Show this help message and exit\n"
-        << "  --out-dir <dir>        Generate all 7 canonical .wav files into <dir>\n"
-        << "  --verify-dir <dir>     Verify all 7 .wav files in <dir> match canonical bytes\n"
+        << "  --out-dir <dir>        Generate all 12 canonical .wav files into <dir>\n"
+        << "  --verify-dir <dir>     Verify all 12 .wav files in <dir> match canonical bytes\n"
         << "  --from-dir <dir>       Source directory of .wav files for --out-js\n"
         << "  --out-js <file>        Sync OCTI_SHARED_WAV_BASE64 block into <file>\n";
 }

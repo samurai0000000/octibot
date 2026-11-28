@@ -297,7 +297,7 @@ PlayerProfileInfo parsePlayerProfile(const Json &j)
     return p;
 }
 
-TableSummaryInfo parseTableSummary(const Json &j)
+TableSummaryInfo parseTableSummaryJson(const Json &j)
 {
     TableSummaryInfo t;
     if (!j.is_object()) {
@@ -380,6 +380,23 @@ TableSummaryInfo parseTableSummary(const Json &j)
             t.seats.push_back(si);
         }
     }
+    if (j.contains("host_is_robot") && j["host_is_robot"].is_boolean()) {
+        t.hostIsRobot = j["host_is_robot"].get<bool>();
+    } else if (j.contains("host_detail") && j["host_detail"].is_object() &&
+               j["host_detail"].contains("is_robot") &&
+               j["host_detail"]["is_robot"].is_boolean()) {
+        t.hostIsRobot = j["host_detail"]["is_robot"].get<bool>();
+    } else {
+        for (std::size_t i = 0; i < t.seats.size(); ++i) {
+            const TableSeatInfo &si = t.seats[i];
+            if ((!t.hostUuid.empty() &&
+                 (si.playerUuid == t.hostUuid || si.robotUuid == t.hostUuid)) ||
+                (!t.hostHandle.empty() && si.handle == t.hostHandle)) {
+                t.hostIsRobot = si.isRobot;
+                break;
+            }
+        }
+    }
     if (j.contains("players") && j["players"].is_array()) {
         for (std::size_t i = 0; i < j["players"].size(); ++i) {
             if (j["players"][i].is_string()) {
@@ -397,10 +414,58 @@ TableSummaryInfo parseTableSummary(const Json &j)
     }
     t.observerCount = j.value(
         "observer_count", static_cast<int>(t.observerHandles.size()));
+    const Json *cfg =
+        (j.contains("config") && j["config"].is_object()) ? &j["config"] : nullptr;
+    if (j.contains("is_tournament_room") &&
+        j["is_tournament_room"].is_boolean()) {
+        t.isTournamentRoom = j["is_tournament_room"].get<bool>();
+    } else if (cfg != nullptr &&
+               cfg->contains("is_tournament_room") &&
+               (*cfg)["is_tournament_room"].is_boolean()) {
+        t.isTournamentRoom = (*cfg)["is_tournament_room"].get<bool>();
+    }
+    if (j.contains("tournament_id") &&
+        j["tournament_id"].is_number_integer()) {
+        t.tournamentId = j["tournament_id"].get<std::int64_t>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_id") &&
+               (*cfg)["tournament_id"].is_number_integer()) {
+        t.tournamentId = (*cfg)["tournament_id"].get<std::int64_t>();
+    }
+    if (j.contains("tournament_slug") && j["tournament_slug"].is_string()) {
+        t.tournamentSlug = j["tournament_slug"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_slug") &&
+               (*cfg)["tournament_slug"].is_string()) {
+        t.tournamentSlug = (*cfg)["tournament_slug"].get<std::string>();
+    }
+    if (j.contains("tournament_title") && j["tournament_title"].is_string()) {
+        t.tournamentTitle = j["tournament_title"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_title") &&
+               (*cfg)["tournament_title"].is_string()) {
+        t.tournamentTitle = (*cfg)["tournament_title"].get<std::string>();
+    }
+    if (j.contains("tournament_round") &&
+        j["tournament_round"].is_number_integer()) {
+        t.tournamentRound = j["tournament_round"].get<int>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_round") &&
+               (*cfg)["tournament_round"].is_number_integer()) {
+        t.tournamentRound = (*cfg)["tournament_round"].get<int>();
+    }
+    if (j.contains("tournament_match_id") &&
+        j["tournament_match_id"].is_string()) {
+        t.tournamentMatchId = j["tournament_match_id"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_match_id") &&
+               (*cfg)["tournament_match_id"].is_string()) {
+        t.tournamentMatchId = (*cfg)["tournament_match_id"].get<std::string>();
+    }
     return t;
 }
 
-GameViewData parseGameView(const Json &j)
+GameViewData parseGameViewJson(const Json &j)
 {
     GameViewData v;
     if (!j.is_object()) {
@@ -550,6 +615,64 @@ GameViewData parseGameView(const Json &j)
     v.idleMs = j.value("idle_ms", static_cast<std::int64_t>(0));
     v.ttlRemainingMs =
         j.value("ttl_remaining_ms", static_cast<std::int64_t>(-1));
+    const Json *cfg =
+        (j.contains("config") && j["config"].is_object()) ? &j["config"] : nullptr;
+    if (j.contains("is_tournament_room") &&
+        j["is_tournament_room"].is_boolean()) {
+        v.isTournamentRoom = j["is_tournament_room"].get<bool>();
+    } else if (cfg != nullptr &&
+               cfg->contains("is_tournament_room") &&
+               (*cfg)["is_tournament_room"].is_boolean()) {
+        v.isTournamentRoom = (*cfg)["is_tournament_room"].get<bool>();
+    }
+    if (j.contains("tournament_id") &&
+        j["tournament_id"].is_number_integer()) {
+        v.tournamentId = j["tournament_id"].get<std::int64_t>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_id") &&
+               (*cfg)["tournament_id"].is_number_integer()) {
+        v.tournamentId = (*cfg)["tournament_id"].get<std::int64_t>();
+    }
+    if (j.contains("tournament_slug") && j["tournament_slug"].is_string()) {
+        v.tournamentSlug = j["tournament_slug"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_slug") &&
+               (*cfg)["tournament_slug"].is_string()) {
+        v.tournamentSlug = (*cfg)["tournament_slug"].get<std::string>();
+    }
+    if (j.contains("tournament_title") && j["tournament_title"].is_string()) {
+        v.tournamentTitle = j["tournament_title"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_title") &&
+               (*cfg)["tournament_title"].is_string()) {
+        v.tournamentTitle = (*cfg)["tournament_title"].get<std::string>();
+    }
+    if (j.contains("tournament_round") &&
+        j["tournament_round"].is_number_integer()) {
+        v.tournamentRound = j["tournament_round"].get<int>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_round") &&
+               (*cfg)["tournament_round"].is_number_integer()) {
+        v.tournamentRound = (*cfg)["tournament_round"].get<int>();
+    }
+    if (j.contains("tournament_match_id") &&
+        j["tournament_match_id"].is_string()) {
+        v.tournamentMatchId = j["tournament_match_id"].get<std::string>();
+    } else if (cfg != nullptr &&
+               cfg->contains("tournament_match_id") &&
+               (*cfg)["tournament_match_id"].is_string()) {
+        v.tournamentMatchId = (*cfg)["tournament_match_id"].get<std::string>();
+    }
+    std::int64_t rawTurnElapsedMs = 0;
+    if (j.contains("turn_elapsed_ms") &&
+        j["turn_elapsed_ms"].is_number_integer()) {
+        rawTurnElapsedMs = j["turn_elapsed_ms"].get<std::int64_t>();
+    } else if (cfg != nullptr &&
+               cfg->contains("turn_elapsed_ms") &&
+               (*cfg)["turn_elapsed_ms"].is_number_integer()) {
+        rawTurnElapsedMs = (*cfg)["turn_elapsed_ms"].get<std::int64_t>();
+    }
+    v.turnElapsedMs = std::max<std::int64_t>(0, rawTurnElapsedMs);
     return v;
 }
 
@@ -2733,7 +2856,7 @@ ApiResult<LobbyStateData> OctiNetworkClient::fetchLobbyState()
     if (raw.json.contains("tables") && raw.json["tables"].is_array()) {
         const Json &tb = raw.json["tables"];
         for (std::size_t i = 0; i < tb.size(); ++i) {
-            res.data.tables.push_back(parseTableSummary(tb[i]));
+            res.data.tables.push_back(parseTableSummaryJson(tb[i]));
         }
     }
     if (raw.json.contains("recent_chat") && raw.json["recent_chat"].is_array()) {
@@ -2875,6 +2998,32 @@ LobbyPlayerInfo OctiNetworkClient::parsePresenceSseEvent(
     return parseLobbyPlayerInfoJson(j);
 }
 
+TableSummaryInfo OctiNetworkClient::parseTableSummary(
+    const std::string &dataJson)
+{
+    if (dataJson.empty()) {
+        return TableSummaryInfo();
+    }
+    Json j = Json::parse(dataJson, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        return TableSummaryInfo();
+    }
+    return parseTableSummaryJson(j);
+}
+
+GameViewData OctiNetworkClient::parseGameView(
+    const std::string &dataJson)
+{
+    if (dataJson.empty()) {
+        return GameViewData();
+    }
+    Json j = Json::parse(dataJson, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) {
+        return GameViewData();
+    }
+    return parseGameViewJson(j);
+}
+
 ApiResult<std::int64_t> OctiNetworkClient::postLobbyChat(
     const std::string &text)
 {
@@ -2908,7 +3057,7 @@ ApiResult<std::vector<TableSummaryInfo>> OctiNetworkClient::listTables(
     if (raw.json.contains("tables") && raw.json["tables"].is_array()) {
         const Json &arr = raw.json["tables"];
         for (std::size_t i = 0; i < arr.size(); ++i) {
-            res.data.push_back(parseTableSummary(arr[i]));
+            res.data.push_back(parseTableSummaryJson(arr[i]));
         }
     }
     return res;
@@ -3208,7 +3357,7 @@ ApiResult<GameViewData> OctiNetworkClient::fetchGameView(
     }
     res.ok = true;
     res.httpStatus = raw.status;
-    res.data = parseGameView(raw.json);
+    res.data = parseGameViewJson(raw.json);
     return res;
 }
 

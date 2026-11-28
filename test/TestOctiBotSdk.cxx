@@ -1764,7 +1764,7 @@ TEST(OctiBotSdkExtensionHooks, H3StockAlphaBetaMutableProfileOverride) {
     game.incrementMs = 0;
     std::string timedMv = agent.computeMove(board, game, 1, 5000, &telem);
     CHECK_FALSE(timedMv.empty());
-    CHECK_EQUAL(200, agent.engine().tuningProfile().timeBudgetMs);
+    CHECK_EQUAL(250, agent.engine().tuningProfile().timeBudgetMs);
 }
 
 // ============================================================================
@@ -2795,6 +2795,688 @@ TEST(OctiBotPly0AbortAndHonestLeaveTest,
     if (srvThread.joinable()) {
         srvThread.join();
     }
+}
+
+// ============================================================================
+// Envelope 2: Clock Management & Tournament SDK Qualification Tests
+// ============================================================================
+
+namespace {
+
+class ClockProbeBotAgent : public StockAlphaBetaAgent {
+public:
+    using StockAlphaBetaAgent::StockAlphaBetaAgent;
+
+    std::atomic<int> moveCalls{0};
+    std::atomic<std::int64_t> lastRemainingClockMs{-999};
+    std::atomic<std::int64_t> lastTurnElapsedMs{-999};
+    std::atomic<bool> lastIsTournamentRoom{false};
+
+    std::string computeMove(const OctiBoard &board,
+                            const GameViewData &game,
+                            int mySeat,
+                            std::int64_t remainingClockMs,
+                            BotMoveTelemetry *outTelemetry = nullptr) override {
+        ++moveCalls;
+        lastRemainingClockMs.store(remainingClockMs);
+        lastTurnElapsedMs.store(game.turnElapsedMs);
+        lastIsTournamentRoom.store(game.isTournamentRoom);
+        return StockAlphaBetaAgent::computeMove(
+            board, game, mySeat, remainingClockMs, outTelemetry);
+    }
+};
+
+static int countRoomChatContaining(OctiNetworkClient &client,
+                                   const std::string &roomId,
+                                   const std::string &needle) {
+    auto evs = client.pollGameEvents(roomId, 0, 500);
+    if (!evs.ok) {
+        return 0;
+    }
+    int count = 0;
+    for (const auto &ev : evs.data) {
+        if (ev.event == "CHAT" || ev.event == "BOARD_CHAT") {
+            try {
+                auto j = nlohmann::json::parse(ev.dataJson);
+                std::string txt = j.value("text", "");
+                if (txt.find(needle) != std::string::npos) {
+                    ++count;
+                }
+            } catch (...) {}
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+TEST_GROUP(OctiBotClockAndTournamentTest) {
+    std::unique_ptr<TestServerEnv> env;
+
+    void setup() {
+        env = std::make_unique<TestServerEnv>();
+        if (env && env->rooms) {
+            RoomLimits lim;
+            lim.lobbyChatBurst = 200;
+            lim.boardChatBurst = 200;
+            env->rooms->setLimits(lim);
+        }
+    }
+
+    void teardown() {
+        env.reset();
+    }
+};
+
+TEST(OctiBotClockAndTournamentTest, UntimedPassthroughAndTimedHorizonScaling) {
+    TimedClockBudgetPolicy pol;
+
+    // 1. Untimed passthrough == configuredUntimedBudgetMs
+    GameViewData untimedGame;
+    untimedGame.timeControlEnabled = false;
+    untimedGame.initialMs = 0;
+    untimedGame.incrementMs = 0;
+    for (int baseMs : {350, 1500, 20000, 45000}) {
+        auto bd0 = computeClockManagedMoveBudget(pol, baseMs, untimedGame, 0, 0, 0);
+        CHECK_EQUAL(baseMs, bd0.allocatedBudgetMs);
+        CHECK_FALSE(bd0.usedDynamicClock);
+        CHECK_FALSE(bd0.inEmergencyTimeTrouble);
+
+        auto bdLarge = computeClockManagedMoveBudget(pol, baseMs, untimedGame, 600000, 20, 500);
+        CHECK_EQUAL(baseMs, bdLarge.allocatedBudgetMs);
+        CHECK_FALSE(bdLarge.usedDynamicClock);
+    }
+
+    // 2. Classical (900s + 15s), Rapid (180s + 20s), Blitz (90s + 0s) horizon scaling
+    GameViewData classical;
+    classical.timeControlEnabled = true;
+    classical.initialMs = 900000;
+    classical.incrementMs = 15000;
+
+    GameViewData rapid;
+    rapid.timeControlEnabled = true;
+    rapid.initialMs = 180000;
+    rapid.incrementMs = 20000;
+
+    GameViewData blitz;
+    blitz.timeControlEnabled = true;
+    blitz.initialMs = 90000;
+    blitz.incrementMs = 0;
+
+    // Classical with timedAutoPace=true scales beyond small untimed 1500ms
+    auto bdClassMid = computeClockManagedMoveBudget(pol, 1500, classical, 900000, 14, 0);
+    CHECK_TRUE(bdClassMid.usedDynamicClock);
+    CHECK_TRUE(bdClassMid.allocatedBudgetMs > 25000);
+    CHECK_TRUE(bdClassMid.allocatedBudgetMs <= pol.timedTimeBudgetMaxMs);
+
+    auto bdRapidMid = computeClockManagedMoveBudget(pol, 1500, rapid, 180000, 14, 0);
+    auto bdBlitzMid = computeClockManagedMoveBudget(pol, 1500, blitz, 90000, 14, 0);
+    CHECK_TRUE(bdBlitzMid.allocatedBudgetMs > 2000);
+    CHECK_TRUE(bdBlitzMid.allocatedBudgetMs < bdRapidMid.allocatedBudgetMs);
+    CHECK_TRUE(bdRapidMid.allocatedBudgetMs < bdClassMid.allocatedBudgetMs);
+
+    // Opening (<6 ply taper) < Midgame (6..39 ply, horizon 24) < Endgame (>=40 ply, horizon 16)
+    GameViewData noIncTimed;
+    noIncTimed.timeControlEnabled = true;
+    noIncTimed.initialMs = 300000;
+    noIncTimed.incrementMs = 0;
+    auto bdOpen = computeClockManagedMoveBudget(pol, 1500, noIncTimed, 300000, 2, 0);
+    auto bdMid = computeClockManagedMoveBudget(pol, 1500, noIncTimed, 300000, 16, 0);
+    auto bdEnd = computeClockManagedMoveBudget(pol, 1500, noIncTimed, 300000, 44, 0);
+    CHECK_EQUAL(24, bdOpen.horizonMoves);
+    CHECK_EQUAL(24, bdMid.horizonMoves);
+    CHECK_EQUAL(16, bdEnd.horizonMoves);
+    CHECK_TRUE(bdOpen.allocatedBudgetMs < bdMid.allocatedBudgetMs);
+    CHECK_TRUE(bdMid.allocatedBudgetMs < bdEnd.allocatedBudgetMs);
+
+    // When timedAutoPace == false, soft upper bound uses configuredUntimedBudgetMs
+    TimedClockBudgetPolicy manualPol = pol;
+    manualPol.timedAutoPace = false;
+    auto bdManual = computeClockManagedMoveBudget(manualPol, 4000, classical, 900000, 14, 0);
+    CHECK_EQUAL(4000, bdManual.allocatedBudgetMs);
+    CHECK_TRUE(bdManual.clampedByMax);
+
+    // 3. StockAlphaBetaAgent config parsing & computeMove wiring
+    OctiBotConfigStore cfg;
+    cfg.set("time_budget_ms", "1500");
+    cfg.set("max_search_depth", "1");
+    cfg.set("use_opening_book", "false");
+    cfg.set("timed_auto_pace", "true");
+    cfg.set("timed_time_budget_min_ms", "300");
+    cfg.set("timed_time_budget_max_ms", "12000");
+    cfg.set("clock_safety_margin_ms", "1800");
+
+    StockAlphaBetaAgent stockAgent(cfg);
+    CHECK_TRUE(stockAgent.timedClockPolicy().timedAutoPace);
+    CHECK_EQUAL(300, stockAgent.timedClockPolicy().timedTimeBudgetMinMs);
+    CHECK_EQUAL(12000, stockAgent.timedClockPolicy().timedTimeBudgetMaxMs);
+    CHECK_EQUAL(1800, stockAgent.timedClockPolicy().clockSafetyMarginMs);
+
+    OctiBoard board(GAME_MODE_2);
+    board.getGame()->start(PLAYER_A);
+    classical.plyCount = 12;
+    BotMoveTelemetry tel;
+    std::string mv = stockAgent.computeMove(board, classical, 1, 900000, &tel);
+    CHECK_FALSE(mv.empty());
+    CHECK_EQUAL(12000, stockAgent.engine().tuningProfile().timeBudgetMs);
+}
+
+TEST(OctiBotClockAndTournamentTest, SuddenDeathSafetyCeilingEmergencyClampAndBounds) {
+    TimedClockBudgetPolicy pol;
+    pol.clockSafetyMarginMs = 1500;
+    pol.timedEmergencyFloorMs = 200;
+    pol.timedTimeBudgetMinMs = 250;
+    pol.timedTimeBudgetMaxMs = 60000;
+
+    GameViewData sdGame;
+    sdGame.timeControlEnabled = true;
+    sdGame.initialMs = 60000;
+    sdGame.incrementMs = 0;
+
+    // 1. Strict allocatedBudgetMs <= remainingClockMs - effectiveSafetyMs when above margin
+    // With extraEngineStopOverheadMs = 500 -> effectiveSafetyMs = 2000
+    auto bdJustAbove = computeClockManagedMoveBudget(pol, 5000, sdGame, 2180, 20, 500);
+    CHECK_TRUE(bdJustAbove.usedDynamicClock);
+    CHECK_FALSE(bdJustAbove.inEmergencyTimeTrouble);
+    CHECK_EQUAL(180, bdJustAbove.usableClockMs);
+    CHECK_TRUE(bdJustAbove.allocatedBudgetMs <= 180);
+    CHECK_TRUE(bdJustAbove.clampedBySafetyCeiling);
+
+    // 2. Sudden-death emergency clamp when remainingClockMs <= effectiveSafetyMs
+    auto bdAtMargin = computeClockManagedMoveBudget(pol, 5000, sdGame, 1500, 20, 0);
+    CHECK_TRUE(bdAtMargin.inEmergencyTimeTrouble);
+    CHECK_EQUAL(0, bdAtMargin.usableClockMs);
+    CHECK_EQUAL(200, bdAtMargin.allocatedBudgetMs);
+
+    auto bdLow300 = computeClockManagedMoveBudget(pol, 5000, sdGame, 300, 20, 0);
+    CHECK_TRUE(bdLow300.inEmergencyTimeTrouble);
+    CHECK_EQUAL(100, bdLow300.allocatedBudgetMs);
+
+    auto bdLow60 = computeClockManagedMoveBudget(pol, 5000, sdGame, 60, 20, 0);
+    CHECK_TRUE(bdLow60.inEmergencyTimeTrouble);
+    CHECK_EQUAL(50, bdLow60.allocatedBudgetMs);
+
+    auto bdZero = computeClockManagedMoveBudget(pol, 5000, sdGame, 0, 20, 0);
+    CHECK_TRUE(bdZero.inEmergencyTimeTrouble);
+    CHECK_EQUAL(50, bdZero.allocatedBudgetMs);
+
+    // 3. Soft [min, max] bounds when usable headroom permits
+    auto bdSoftMin = computeClockManagedMoveBudget(pol, 5000, sdGame, 4000, 10, 0);
+    CHECK_EQUAL(2500, bdSoftMin.usableClockMs);
+    CHECK_EQUAL(250, bdSoftMin.allocatedBudgetMs);
+    CHECK_TRUE(bdSoftMin.clampedByMin);
+
+    GameViewData hugeClock = sdGame;
+    hugeClock.incrementMs = 30000;
+    auto bdSoftMax = computeClockManagedMoveBudget(pol, 5000, hugeClock, 3600000, 20, 0);
+    CHECK_EQUAL(60000, bdSoftMax.allocatedBudgetMs);
+    CHECK_TRUE(bdSoftMax.clampedByMax);
+}
+
+TEST(OctiBotClockAndTournamentTest, RapidCheckClockManagedBudgetInvariants) {
+    bool passed = rc::check(
+        "computeClockManagedMoveBudget satisfies untimed passthrough, safety margin, bounds, and monotonicity",
+        []() {
+            TimedClockBudgetPolicy pol;
+            pol.timedAutoPace = *rc::gen::arbitrary<bool>();
+            pol.timedTimeBudgetMinMs = *rc::gen::inRange(100, 2000);
+            pol.timedTimeBudgetMaxMs = *rc::gen::inRange(pol.timedTimeBudgetMinMs, 90000);
+            pol.clockSafetyMarginMs = *rc::gen::inRange(50, 5000);
+            pol.timedEmergencyFloorMs = *rc::gen::inRange(50, 500);
+            pol.timedMaxBankFractionPct = *rc::gen::inRange(15, 80);
+
+            const int configuredBaseMs = *rc::gen::inRange(100, 60000);
+            const int extraStopMs = *rc::gen::inRange(0, 2000);
+            const int ply = *rc::gen::inRange(0, 100);
+            const std::int64_t remMs =
+                static_cast<std::int64_t>(*rc::gen::inRange(-500, 1200000));
+            const std::int64_t deltaMs =
+                static_cast<std::int64_t>(*rc::gen::inRange(0, 300000));
+
+            GameViewData gv;
+            gv.timeControlEnabled = *rc::gen::arbitrary<bool>();
+            gv.initialMs = static_cast<std::int64_t>(*rc::gen::inRange(60000, 1200000));
+            gv.incrementMs = static_cast<std::int64_t>(*rc::gen::inRange(0, 30000));
+            gv.plyCount = ply;
+
+            const auto bd = computeClockManagedMoveBudget(
+                pol, configuredBaseMs, gv, remMs, ply, extraStopMs);
+
+            if (!gv.timeControlEnabled) {
+                RC_ASSERT(!bd.usedDynamicClock);
+                RC_ASSERT(bd.allocatedBudgetMs == configuredBaseMs);
+                return;
+            }
+
+            RC_ASSERT(bd.usedDynamicClock);
+            const std::int64_t effSafetyMs =
+                static_cast<std::int64_t>(std::max(pol.clockSafetyMarginMs, 50)) +
+                static_cast<std::int64_t>(std::max(0, extraStopMs));
+
+            if (remMs <= effSafetyMs) {
+                RC_ASSERT(bd.inEmergencyTimeTrouble);
+                RC_ASSERT(bd.usableClockMs == 0);
+                RC_ASSERT(bd.allocatedBudgetMs >= 50);
+                RC_ASSERT(bd.allocatedBudgetMs <= std::max(50, pol.timedEmergencyFloorMs));
+            } else {
+                const std::int64_t usable = remMs - effSafetyMs;
+                RC_ASSERT(!bd.inEmergencyTimeTrouble);
+                RC_ASSERT(bd.usableClockMs == usable);
+                RC_ASSERT(static_cast<std::int64_t>(bd.allocatedBudgetMs) <= usable);
+
+                const int effMin = pol.timedTimeBudgetMinMs;
+                const int effMax = std::max(
+                    effMin,
+                    pol.timedAutoPace ? pol.timedTimeBudgetMaxMs : configuredBaseMs);
+                RC_ASSERT(bd.allocatedBudgetMs <= effMax);
+                if (bd.hardClockCeilingMs >= effMin) {
+                    RC_ASSERT(bd.allocatedBudgetMs >= effMin);
+                }
+
+                // Monotonicity in usable clock above safety margin
+                const auto bdMore = computeClockManagedMoveBudget(
+                    pol, configuredBaseMs, gv, remMs + deltaMs, ply, extraStopMs);
+                RC_ASSERT(bdMore.allocatedBudgetMs >= bd.allocatedBudgetMs);
+            }
+        });
+    CHECK_TRUE(passed);
+}
+
+TEST(OctiBotClockAndTournamentTest, PolicyTournamentDefaultsExemptionsAndCasualHumansOnlyPreserved) {
+    // 1. Default policy flags and effective config export
+    OctiBotConfigStore defCfg;
+    OctiBotPolicyEngine defPol(defCfg);
+    CHECK_TRUE(defPol.acceptTournamentMatches());
+    CHECK_EQUAL(2, defPol.tournamentPostGameLingerSec());
+    CHECK_TRUE(defPol.tournamentSuppressCasualChat());
+
+    OctiBotRunner defRunner(std::make_unique<StockAlphaBetaAgent>(defCfg), defCfg);
+    const auto eff = defRunner.buildEffectiveConfigMap();
+    auto effVal = [&](const std::string &k) -> std::string {
+        auto it = eff.find(k);
+        return (it != eff.end()) ? it->second : std::string("<missing>");
+    };
+    CHECK_EQUAL("true", effVal("accept_tournament_matches"));
+    CHECK_EQUAL("2", effVal("tournament_post_game_linger_sec"));
+    CHECK_EQUAL("true", effVal("tournament_suppress_casual_chat"));
+    CHECK_EQUAL("true", effVal("timed_auto_pace"));
+    CHECK_EQUAL("250", effVal("timed_time_budget_min_ms"));
+    CHECK_EQUAL("60000", effVal("timed_time_budget_max_ms"));
+    CHECK_EQUAL("1500", effVal("clock_safety_margin_ms"));
+
+    // 2. Strict casual filters: humans_only + friends_only + narrow untimed/slow time range
+    OctiBotConfigStore strictCfg;
+    strictCfg.set("opponent_filter", "humans_only");
+    strictCfg.set("friends_only", "true");
+    strictCfg.set("friend_list", "alice");
+    strictCfg.set("accept_time_control", "untimed_only");
+    strictCfg.set("min_initial_time_sec", "600");
+    strictCfg.set("max_initial_time_sec", "900");
+    strictCfg.set("min_increment_sec", "15");
+    strictCfg.set("accept_takeback", "true");
+    OctiBotPolicyEngine pol(strictCfg);
+
+    TableSeatInfo robotSeat;
+    robotSeat.seat = 1;
+    robotSeat.handle = "other_bot";
+    robotSeat.isRobot = true;
+
+    TableSeatInfo strangerHumanSeat;
+    strangerHumanSeat.seat = 1;
+    strangerHumanSeat.handle = "bob_stranger";
+    strangerHumanSeat.isRobot = false;
+
+    TableSummaryInfo casualRobotTable;
+    casualRobotTable.roomId = "casual-r1";
+    casualRobotTable.phase = "WAITING_FOR_PLAYERS";
+    casualRobotTable.mode = "2P";
+    casualRobotTable.bases = 3;
+    casualRobotTable.allowRobots = true;
+    casualRobotTable.allowTakeback = false;
+    casualRobotTable.timeControlEnabled = true;
+    casualRobotTable.initialMs = 180000;
+    casualRobotTable.incrementMs = 0;
+    casualRobotTable.seatsTotal = 2;
+    casualRobotTable.seatsFilled = 1;
+    casualRobotTable.hostHandle = "other_bot";
+    casualRobotTable.seats = {robotSeat};
+    casualRobotTable.isTournamentRoom = false;
+
+    // Casual robot-vs-robot table MUST still be rejected
+    CHECK_FALSE(pol.isTableCompatible(casualRobotTable, "owner_h", "my_bot"));
+    CHECK_TRUE(pol.shouldKickSeatedPlayer(robotSeat, "owner_h", false));
+    CHECK_TRUE(pol.shouldKickSeatedPlayer(strangerHumanSeat, "owner_h", false));
+
+    // Casual stranger timed table MUST still be rejected
+    TableSummaryInfo casualStrangerTable = casualRobotTable;
+    casualStrangerTable.roomId = "casual-h1";
+    casualStrangerTable.hostHandle = "bob_stranger";
+    casualStrangerTable.seats = {strangerHumanSeat};
+    CHECK_FALSE(pol.isTableCompatible(casualStrangerTable, "owner_h", "my_bot"));
+
+    // Tournament table with identical robot opponent & 180s+0s clock MUST bypass casual filters
+    TableSummaryInfo tourneyRobotTable = casualRobotTable;
+    tourneyRobotTable.roomId = "tourney-r1";
+    tourneyRobotTable.isTournamentRoom = true;
+    tourneyRobotTable.tournamentId = 7;
+    tourneyRobotTable.tournamentSlug = "cup-001";
+    CHECK_TRUE(pol.isTableCompatible(tourneyRobotTable, "owner_h", "my_bot"));
+    CHECK_FALSE(pol.shouldKickSeatedPlayer(robotSeat, "owner_h", true));
+    CHECK_FALSE(pol.shouldKickSeatedPlayer(strangerHumanSeat, "owner_h", true));
+
+    // Tournament table ranks above compatible casual friend table
+    TableSeatInfo friendSeat;
+    friendSeat.seat = 1;
+    friendSeat.handle = "alice";
+    friendSeat.isRobot = false;
+    TableSummaryInfo casualFriendTable;
+    casualFriendTable.roomId = "casual-friend";
+    casualFriendTable.phase = "WAITING_FOR_PLAYERS";
+    casualFriendTable.mode = "2P";
+    casualFriendTable.bases = 3;
+    casualFriendTable.allowRobots = true;
+    casualFriendTable.allowTakeback = true;
+    casualFriendTable.timeControlEnabled = false;
+    casualFriendTable.seatsTotal = 2;
+    casualFriendTable.seatsFilled = 1;
+    casualFriendTable.hostHandle = "alice";
+    casualFriendTable.seats = {friendSeat};
+    casualFriendTable.isTournamentRoom = false;
+    CHECK_TRUE(pol.isTableCompatible(casualFriendTable, "owner_h", "my_bot"));
+
+    auto ranked = pol.rankCompatibleTables(
+        {casualFriendTable, tourneyRobotTable}, "owner_h", "my_bot");
+    CHECK_EQUAL(2u, ranked.size());
+    CHECK_EQUAL("tourney-r1", ranked[0].roomId);
+    CHECK_EQUAL("casual-friend", ranked[1].roomId);
+
+    // Explicit accept_tournament_matches = false opts out of tournament tables
+    strictCfg.set("accept_tournament_matches", "false");
+    pol.configure(strictCfg);
+    CHECK_FALSE(pol.acceptTournamentMatches());
+    CHECK_FALSE(pol.isTableCompatible(tourneyRobotTable, "owner_h", "my_bot"));
+}
+
+TEST(OctiBotClockAndTournamentTest, RunnerSnapshotAgeAndTurnElapsedClockAdjustmentWithoutDoubleCount) {
+    // 1. Direct snapshot age + turnElapsedMs helper verification
+    GameSeatInfo s1;
+    s1.seat = 1;
+    s1.handle = "clock_bot";
+    s1.isRobot = true;
+    s1.clockMs = 57000; // Server liveClockLocked already deducted 3000ms from 60000ms
+
+    GameViewData gvDeducted;
+    gvDeducted.phase = "IN_PROGRESS";
+    gvDeducted.paused = false;
+    gvDeducted.mode = "2P";
+    gvDeducted.bases = 3;
+    gvDeducted.plyCount = 0;
+    gvDeducted.turnSeat = 1;
+    gvDeducted.timeControlEnabled = true;
+    gvDeducted.initialMs = 60000;
+    gvDeducted.incrementMs = 5000;
+    gvDeducted.turnElapsedMs = 3000;
+    gvDeducted.seats = {s1};
+
+    // 350ms elapsed locally since snapshot fetch -> 57000 - 350 = 56650 (NOT 53650!)
+    CHECK_EQUAL(56650, computeEffectiveRemainingClockMs(gvDeducted, 1, 10000, 10350));
+
+    // Un-decremented initial snapshot (clockMs == initialMs == 60000 with turnElapsedMs == 3000)
+    GameViewData gvUndeducted = gvDeducted;
+    gvUndeducted.seats[0].clockMs = 60000;
+    CHECK_EQUAL(56650, computeEffectiveRemainingClockMs(gvUndeducted, 1, 10000, 10350));
+
+    // Paused room does not deduct local elapsed time
+    GameViewData gvPaused = gvDeducted;
+    gvPaused.paused = true;
+    CHECK_EQUAL(57000, computeEffectiveRemainingClockMs(gvPaused, 1, 10000, 12500));
+
+    // 2. Live loopback runner verification with min_move_think_ms delay
+    auto owner = loginTestHuman(*env, "sub-clk-snap-owner", "clk_owner");
+    auto human = loginTestHuman(*env, "sub-clk-snap-human", "clk_human");
+    auto rBot = env->store.createRobot(owner.profile.playerId, "clk_probe_bot", "Clock Probe Bot");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(rBot.status));
+
+    OctiNetworkClient humanClient;
+    humanClient.setEndpoint("127.0.0.1", env->port);
+    humanClient.setSessionToken(human.sessionToken);
+
+    CreateTableRequest req;
+    req.mode = "2P";
+    req.bases = 3;
+    req.allowRobots = true;
+    req.timeControlEnabled = true;
+    req.initialMs = 60000;
+    req.incrementMs = 0;
+    req.seat = 2; // Bot takes Seat 1 and moves on ply 0
+    auto created = humanClient.createTable(req);
+    CHECK_TRUE(created.ok);
+
+    OctiBotConfigStore cfg;
+    cfg.set("server_host", "127.0.0.1");
+    cfg.set("server_port", std::to_string(env->port));
+    cfg.set("robot_name", "clk_probe_bot");
+    cfg.set("bot_token", rBot.rawToken);
+    cfg.set("table_behavior", "idle");
+    cfg.set("verbosity", "0");
+    cfg.set("max_search_depth", "1");
+    cfg.set("time_budget_ms", "100");
+    cfg.set("min_move_think_ms", "220");
+    cfg.set("announce_move_search_chat", "false");
+
+    auto probeUPtr = std::make_unique<ClockProbeBotAgent>(cfg);
+    ClockProbeBotAgent *probe = probeUPtr.get();
+    OctiBotRunner runner(std::move(probeUPtr), cfg);
+    std::string err;
+    CHECK_TRUE_TEXT(runner.connectAndAuthenticate(err), err.c_str());
+    runner.start();
+
+    int seat = 0;
+    CHECK_TRUE_TEXT(runner.joinRoomById(created.data.roomId, 1, seat, err), err.c_str());
+    for (int i = 0; i < 80 && probe->moveCalls.load() < 1; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_TRUE(probe->moveCalls.load() >= 1);
+    const std::int64_t seenRem = probe->lastRemainingClockMs.load();
+    // min_move_think_ms = 220ms elapsed after GameView fetch, so remainingClockMs must be <= 59800ms
+    // and >= 58000ms (proving local elapsed was subtracted without double-counting).
+    CHECK_TRUE_TEXT(seenRem <= 59800 && seenRem >= 58000,
+                    ("Unexpected remainingClockMs=" + std::to_string(seenRem)).c_str());
+    CHECK_TRUE(probe->lastTurnElapsedMs.load() >= 200);
+
+    runner.stop();
+}
+
+TEST(OctiBotClockAndTournamentTest,
+     RunnerCasualHumansOnlyRejectsRobotWhileTournamentPreemptsPlaysSuppressesChatAndLeavesFast)
+{
+    auto owner = loginTestHuman(*env, "sub-tour-e2-owner", "tour_owner");
+    auto r1 = env->store.createRobot(owner.profile.playerId, "tour_bot_1", "Tour Bot 1");
+    auto r2 = env->store.createRobot(owner.profile.playerId, "tour_bot_2", "Tour Bot 2");
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(r1.status));
+    CHECK_EQUAL(static_cast<int>(RobotStatus::OK), static_cast<int>(r2.status));
+
+    const int64_t bot1ActorId = makeRobotActorId(r1.robot.robotId);
+    const int64_t bot2ActorId = makeRobotActorId(r2.robot.robotId);
+
+    OctiNetworkClient obsClient;
+    obsClient.setEndpoint("127.0.0.1", env->port);
+    obsClient.setSessionToken(owner.sessionToken);
+
+    OctiBotConfigStore baseCfg;
+    baseCfg.set("server_host", "127.0.0.1");
+    baseCfg.set("server_port", std::to_string(env->port));
+    baseCfg.set("opponent_filter", "humans_only");
+    baseCfg.set("friends_only", "true");
+    baseCfg.set("friend_list", "nobody_friend");
+    baseCfg.set("verbosity", "0");
+    baseCfg.set("max_search_depth", "1");
+    baseCfg.set("time_budget_ms", "120");
+    baseCfg.set("min_move_think_ms", "0");
+    baseCfg.set("announce_move_search_chat", "false");
+    baseCfg.set("post_game_linger_sec", "60");
+    baseCfg.set("tournament_post_game_linger_sec", "1");
+    baseCfg.set("tournament_suppress_casual_chat", "true");
+    baseCfg.set("greeting_game_start", "CASUAL_UNTIMED_GREETING_MARKER");
+    baseCfg.set("chat_game_over_win", "CASUAL_WIN_CHAT_MARKER");
+    baseCfg.set("chat_game_over_loss", "CASUAL_LOSS_CHAT_MARKER");
+    baseCfg.set("chat_goodbye", "CASUAL_GOODBYE_CHAT_MARKER");
+
+    // 1. Verify casual IN_PROGRESS robot-vs-robot game (even with allowRobots=true) is rejected!
+    {
+        OctiNetworkClient raw1, raw2;
+        raw1.setEndpoint("127.0.0.1", env->port);
+        raw1.setBotToken(r1.rawToken);
+        raw2.setEndpoint("127.0.0.1", env->port);
+        raw2.setBotToken(r2.rawToken);
+        CHECK_TRUE(raw1.connectRobot(false).ok);
+        CHECK_TRUE(raw2.connectRobot(false).ok);
+
+        CreateTableRequest casualReq;
+        casualReq.mode = "2P";
+        casualReq.bases = 3;
+        casualReq.allowRobots = true; // Default casual allow_robots=true must NOT bypass humans_only!
+        casualReq.seat = 1;
+        auto createdCasual = raw1.createTable(casualReq);
+        CHECK_TRUE(createdCasual.ok);
+        CHECK_TRUE(raw2.joinTable(createdCasual.data.roomId, 2).ok);
+        raw1.disconnectRobot();
+        raw2.disconnectRobot();
+
+        OctiBotConfigStore c1 = baseCfg;
+        c1.set("robot_name", "tour_bot_1");
+        c1.set("bot_token", r1.rawToken);
+        c1.set("table_behavior", "idle");
+        auto probe1UPtr = std::make_unique<ClockProbeBotAgent>(c1);
+        ClockProbeBotAgent *probe1 = probe1UPtr.get();
+        OctiBotRunner run1(std::move(probe1UPtr), c1);
+        std::string err;
+        CHECK_TRUE_TEXT(run1.connectAndAuthenticate(err), err.c_str());
+        CHECK_EQUAL(createdCasual.data.roomId, run1.currentRoomId());
+        run1.start();
+
+        for (int i = 0; i < 60 && !run1.currentRoomId().empty(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        CHECK_EQUAL("", run1.currentRoomId());
+        CHECK_EQUAL(0, probe1->moveCalls.load());
+        auto gvCasual = obsClient.fetchGameView(createdCasual.data.roomId);
+        CHECK_TRUE(gvCasual.ok);
+        CHECK_TRUE(gvCasual.data.phase == "FINISHED" || gvCasual.data.phase == "GAME_OVER");
+        run1.stop();
+
+        // Clean up r2's active room reference
+        CHECK_TRUE(raw2.connectRobot(false).ok);
+        raw2.leaveTable(createdCasual.data.roomId);
+        raw2.disconnectRobot();
+    }
+
+    // 2. Both bots host empty casual WAITING_FOR_PLAYERS rooms (unseated wait_for_human + seated Seat 1),
+    //    then createTournamentRoom triggers preemption via MATCH_FOUND / poll!
+    OctiBotConfigStore cfg1 = baseCfg;
+    cfg1.set("robot_name", "tour_bot_1");
+    cfg1.set("bot_token", r1.rawToken);
+    cfg1.set("table_behavior", "host_only");
+    cfg1.set("host_seat", "wait_for_human");
+
+    OctiBotConfigStore cfg2 = baseCfg;
+    cfg2.set("robot_name", "tour_bot_2");
+    cfg2.set("bot_token", r2.rawToken);
+    cfg2.set("table_behavior", "auto");
+    cfg2.set("host_seat", "A");
+
+    auto p1UPtr = std::make_unique<ClockProbeBotAgent>(cfg1);
+    ClockProbeBotAgent *p1 = p1UPtr.get();
+    auto p2UPtr = std::make_unique<ClockProbeBotAgent>(cfg2);
+    ClockProbeBotAgent *p2 = p2UPtr.get();
+
+    OctiBotRunner runner1(std::move(p1UPtr), cfg1);
+    OctiBotRunner runner2(std::move(p2UPtr), cfg2);
+    std::string err;
+    CHECK_TRUE_TEXT(runner1.connectAndAuthenticate(err), err.c_str());
+    CHECK_TRUE_TEXT(runner2.connectAndAuthenticate(err), err.c_str());
+    runner1.start();
+    runner2.start();
+
+    for (int i = 0; i < 80; ++i) {
+        if (!runner1.currentRoomId().empty() &&
+            runner1.currentPhase() == "WAITING_FOR_PLAYERS" &&
+            !runner2.currentRoomId().empty() &&
+            runner2.currentPhase() == "WAITING_FOR_PLAYERS") {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    const std::string casualRoom1 = runner1.currentRoomId();
+    const std::string casualRoom2 = runner2.currentRoomId();
+    CHECK_FALSE(casualRoom1.empty());
+    CHECK_FALSE(casualRoom2.empty());
+
+    // Immediately (within < 2000ms of hosting!) spawn a TD tournament match pairing bot1 vs bot2
+    GameTableConfig tCfg;
+    tCfg.mode = GAME_MODE_2;
+    tCfg.bases = GAME_BASES_3;
+    tCfg.timeControl.enabled = true;
+    tCfg.timeControl.initialMs = 180000;
+    tCfg.timeControl.incrementMs = 5000;
+    tCfg.isTournamentRoom = true;
+    tCfg.tournamentId = 42;
+    tCfg.tournamentSlug = "sdk-test-cup";
+    tCfg.tournamentTitle = "SDK Test Cup";
+    tCfg.tournamentRound = 1;
+    tCfg.tournamentMatchId = "r1-m1";
+
+    RoomResult tRes = env->rooms->createTournamentRoom(tCfg, bot1ActorId, bot2ActorId);
+    CHECK_EQUAL(static_cast<int>(RoomCode::OK), static_cast<int>(tRes.code));
+    const std::string tourneyRoomId = tRes.roomId;
+    CHECK_FALSE(tourneyRoomId.empty());
+
+    // Both bots must preempt their casual waiting rooms, adopt tourneyRoomId, and play moves!
+    for (int i = 0; i < 100; ++i) {
+        if (runner1.currentRoomId() == tourneyRoomId &&
+            runner2.currentRoomId() == tourneyRoomId &&
+            p1->moveCalls.load() >= 1 &&
+            p2->moveCalls.load() >= 1) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    CHECK_EQUAL(tourneyRoomId, runner1.currentRoomId());
+    CHECK_EQUAL(tourneyRoomId, runner2.currentRoomId());
+    CHECK_TRUE(p1->moveCalls.load() >= 1);
+    CHECK_TRUE(p2->moveCalls.load() >= 1);
+    CHECK_TRUE(p1->lastIsTournamentRoom.load());
+    CHECK_TRUE(p2->lastIsTournamentRoom.load());
+
+    // Conclude the game via server resign on bot2 while both bots remain connected,
+    // then verify fast tournament_post_game_linger_sec=1 exit and casual chat suppression!
+    auto resignStart = std::chrono::steady_clock::now();
+    CHECK_EQUAL(static_cast<int>(RoomCode::OK),
+                static_cast<int>(env->rooms->resign(tourneyRoomId, bot2ActorId).code));
+
+    bool bothLeftTourney = false;
+    for (int i = 0; i < 120; ++i) {
+        if (runner1.currentRoomId() != tourneyRoomId &&
+            runner2.currentRoomId() != tourneyRoomId) {
+            bothLeftTourney = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    const auto leaveElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - resignStart).count();
+    CHECK_TRUE_TEXT(bothLeftTourney, "Expected both bots to leave tournament room after linger=1s");
+    CHECK_TRUE_TEXT(leaveElapsedMs >= 800 && leaveElapsedMs < 3500,
+                    ("Expected tournament leave around 1s, got " + std::to_string(leaveElapsedMs) + "ms").c_str());
+
+    // Verify casual untimed greeting / game-over / goodbye messages were suppressed
+    CHECK_EQUAL(0, countRoomChatContaining(obsClient, tourneyRoomId, "CASUAL_UNTIMED_GREETING_MARKER"));
+    CHECK_EQUAL(0, countRoomChatContaining(obsClient, tourneyRoomId, "CASUAL_WIN_CHAT_MARKER"));
+    CHECK_EQUAL(0, countRoomChatContaining(obsClient, tourneyRoomId, "CASUAL_LOSS_CHAT_MARKER"));
+    CHECK_EQUAL(0, countRoomChatContaining(obsClient, tourneyRoomId, "CASUAL_GOODBYE_CHAT_MARKER"));
+
+    runner1.stop();
+    runner2.stop();
 }
 
 int main(int argc, char **argv) {

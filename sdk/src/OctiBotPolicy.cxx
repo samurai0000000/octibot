@@ -145,6 +145,12 @@ bool OctiBotPolicyEngine::configure(const OctiBotConfigStore &config, std::strin
     _claimForfeitDelaySec = config.getInt("claim_forfeit_delay_sec", 10);
     _minMoveThinkMs = config.getInt("min_move_think_ms", 0);
 
+    _acceptTournamentMatches = config.getBool("accept_tournament_matches", true);
+    _tournamentPostGameLingerSec = std::max(0, config.getInt("tournament_post_game_linger_sec", 2));
+    _tournamentSuppressCasualChat = config.getBool("tournament_suppress_casual_chat", true);
+    _timedClockPolicy = TimedClockBudgetPolicy{};
+    applyConfigToTimedClockPolicy(config, _timedClockPolicy);
+
     _hostMode = config.getString("host_mode", "2P");
     _hostBases = config.getInt("host_bases", 3);
     _hostSuperProngs = config.getBool("host_super_prongs", false);
@@ -208,6 +214,9 @@ bool OctiBotPolicyEngine::isTableCompatible(const TableSummaryInfo &table,
     if (table.phase != "WAITING_FOR_PLAYERS") {
         return false;
     }
+    if (table.isTournamentRoom && !_acceptTournamentMatches) {
+        return false;
+    }
     if (table.hasPasscode) {
         return false;
     }
@@ -247,29 +256,30 @@ bool OctiBotPolicyEngine::isTableCompatible(const TableSummaryInfo &table,
         }
     }
 
-    // Time control filter
-    if (_acceptTimeControl == "timed_only" && !table.timeControlEnabled) {
-        return false;
-    }
-    if (_acceptTimeControl == "untimed_only" && table.timeControlEnabled) {
-        return false;
-    }
-    if (table.timeControlEnabled) {
-        int initialSec = static_cast<int>(table.initialMs / 1000);
-        int incSec = static_cast<int>(table.incrementMs / 1000);
-        if (initialSec < _minInitialTimeSec || initialSec > _maxInitialTimeSec) {
+    // Casual time-control and takeback filters (tournament rooms follow TD rules)
+    if (!table.isTournamentRoom) {
+        if (_acceptTimeControl == "timed_only" && !table.timeControlEnabled) {
             return false;
         }
-        if (incSec < _minIncrementSec) {
+        if (_acceptTimeControl == "untimed_only" && table.timeControlEnabled) {
             return false;
         }
-    }
+        if (table.timeControlEnabled) {
+            int initialSec = static_cast<int>(table.initialMs / 1000);
+            int incSec = static_cast<int>(table.incrementMs / 1000);
+            if (initialSec < _minInitialTimeSec || initialSec > _maxInitialTimeSec) {
+                return false;
+            }
+            if (incSec < _minIncrementSec) {
+                return false;
+            }
+        }
 
-    // Takeback filter
-    if (_acceptTakeback != "any") {
-        bool wantTakeback = (_acceptTakeback == "true" || _acceptTakeback == "1" || _acceptTakeback == "yes");
-        if (table.allowTakeback != wantTakeback) {
-            return false;
+        if (_acceptTakeback != "any") {
+            bool wantTakeback = (_acceptTakeback == "true" || _acceptTakeback == "1" || _acceptTakeback == "yes");
+            if (table.allowTakeback != wantTakeback) {
+                return false;
+            }
         }
     }
 
@@ -281,25 +291,27 @@ bool OctiBotPolicyEngine::isTableCompatible(const TableSummaryInfo &table,
         if (caseInsensitiveEqual(seat.handle, myHandle)) {
             return false; // Already in table
         }
-        if (_banList.count(toLower(seat.handle)) > 0) {
-            return false; // Banned player seated
-        }
-        if (_friendsOnly) {
-            if (_friendList.count(toLower(seat.handle)) == 0 &&
+        if (!table.isTournamentRoom) {
+            if (_banList.count(toLower(seat.handle)) > 0) {
+                return false; // Banned player seated
+            }
+            if (_friendsOnly) {
+                if (_friendList.count(toLower(seat.handle)) == 0 &&
+                    !caseInsensitiveEqual(seat.handle, ownerHandle)) {
+                    return false;
+                }
+            }
+            if (_opponentFilter == "humans_only" && seat.isRobot) {
+                return false;
+            }
+            if (_opponentFilter == "robots_only" && !seat.isRobot &&
                 !caseInsensitiveEqual(seat.handle, ownerHandle)) {
                 return false;
             }
-        }
-        if (_opponentFilter == "humans_only" && seat.isRobot) {
-            return false;
-        }
-        if (_opponentFilter == "robots_only" && !seat.isRobot &&
-            !caseInsensitiveEqual(seat.handle, ownerHandle)) {
-            return false;
-        }
-        if (_opponentFilter == "owner_only" &&
-            !caseInsensitiveEqual(seat.handle, ownerHandle)) {
-            return false;
+            if (_opponentFilter == "owner_only" &&
+                !caseInsensitiveEqual(seat.handle, ownerHandle)) {
+                return false;
+            }
         }
     }
 
@@ -320,10 +332,14 @@ std::vector<TableSummaryInfo> OctiBotPolicyEngine::rankCompatibleTables(
 
     std::sort(compatible.begin(), compatible.end(),
         [this, &ownerHandle](const TableSummaryInfo &a, const TableSummaryInfo &b) {
+            if (a.isTournamentRoom != b.isTournamentRoom) {
+                return a.isTournamentRoom; // Tournament assignments first
+            }
+
             bool aOwner = caseInsensitiveEqual(a.hostHandle, ownerHandle);
             bool bOwner = caseInsensitiveEqual(b.hostHandle, ownerHandle);
             if (aOwner != bOwner) {
-                return aOwner; // Owner tables first
+                return aOwner; // Owner tables next
             }
 
             bool aFriend = isFriend(a.hostHandle);
@@ -343,7 +359,11 @@ std::vector<TableSummaryInfo> OctiBotPolicyEngine::rankCompatibleTables(
 }
 
 bool OctiBotPolicyEngine::shouldKickSeatedPlayer(const TableSeatInfo &seat,
-                                                const std::string &ownerHandle) const {
+                                                const std::string &ownerHandle,
+                                                bool isTournamentRoom) const {
+    if (isTournamentRoom) {
+        return false;
+    }
     std::lock_guard<std::mutex> lock(_mutex);
     if (_banList.count(toLower(seat.handle)) > 0) {
         return true;
@@ -461,6 +481,196 @@ MatchmakingRequest OctiBotPolicyEngine::buildMatchmakingRequest() const {
     req.incrementMs = _hostIncrementMs;
     req.allowRobots = _hostAllowRobots && (_opponentFilter != "humans_only");
     return req;
+}
+
+void applyConfigToTimedClockPolicy(const OctiBotConfigStore &config,
+                                   TimedClockBudgetPolicy &policy) {
+    policy.timedAutoPace =
+        config.getBool("timed_auto_pace", policy.timedAutoPace);
+    policy.timedTimeBudgetMinMs =
+        config.getInt("timed_time_budget_min_ms", policy.timedTimeBudgetMinMs);
+    policy.timedTimeBudgetMaxMs =
+        config.getInt("timed_time_budget_max_ms", policy.timedTimeBudgetMaxMs);
+    policy.clockSafetyMarginMs =
+        config.getInt("clock_safety_margin_ms", policy.clockSafetyMarginMs);
+    policy.timedOpeningTaperMaxPly =
+        config.getInt("timed_opening_taper_max_ply", policy.timedOpeningTaperMaxPly);
+    policy.timedOpeningTaperPct =
+        config.getInt("timed_opening_taper_pct", policy.timedOpeningTaperPct);
+    policy.timedMidgameHorizonMoves =
+        config.getInt("timed_midgame_horizon_moves", policy.timedMidgameHorizonMoves);
+    policy.timedEndgameHorizonMoves =
+        config.getInt("timed_endgame_horizon_moves", policy.timedEndgameHorizonMoves);
+    policy.timedEndgameMinPly =
+        config.getInt("timed_endgame_min_ply", policy.timedEndgameMinPly);
+    policy.timedIncrementWeightPct =
+        config.getInt("timed_increment_weight_pct", policy.timedIncrementWeightPct);
+    policy.timedMaxBankFractionPct =
+        config.getInt("timed_max_bank_fraction_pct", policy.timedMaxBankFractionPct);
+    policy.timedEmergencyFloorMs =
+        config.getInt("timed_emergency_floor_ms", policy.timedEmergencyFloorMs);
+}
+
+void serializeTimedClockPolicyToMap(const TimedClockBudgetPolicy &policy,
+                                    std::map<std::string, std::string> &out) {
+    out["timed_auto_pace"] = policy.timedAutoPace ? "true" : "false";
+    out["timed_time_budget_min_ms"] = std::to_string(policy.timedTimeBudgetMinMs);
+    out["timed_time_budget_max_ms"] = std::to_string(policy.timedTimeBudgetMaxMs);
+    out["clock_safety_margin_ms"] = std::to_string(policy.clockSafetyMarginMs);
+    out["timed_opening_taper_max_ply"] = std::to_string(policy.timedOpeningTaperMaxPly);
+    out["timed_opening_taper_pct"] = std::to_string(policy.timedOpeningTaperPct);
+    out["timed_midgame_horizon_moves"] = std::to_string(policy.timedMidgameHorizonMoves);
+    out["timed_endgame_horizon_moves"] = std::to_string(policy.timedEndgameHorizonMoves);
+    out["timed_endgame_min_ply"] = std::to_string(policy.timedEndgameMinPly);
+    out["timed_increment_weight_pct"] = std::to_string(policy.timedIncrementWeightPct);
+    out["timed_max_bank_fraction_pct"] = std::to_string(policy.timedMaxBankFractionPct);
+    out["timed_emergency_floor_ms"] = std::to_string(policy.timedEmergencyFloorMs);
+}
+
+TimedMoveBudgetBreakdown computeClockManagedMoveBudget(
+    const TimedClockBudgetPolicy &policy,
+    int configuredUntimedBudgetMs,
+    const GameViewData &game,
+    std::int64_t remainingClockMs,
+    int currentPly,
+    int extraEngineStopOverheadMs) {
+    constexpr std::int64_t kMaxSafeMs = 86400000LL * 365;
+    const int safeUntimedMs = static_cast<int>(
+        std::clamp<std::int64_t>(configuredUntimedBudgetMs, 1, 36000000LL));
+    const int midHorizon = std::clamp(policy.timedMidgameHorizonMoves, 1, 200);
+    const int endHorizon = std::clamp(policy.timedEndgameHorizonMoves, 1, 200);
+    const int endMinPly = std::max(0, policy.timedEndgameMinPly);
+    const int horizon = (currentPly >= endMinPly) ? endHorizon : midHorizon;
+
+    TimedMoveBudgetBreakdown bd;
+    bd.allocatedBudgetMs = safeUntimedMs;
+    bd.hardClockCeilingMs = safeUntimedMs;
+    bd.usableClockMs = 0;
+    bd.horizonMoves = horizon;
+    bd.usedDynamicClock = false;
+
+    if (!game.timeControlEnabled) {
+        return bd;
+    }
+
+    bd.usedDynamicClock = true;
+    const std::int64_t remMs =
+        std::clamp<std::int64_t>(remainingClockMs, -kMaxSafeMs, kMaxSafeMs);
+    const std::int64_t incMs =
+        std::clamp<std::int64_t>(game.incrementMs, 0, kMaxSafeMs);
+    const std::int64_t baseSafetyMs =
+        std::clamp<std::int64_t>(policy.clockSafetyMarginMs, 50, 36000000LL);
+    const std::int64_t extraStopMs =
+        std::clamp<std::int64_t>(extraEngineStopOverheadMs, 0, 36000000LL);
+    const std::int64_t effectiveSafetyMs = baseSafetyMs + extraStopMs;
+    const std::int64_t emergencyFloorMs =
+        std::clamp<std::int64_t>(policy.timedEmergencyFloorMs, 50, 36000000LL);
+
+    if (remMs <= effectiveSafetyMs) {
+        const std::int64_t thirdRem = (remMs > 0) ? (remMs / 3) : 0;
+        const int emergMs = static_cast<int>(
+            std::clamp<std::int64_t>(thirdRem, 50, emergencyFloorMs));
+        bd.usableClockMs = 0;
+        bd.allocatedBudgetMs = emergMs;
+        bd.hardClockCeilingMs = emergMs;
+        bd.clampedBySafetyCeiling = true;
+        bd.inEmergencyTimeTrouble = true;
+        return bd;
+    }
+
+    const std::int64_t usableMs = remMs - effectiveSafetyMs;
+    bd.usableClockMs = usableMs;
+
+    const std::int64_t openingPct =
+        (currentPly >= 0 && currentPly < policy.timedOpeningTaperMaxPly)
+            ? std::clamp<std::int64_t>(policy.timedOpeningTaperPct, 1, 200)
+            : 100;
+    const std::int64_t incWeightPct =
+        std::clamp<std::int64_t>(policy.timedIncrementWeightPct, 0, 100);
+    const std::int64_t maxBankPct =
+        std::clamp<std::int64_t>(policy.timedMaxBankFractionPct, 1, 100);
+
+    const std::int64_t bankTargetMs =
+        (usableMs * openingPct) / (static_cast<std::int64_t>(horizon) * 100);
+    const std::int64_t incTargetMs = (incMs * incWeightPct) / 100;
+    const std::int64_t rawTargetMs = bankTargetMs + incTargetMs;
+
+    const std::int64_t effMinMs =
+        std::clamp<std::int64_t>(policy.timedTimeBudgetMinMs, 10, 36000000LL);
+    const std::int64_t configuredMaxMs = policy.timedAutoPace
+        ? std::clamp<std::int64_t>(policy.timedTimeBudgetMaxMs, 10, 36000000LL)
+        : static_cast<std::int64_t>(safeUntimedMs);
+    const std::int64_t effMaxMs = std::max<std::int64_t>(effMinMs, configuredMaxMs);
+
+    std::int64_t softTargetMs = rawTargetMs;
+    if (softTargetMs < effMinMs) {
+        softTargetMs = effMinMs;
+        bd.clampedByMin = true;
+    }
+    if (softTargetMs > effMaxMs) {
+        softTargetMs = effMaxMs;
+        bd.clampedByMax = true;
+    }
+
+    const std::int64_t bankFractionCapMs = (usableMs * maxBankPct) / 100;
+    const std::int64_t hardCeiling64 = std::min<std::int64_t>(
+        usableMs,
+        std::max<std::int64_t>(emergencyFloorMs, bankFractionCapMs));
+    const std::int64_t clampedHardCeiling64 =
+        std::clamp<std::int64_t>(hardCeiling64, 1, 36000000LL);
+    bd.hardClockCeilingMs = static_cast<int>(clampedHardCeiling64);
+
+    std::int64_t finalMs = softTargetMs;
+    if (finalMs > clampedHardCeiling64) {
+        finalMs = clampedHardCeiling64;
+        bd.clampedBySafetyCeiling = true;
+    }
+    bd.allocatedBudgetMs = static_cast<int>(finalMs);
+    return bd;
+}
+
+std::int64_t computeEffectiveRemainingClockMs(
+    const GameViewData &game,
+    int mySeat,
+    std::int64_t snapshotFetchedAtMs,
+    std::int64_t nowAtTurnStartMs) {
+    std::int64_t rawClockMs = -1;
+    bool foundSeat = false;
+    for (const auto &s : game.seats) {
+        if (s.seat == mySeat) {
+            rawClockMs = s.clockMs;
+            foundSeat = true;
+            break;
+        }
+    }
+    if (!foundSeat) {
+        return 0;
+    }
+    if (!game.timeControlEnabled || rawClockMs < 0) {
+        return rawClockMs;
+    }
+    if (game.phase != "IN_PROGRESS" || game.paused || game.turnSeat != mySeat) {
+        return std::max<std::int64_t>(0, rawClockMs);
+    }
+
+    const std::int64_t localSinceFetchMs =
+        (snapshotFetchedAtMs > 0 && nowAtTurnStartMs > snapshotFetchedAtMs)
+            ? (nowAtTurnStartMs - snapshotFetchedAtMs)
+            : 0;
+
+    // On octi-server, liveClockLocked already subtracts turnElapsedMs from seat.clockMs
+    // at snapshot generation time. Only deduct turnElapsedMs if a caller supplied an
+    // un-decremented full initial bank on a player's opening turn.
+    const int firstTurnPlies = (game.mode == "4P") ? 4 : 2;
+    const std::int64_t turnElapsed = std::max<std::int64_t>(0, game.turnElapsedMs);
+    const std::int64_t unaccountedServerTurnElapsedMs =
+        (game.plyCount >= 0 && game.plyCount < firstTurnPlies &&
+         game.initialMs > 0 && rawClockMs >= game.initialMs && turnElapsed > 0)
+            ? turnElapsed
+            : 0;
+
+    return std::max<std::int64_t>(
+        0, rawClockMs - unaccountedServerTurnElapsedMs - localSinceFetchMs);
 }
 
 } // namespace octi

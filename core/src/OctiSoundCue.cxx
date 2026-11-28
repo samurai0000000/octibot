@@ -64,11 +64,46 @@ const SoundCueDescriptor kDescriptors[OCTI_SOUND_CUE_COUNT] = {
         kOctiWavSize_clock_low_tick
     },
     {
-        SoundCue::GAME_VICTORY,
-        "GAME_VICTORY",
-        "game_victory.wav",
-        kOctiWav_game_victory,
-        kOctiWavSize_game_victory
+        SoundCue::GAME_WIN,
+        "GAME_WIN",
+        "game_win.wav",
+        kOctiWav_game_win,
+        kOctiWavSize_game_win
+    },
+    {
+        SoundCue::GAME_START,
+        "GAME_START",
+        "game_start.wav",
+        kOctiWav_game_start,
+        kOctiWavSize_game_start
+    },
+    {
+        SoundCue::GAME_DRAW,
+        "GAME_DRAW",
+        "game_draw.wav",
+        kOctiWav_game_draw,
+        kOctiWavSize_game_draw
+    },
+    {
+        SoundCue::GAME_LOSS,
+        "GAME_LOSS",
+        "game_loss.wav",
+        kOctiWav_game_loss,
+        kOctiWavSize_game_loss
+    },
+    {
+        SoundCue::PLAYER_ELIMINATED,
+        "PLAYER_ELIMINATED",
+        "player_eliminated.wav",
+        kOctiWav_player_eliminated,
+        kOctiWavSize_player_eliminated
+    },
+    {
+        SoundCue::NOTIFY_PING,
+        "NOTIFY_PING",
+        "notify_ping.wav",
+        kOctiWav_notify_ping,
+        kOctiWavSize_notify_ping
     },
 };
 
@@ -201,6 +236,10 @@ bool soundCueFromName(const std::string &name, SoundCue &outCue)
         outCue = SoundCue::POD_PLACE;
         return true;
     }
+    if (name == "GAME_VICTORY") {
+        outCue = SoundCue::GAME_WIN;
+        return true;
+    }
     for (std::size_t i = 0; i < OCTI_SOUND_CUE_COUNT; ++i) {
         if (name == kDescriptors[i].name) {
             outCue = kDescriptors[i].cue;
@@ -224,6 +263,10 @@ bool soundCueFromAssetFileName(const std::string &fileName, SoundCue &outCue)
         if (uch < 0x20u || uch >= 0x7Fu) {
             return false;
         }
+    }
+    if (fileName == "game_victory.wav") {
+        outCue = SoundCue::GAME_WIN;
+        return true;
     }
     for (std::size_t i = 0; i < OCTI_SOUND_CUE_COUNT; ++i) {
         if (fileName == kDescriptors[i].fileName) {
